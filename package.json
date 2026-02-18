@@ -1,0 +1,21 @@
+{
+  "name": "@entur/netex-typescript-model",
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "download": "tsx scripts/download.ts",
+    "generate": "tsx scripts/generate.ts",
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "adm-zip": "^0.5.16",
+    "tsx": "^4.0",
+    "typescript": "^5.5",
+    "vitest": "^2.0"
+  }
+}

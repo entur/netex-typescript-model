@@ -1,0 +1,26 @@
+{
+  "netex": {
+    "version": "2.0",
+    "branch": "next",
+    "repoName": "NeTEx",
+    "githubUrl": "https://github.com/NeTEx-CEN/NeTEx",
+    "entryXsd": "NeTEx_publication.xsd"
+  },
+  "paths": {
+    "xsdRoot": "xsd",
+    "generatedInterfaces": "src/generated/interfaces",
+    "generatedZod": "src/generated/zod"
+  },
+  "subset": {
+    "description": "Which XSD directories to include in generation. All are downloaded, but only these are processed.",
+    "includeParts": [
+      "netex_framework",
+      "netex_part_5",
+      "gml"
+    ],
+    "includeRootXsds": [
+      "ifopt.xsd",
+      "NeTEx_publication.xsd"
+    ]
+  }
+}

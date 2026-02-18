@@ -1,0 +1,5 @@
+node_modules/
+dist/
+xsd/
+NeTEx-*.zip
+src/generated/
