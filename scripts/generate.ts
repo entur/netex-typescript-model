@@ -9,23 +9,29 @@
  *                 (e.g. --part part1_network). Does not modify config.json.
  *
  * Pipeline:
- *   1. Collect XSD files from enabled parts + root XSDs
- *   2. Run cxsd to produce TypeScript interfaces
- *   3. Run ts-to-zod to produce Zod schemas from those interfaces
+ *   1. Collect and parse all XSD files (cross-references need full set)
+ *   2. Convert XSD → JSON Schema via custom converter (xsd-to-jsonschema.ts)
+ *   3. Filter JSON Schema definitions to enabled parts only
+ *   4. Convert JSON Schema → TypeScript interfaces via json-schema-to-typescript
+ *   5. (Future) Generate Zod schemas from TypeScript interfaces
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import type { JSONSchema4 } from "json-schema";
+import { compile } from "json-schema-to-typescript";
+import { XsdToJsonSchema } from "./xsd-to-jsonschema.js";
+import type { JsonSchema } from "./xsd-to-jsonschema.js";
 
 interface PartConfig {
-  enabled: boolean;
+  enabled?: boolean;
   required?: boolean;
   dirs: string[];
   description: string;
 }
 
 interface RootXsdConfig {
-  enabled: boolean;
+  enabled?: boolean;
   required?: boolean;
   file: string;
   description: string;
@@ -33,12 +39,13 @@ interface RootXsdConfig {
 
 // Hardwired required parts/rootXsds — NeTEx 2.0 structural assumptions.
 // These are always enabled regardless of what config.json says.
-const REQUIRED_PARTS = ["framework", "gml"] as const;
+const REQUIRED_PARTS = ["framework", "gml", "siri", "service"] as const;
 const REQUIRED_ROOT_XSDS = ["publication"] as const;
 
 class Config {
   readonly netexVersion: string;
   readonly xsdRoot: string;
+  readonly generatedJsonSchema: string;
   readonly generatedInterfaces: string;
   readonly generatedZod: string;
   readonly parts: Record<string, PartConfig>;
@@ -50,8 +57,9 @@ class Config {
 
     this.netexVersion = raw.netex.version;
     this.xsdRoot = resolve(root, raw.paths.xsdRoot, this.netexVersion);
-    this.generatedInterfaces = raw.paths.generatedInterfaces;
-    this.generatedZod = raw.paths.generatedZod;
+    this.generatedJsonSchema = resolve(root, raw.paths.generatedJsonSchema);
+    this.generatedInterfaces = resolve(root, raw.paths.generatedInterfaces);
+    this.generatedZod = resolve(root, raw.paths.generatedZod);
     this.parts = raw.parts;
     this.rootXsds = raw.rootXsds;
 
@@ -59,6 +67,7 @@ class Config {
   }
 
   private enforceRequiredParts(): void {
+    // required implies enabled — set both unconditionally
     for (const key of REQUIRED_PARTS) {
       const part = this.parts[key];
       if (!part) {
@@ -67,13 +76,13 @@ class Config {
         );
         continue;
       }
-      if (!part.enabled || !part.required) {
+      if (part.enabled === false) {
         console.warn(
-          `WARNING: required part '${key}' was disabled or unmarked in config.json — forcing enabled`,
+          `WARNING: required part '${key}' was explicitly disabled in config.json — forcing enabled`,
         );
-        part.enabled = true;
-        part.required = true;
       }
+      part.required = true;
+      part.enabled = true;
     }
     for (const key of REQUIRED_ROOT_XSDS) {
       const xsd = this.rootXsds[key];
@@ -83,13 +92,13 @@ class Config {
         );
         continue;
       }
-      if (!xsd.enabled || !xsd.required) {
+      if (xsd.enabled === false) {
         console.warn(
-          `WARNING: required root XSD '${key}' was disabled or unmarked in config.json — forcing enabled`,
+          `WARNING: required root XSD '${key}' was explicitly disabled in config.json — forcing enabled`,
         );
-        xsd.enabled = true;
-        xsd.required = true;
       }
+      xsd.required = true;
+      xsd.enabled = true;
     }
   }
 
@@ -120,6 +129,21 @@ class Config {
     return Object.entries(this.rootXsds)
       .filter(([k, x]) => !k.startsWith("_") && x.enabled)
       .map(([, x]) => x.file);
+  }
+
+  /** Returns true if a source file path belongs to an enabled part or root XSD. */
+  isEnabledPath(sourceFile: string): boolean {
+    const enabledDirs = this.enabledDirs();
+    for (const dir of enabledDirs) {
+      if (sourceFile.startsWith(dir + "/") || sourceFile.startsWith(dir + "\\")) {
+        return true;
+      }
+    }
+    // Root-level XSD files
+    for (const xsd of this.enabledRootXsdFiles()) {
+      if (sourceFile === xsd) return true;
+    }
+    return false;
   }
 
   printParts(): void {
@@ -193,6 +217,93 @@ function countXsdFiles(dir: string): number {
   return count;
 }
 
+// ── Generation pipeline ───────────────────────────────────────────────────────
+
+function cleanDir(dir: string): void {
+  if (existsSync(dir)) rmSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true });
+}
+
+function generateJsonSchema(config: Config): JsonSchema {
+  if (!existsSync(config.xsdRoot)) {
+    console.error(`XSD directory not found: ${config.xsdRoot}`);
+    console.error("Run 'npm run download' first.");
+    process.exit(1);
+  }
+
+  console.log("\nStep 1: Parsing XSD files...");
+  const converter = new XsdToJsonSchema(config.xsdRoot);
+
+  // Load from publication entry point — recursively resolves all includes/imports
+  const entryXsd = "NeTEx_publication.xsd";
+  converter.loadFile(entryXsd);
+
+  const stats = converter.stats;
+  console.log(`  Parsed ${stats.files} XSD files`);
+  console.log(`  Found ${stats.types} types, ${stats.elements} elements, ${stats.groups} groups`);
+
+  const warnings = converter.getWarnings();
+  if (warnings.length > 0) {
+    console.log(`  ${warnings.length} warnings:`);
+    for (const w of warnings.slice(0, 10)) {
+      console.log(`    - ${w}`);
+    }
+    if (warnings.length > 10) {
+      console.log(`    ... and ${warnings.length - 10} more`);
+    }
+  }
+
+  console.log("\nStep 2: Generating JSON Schema (filtered to enabled parts)...");
+  const schema = converter.toJsonSchema((sourceFile) => config.isEnabledPath(sourceFile));
+  const defCount = Object.keys(schema.definitions || {}).length;
+  console.log(`  ${defCount} definitions in filtered schema`);
+
+  return schema;
+}
+
+function persistJsonSchema(schema: JsonSchema, config: Config): void {
+  cleanDir(config.generatedJsonSchema);
+  const outPath = resolve(config.generatedJsonSchema, "netex.json");
+  writeFileSync(outPath, JSON.stringify(schema, null, 2));
+  console.log(`  Written to ${outPath}`);
+}
+
+async function generateTypeScript(schema: JsonSchema, config: Config): Promise<void> {
+  console.log("\nStep 3: Generating TypeScript interfaces...");
+  cleanDir(config.generatedInterfaces);
+
+  try {
+    // json-schema-to-typescript declares JSONSchema4 but handles draft-07 at runtime
+    const ts = await compile(schema as unknown as JSONSchema4, "NeTEx", {
+      bannerComment: [
+        "/* eslint-disable */",
+        "/**",
+        " * This file was automatically generated from NeTEx XSD schemas.",
+        " * Do not edit manually.",
+        " *",
+        " * @see https://github.com/NeTEx-CEN/NeTEx",
+        " */",
+      ].join("\n"),
+      additionalProperties: false,
+      unknownAny: true,
+      strictIndexSignatures: false,
+      unreachableDefinitions: true,
+      format: false, // skip prettier for speed on large output
+    });
+
+    const outPath = resolve(config.generatedInterfaces, "netex.ts");
+    writeFileSync(outPath, ts);
+
+    const lineCount = ts.split("\n").length;
+    console.log(`  Generated ${lineCount} lines of TypeScript`);
+    console.log(`  Written to ${outPath}`);
+  } catch (e: any) {
+    console.error(`  TypeScript generation failed: ${e.message}`);
+    console.error("  JSON Schema was persisted — you can inspect it for issues.");
+    process.exit(1);
+  }
+}
+
 // ###################################
 //
 //            --- main ---
@@ -213,10 +324,13 @@ config.printParts();
 config.printRootXsds();
 config.printSubsetSummary();
 
-// TODO: Step 2 — invoke cxsd on the subset
-console.log("\n[stub] cxsd generation not yet wired up");
-console.log(`  Would output to: ${config.generatedInterfaces}/`);
+// Pipeline
+const schema = generateJsonSchema(config);
+persistJsonSchema(schema, config);
+await generateTypeScript(schema, config);
 
-// TODO: Step 3 — invoke ts-to-zod on generated interfaces
-console.log("\n[stub] ts-to-zod generation not yet wired up");
+// TODO: Step 4 — invoke ts-to-zod on generated interfaces
+console.log("\n[stub] Zod schema generation not yet wired up");
 console.log(`  Would output to: ${config.generatedZod}/`);
+
+console.log("\nDone.");

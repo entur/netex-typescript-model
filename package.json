@@ -13,7 +13,10 @@
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
+    "@types/json-schema": "^7.0.15",
     "adm-zip": "^0.5.16",
+    "fast-xml-parser": "^5.3.6",
+    "json-schema-to-typescript": "^15.0.4",
     "tsx": "^4.0",
     "typescript": "^5.5",
     "vitest": "^4.0"
