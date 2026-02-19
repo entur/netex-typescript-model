@@ -8,9 +8,7 @@
   },
   "paths": {
     "xsdRoot": "xsd",
-    "generatedJsonSchema": "src/generated/jsonschema",
-    "generatedInterfaces": "src/generated/interfaces",
-    "generatedZod": "src/generated/zod"
+    "generated": "src/generated"
   },
   "parts": {
     "_description": "Toggle which NeTEx parts to include in generation. The framework, gml, and root XSDs are always included. See docs/subset-selection-guide.md for details on each part.",
