@@ -23,14 +23,14 @@ import { XsdToJsonSchema } from "./xsd-to-jsonschema.js";
 import type { JsonSchema } from "./xsd-to-jsonschema.js";
 
 interface PartConfig {
-  enabled: boolean;
+  enabled?: boolean;
   required?: boolean;
   dirs: string[];
   description: string;
 }
 
 interface RootXsdConfig {
-  enabled: boolean;
+  enabled?: boolean;
   required?: boolean;
   file: string;
   description: string;
@@ -66,6 +66,7 @@ class Config {
   }
 
   private enforceRequiredParts(): void {
+    // required implies enabled — set both unconditionally
     for (const key of REQUIRED_PARTS) {
       const part = this.parts[key];
       if (!part) {
@@ -74,13 +75,13 @@ class Config {
         );
         continue;
       }
-      if (!part.enabled || !part.required) {
+      if (part.enabled === false) {
         console.warn(
-          `WARNING: required part '${key}' was disabled or unmarked in config.json — forcing enabled`,
+          `WARNING: required part '${key}' was explicitly disabled in config.json — forcing enabled`,
         );
-        part.enabled = true;
-        part.required = true;
       }
+      part.required = true;
+      part.enabled = true;
     }
     for (const key of REQUIRED_ROOT_XSDS) {
       const xsd = this.rootXsds[key];
@@ -90,13 +91,13 @@ class Config {
         );
         continue;
       }
-      if (!xsd.enabled || !xsd.required) {
+      if (xsd.enabled === false) {
         console.warn(
-          `WARNING: required root XSD '${key}' was disabled or unmarked in config.json — forcing enabled`,
+          `WARNING: required root XSD '${key}' was explicitly disabled in config.json — forcing enabled`,
         );
-        xsd.enabled = true;
-        xsd.required = true;
       }
+      xsd.required = true;
+      xsd.enabled = true;
     }
   }
 
