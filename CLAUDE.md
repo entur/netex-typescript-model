@@ -18,7 +18,7 @@ npm run test               # run tests
 
 - `inputs/config.json` — single source of truth for NeTEx version, GitHub URL, output paths, and XSD subset selection
 - `scripts/download.ts` — downloads ZIP from GitHub, extracts `xsd/` directory, strips `<xsd:annotation>` elements. Uses `adm-zip` for extraction and regex for annotation stripping (no shell/xmlstarlet dependencies)
-- `scripts/generate.ts` — orchestrates TypeScript generation from the configured XSD subset. Currently a stub that reports subset statistics
+- `scripts/generate.ts` — orchestrates TypeScript generation from the configured XSD subset. Currently a stub that reports subset statistics. Supports `--part <key>` to enable one optional part for a single run without editing config.json. Required parts (`framework`, `gml`, `publication`) are hardwired and enforced at startup — if config.json is tampered with, the script warns and forces them enabled
 
 ## Architecture
 
@@ -27,17 +27,13 @@ npm run test               # run tests
 Everything flows from `inputs/config.json`. Scripts read this file to determine:
 - Which NeTEx version/branch to download
 - Where to put XSDs and generated code
-- Which XSD directories to include in generation (`subset.includeParts`)
+- Which NeTEx parts are enabled (`parts.<key>.enabled`)
 
 ### XSD Subset
 
-Full NeTEx 2.0 has 458+ XSD files. The `subset` config limits generation to ~184 files (framework + part_5 + gml) to avoid overwhelming the XSD-to-TypeScript tooling. The full set is still downloaded (cross-references need to resolve), but only the subset is fed to the generator.
+Full NeTEx 2.0 has 458+ XSD files. The `parts` config toggles which parts to include in generation. The full set is still downloaded (cross-references need to resolve), but only enabled parts are fed to the generator.
 
-Default subset targets vehicle registry types (Sobek use case):
-- `netex_framework` — base types including VehicleType, Vehicle, DeckPlan
-- `netex_part_5` — new modes, mobility services
-- `gml` — geographic coordinates
-- `ifopt.xsd`, `NeTEx_publication.xsd` — entry points
+Each part has an `enabled` flag. Framework and GML are always required. Domain parts (`part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`, `siri`) are toggled per use case. See `docs/subset-selection-guide.md` for details.
 
 ### Generation Pipeline (Planned)
 

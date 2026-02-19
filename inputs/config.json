@@ -11,16 +11,58 @@
     "generatedInterfaces": "src/generated/interfaces",
     "generatedZod": "src/generated/zod"
   },
-  "subset": {
-    "description": "Which XSD directories to include in generation. All are downloaded, but only these are processed.",
-    "includeParts": [
-      "netex_framework",
-      "netex_part_5",
-      "gml"
-    ],
-    "includeRootXsds": [
-      "ifopt.xsd",
-      "NeTEx_publication.xsd"
-    ]
+  "parts": {
+    "_description": "Toggle which NeTEx parts to include in generation. The framework, gml, and root XSDs are always included. See docs/subset-selection-guide.md for details on each part.",
+    "framework": {
+      "enabled": true,
+      "required": true,
+      "dirs": ["netex_framework"],
+      "description": "Base types, reusable components, organizations, utility types, frames. Always required."
+    },
+    "gml": {
+      "enabled": true,
+      "required": true,
+      "dirs": ["gml"],
+      "description": "Geographic coordinates (GML standard). Required by any part with location data."
+    },
+    "part1_network": {
+      "enabled": false,
+      "dirs": ["netex_part_1"],
+      "description": "Network topology: routes, lines, stop places, scheduled stop points, timing patterns."
+    },
+    "part2_timetable": {
+      "enabled": false,
+      "dirs": ["netex_part_2"],
+      "description": "Timetables: service journeys, vehicle services, dated calls, passing times. Depends on part1."
+    },
+    "part3_fares": {
+      "enabled": false,
+      "dirs": ["netex_part_3"],
+      "description": "Fares: fare products, pricing, distribution, sales transactions. Depends on part1."
+    },
+    "part5_new_modes": {
+      "enabled": false,
+      "dirs": ["netex_part_5"],
+      "description": "New modes: mobility services, vehicle meeting points. Self-contained (framework only)."
+    },
+    "siri": {
+      "enabled": false,
+      "dirs": ["siri", "siri_utility"],
+      "description": "Real-time updates (SIRI standard)."
+    }
+  },
+  "rootXsds": {
+    "_description": "Root-level XSD files to include. NeTEx_publication.xsd is always required.",
+    "ifopt": {
+      "enabled": true,
+      "file": "ifopt.xsd",
+      "description": "IFOPT standard for fixed objects in public transport. Required by part1."
+    },
+    "publication": {
+      "enabled": true,
+      "required": true,
+      "file": "NeTEx_publication.xsd",
+      "description": "Top-level entry point — PublicationDelivery document wrapper. Always required."
+    }
   }
 }
