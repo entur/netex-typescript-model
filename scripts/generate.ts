@@ -18,6 +18,7 @@
 
 import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import type { JSONSchema4 } from "json-schema";
 import { compile } from "json-schema-to-typescript";
 import { XsdToJsonSchema } from "./xsd-to-jsonschema.js";
 import type { JsonSchema } from "./xsd-to-jsonschema.js";
@@ -272,7 +273,8 @@ async function generateTypeScript(schema: JsonSchema, config: Config): Promise<v
   cleanDir(config.generatedInterfaces);
 
   try {
-    const ts = await compile(schema, "NeTEx", {
+    // json-schema-to-typescript declares JSONSchema4 but handles draft-07 at runtime
+    const ts = await compile(schema as unknown as JSONSchema4, "NeTEx", {
       bannerComment: [
         "/* eslint-disable */",
         "/**",

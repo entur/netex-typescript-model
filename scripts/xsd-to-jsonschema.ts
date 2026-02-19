@@ -8,32 +8,12 @@
  * on xsd:simpleContent — both are fundamental NeTEx patterns.
  */
 
+import type { JSONSchema7 } from "json-schema";
 import { XMLParser } from "fast-xml-parser";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 
-export interface JsonSchema {
-  $schema?: string;
-  $id?: string;
-  $ref?: string;
-  type?: string | string[];
-  properties?: Record<string, JsonSchema>;
-  required?: string[];
-  items?: JsonSchema;
-  allOf?: JsonSchema[];
-  anyOf?: JsonSchema[];
-  oneOf?: JsonSchema[];
-  definitions?: Record<string, JsonSchema>;
-  enum?: (string | number)[];
-  description?: string;
-  minLength?: number;
-  maxLength?: number;
-  minimum?: number;
-  maximum?: number;
-  pattern?: string;
-  additionalProperties?: boolean | JsonSchema;
-  [key: string]: unknown;
-}
+export type JsonSchema = JSONSchema7;
 
 interface TypeEntry {
   name: string;
@@ -353,7 +333,7 @@ export class XsdToJsonSchema {
     if (st["xsd:restriction"]) {
       const rest = st["xsd:restriction"];
       const base = rest["@_base"];
-      const result = base ? { ...this.resolveTypeRef(base) } : { type: "string" as const };
+      const result: JsonSchema = base ? { ...this.resolveTypeRef(base) } : { type: "string" };
 
       const enums = this.asArray(rest["xsd:enumeration"]);
       if (enums.length > 0) {
@@ -362,13 +342,13 @@ export class XsdToJsonSchema {
 
       const patterns = this.asArray(rest["xsd:pattern"]);
       if (patterns.length > 0) {
-        (result as any).pattern = patterns[0]["@_value"];
+        result.pattern = patterns[0]["@_value"];
       }
 
-      if (rest["xsd:minLength"]) (result as any).minLength = parseInt(rest["xsd:minLength"]["@_value"]);
-      if (rest["xsd:maxLength"]) (result as any).maxLength = parseInt(rest["xsd:maxLength"]["@_value"]);
-      if (rest["xsd:minInclusive"]) (result as any).minimum = parseFloat(rest["xsd:minInclusive"]["@_value"]);
-      if (rest["xsd:maxInclusive"]) (result as any).maximum = parseFloat(rest["xsd:maxInclusive"]["@_value"]);
+      if (rest["xsd:minLength"]) result.minLength = parseInt(rest["xsd:minLength"]["@_value"]);
+      if (rest["xsd:maxLength"]) result.maxLength = parseInt(rest["xsd:maxLength"]["@_value"]);
+      if (rest["xsd:minInclusive"]) result.minimum = parseFloat(rest["xsd:minInclusive"]["@_value"]);
+      if (rest["xsd:maxInclusive"]) result.maximum = parseFloat(rest["xsd:maxInclusive"]["@_value"]);
 
       return result;
     }

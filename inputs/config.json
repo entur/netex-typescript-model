@@ -15,13 +15,11 @@
   "parts": {
     "_description": "Toggle which NeTEx parts to include in generation. The framework, gml, and root XSDs are always included. See docs/subset-selection-guide.md for details on each part.",
     "framework": {
-      "enabled": true,
       "required": true,
       "dirs": ["netex_framework"],
       "description": "Base types, reusable components, organizations, utility types, frames. Always required."
     },
     "gml": {
-      "enabled": true,
       "required": true,
       "dirs": ["gml"],
       "description": "Geographic coordinates (GML standard). Required by any part with location data."
@@ -47,13 +45,11 @@
       "description": "New modes: mobility services, vehicle meeting points. Self-contained (framework only)."
     },
     "siri": {
-      "enabled": true,
       "required": true,
       "dirs": ["siri", "siri_utility"],
       "description": "Real-time updates (SIRI standard). Required — NeTEx_publication.xsd unconditionally imports SIRI."
     },
     "service": {
-      "enabled": true,
       "required": true,
       "dirs": ["netex_service"],
       "description": "NeTEx service definitions (filters, aggregator). Required — included by NeTEx_publication.xsd."
