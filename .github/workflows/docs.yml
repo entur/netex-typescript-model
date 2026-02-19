@@ -51,6 +51,9 @@ jobs:
       - name: Generate TypeDoc per slug
         run: npm run docs
 
+      - name: Build schema HTML pages
+        run: npx tsx scripts/build-schema-html.ts
+
       - name: Build welcome page
         run: npx tsx scripts/build-docs-index.ts
 

@@ -25,6 +25,8 @@ import { XsdToJsonSchema } from "./xsd-to-jsonschema.js";
 import type { JsonSchema } from "./xsd-to-jsonschema.js";
 import { splitTypeScript } from "./split-output.js";
 
+const DOCS_BASE_URL = "https://entur.github.io/netex-typescript-model";
+
 interface PartConfig {
   enabled?: boolean;
   required?: boolean;
@@ -289,6 +291,30 @@ function countExports(ts: string): number {
   return [...ts.matchAll(/^export (?:type|interface) /gm)].length;
 }
 
+/**
+ * Deep-clone the schema and append @see links to each definition's description.
+ * The persisted JSON stays clean — only the TypeScript JSDoc gets the links.
+ */
+function injectSchemaLinks(schema: JsonSchema, slug: string): JsonSchema {
+  const clone: JsonSchema = JSON.parse(JSON.stringify(schema));
+  const defs = clone.definitions ?? {};
+  const schemaUrl = `${DOCS_BASE_URL}/${slug}/netex-schema.html`;
+
+  for (const [name, def] of Object.entries(defs)) {
+    if (typeof def === "object" && def !== null) {
+      const seeTag = `@see {@link ${schemaUrl}#${name} | JSON Schema definition}`;
+      const record = def as Record<string, unknown>;
+      if (typeof record.description === "string") {
+        record.description = `${record.description}\n\n${seeTag}`;
+      } else {
+        record.description = seeTag;
+      }
+    }
+  }
+
+  return clone;
+}
+
 // ── Generation pipeline ───────────────────────────────────────────────────────
 
 function cleanDir(dir: string): void {
@@ -419,7 +445,8 @@ config.printSubsetSummary();
 // Pipeline
 const { schema, converter } = generateJsonSchema(config);
 persistJsonSchema(schema, config);
-const ts = await generateTypeScript(schema, config);
+const linkedSchema = injectSchemaLinks(schema, config.outputSlug);
+const ts = await generateTypeScript(linkedSchema, config);
 
 // Step 4: Split into per-category modules
 console.log("\nStep 4: Splitting into category modules...");

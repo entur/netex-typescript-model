@@ -40,6 +40,7 @@ interface SlugInfo {
   description: string;
   moduleCount: number;
   definitionCount: number;
+  hasSchemaHtml: boolean;
 }
 
 // Discover slugs that have docs/ output
@@ -81,6 +82,7 @@ for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
     description: SLUG_DESCRIPTIONS[entry.name] ?? "",
     moduleCount,
     definitionCount,
+    hasSchemaHtml: false,
   });
 }
 
@@ -104,6 +106,14 @@ for (const slug of slugs) {
   const dest = join(siteDir, slug.name);
   cpSync(src, dest, { recursive: true });
   console.log(`  Copied ${slug.name}/docs → docs-site/${slug.name}/`);
+
+  // Copy schema HTML if it exists
+  const schemaHtml = join(generatedBase, slug.name, "netex-schema.html");
+  if (existsSync(schemaHtml)) {
+    cpSync(schemaHtml, join(dest, "netex-schema.html"));
+    slug.hasSchemaHtml = true;
+    console.log(`  Copied ${slug.name}/netex-schema.html → docs-site/${slug.name}/`);
+  }
 }
 
 // Build index.html
@@ -119,11 +129,19 @@ const slugCards = slugs
       .filter(Boolean)
       .join(" · ");
 
-    return `      <a href="./${s.name}/" class="card">
+    const schemaLink = s.hasSchemaHtml
+      ? `<a href="./${s.name}/netex-schema.html" class="card-link">JSON Schema</a>`
+      : "";
+
+    return `      <div class="card">
         <h2>${s.name}</h2>
         <p>${s.description}</p>
         ${stats ? `<span class="stats">${stats}</span>` : ""}
-      </a>`;
+        <div class="card-links">
+          <a href="./${s.name}/" class="card-link">TypeDoc</a>
+          ${schemaLink}
+        </div>
+      </div>`;
   })
   .join("\n");
 
@@ -173,18 +191,32 @@ const html = `<!DOCTYPE html>
       gap: 1rem;
     }
     .card {
-      display: block;
-      text-decoration: none;
+      display: flex;
+      flex-direction: column;
       color: inherit;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 0.5rem;
       padding: 1.25rem;
-      transition: background 0.15s, border-color 0.15s;
+      transition: border-color 0.15s;
     }
     .card:hover {
-      background: var(--card-hover);
       border-color: var(--accent);
+    }
+    .card-links {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: auto;
+      padding-top: 0.75rem;
+    }
+    .card-link {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .card-link:hover {
+      text-decoration: underline;
     }
     .card h2 {
       font-size: 1.1rem;
