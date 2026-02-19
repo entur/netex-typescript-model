@@ -13,7 +13,7 @@ import { XMLParser } from "fast-xml-parser";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 
-export type JsonSchema = JSONSchema7;
+export type JsonSchema = JSONSchema7 & { xml?: { attribute?: boolean } };
 
 interface TypeEntry {
   name: string;
@@ -218,45 +218,91 @@ export class XsdToJsonSchema {
 
   // ── Converters ────────────────────────────────────────────────────────────
 
+  /**
+   * Extract xsd:documentation text from an xsd:annotation child node.
+   * Handles both plain string and { "#text": "..." } forms (when xml:lang present).
+   */
+  private extractDescription(node: any): string | undefined {
+    const ann = node?.["xsd:annotation"];
+    if (!ann) return undefined;
+    const doc = ann["xsd:documentation"];
+    if (doc === undefined || doc === null) return undefined;
+    const text = typeof doc === "string" ? doc : typeof doc === "object" ? doc["#text"] : undefined;
+    return typeof text === "string" ? text.trim() || undefined : undefined;
+  }
+
+  /**
+   * Attach a description to a schema, wrapping $ref in allOf when needed.
+   * json-schema-to-typescript chokes on $ref + sibling description (infinite recursion
+   * on circular refs), so we use allOf to keep them separate.
+   */
+  private withDescription(schema: JsonSchema, desc: string | undefined): JsonSchema {
+    if (!desc) return schema;
+    if (schema.$ref) {
+      return { allOf: [schema], description: desc };
+    }
+    schema.description = desc;
+    return schema;
+  }
+
   private convertTopLevelElement(el: any): JsonSchema {
+    const desc = this.extractDescription(el);
     const typeName = el["@_type"];
-    if (typeName) return this.resolveTypeRef(typeName);
+    if (typeName) {
+      return this.withDescription(this.resolveTypeRef(typeName), desc);
+    }
 
     const ct = el["xsd:complexType"];
     if (ct) {
       const node = Array.isArray(ct) ? ct[0] : ct;
-      return this.convertComplexType(node);
+      const result = this.convertComplexType(node);
+      if (desc && !result.description) result.description = desc;
+      return result;
     }
 
     const st = el["xsd:simpleType"];
     if (st) {
       const node = Array.isArray(st) ? st[0] : st;
-      return this.convertSimpleType(node);
+      const result = this.convertSimpleType(node);
+      if (desc && !result.description) result.description = desc;
+      return result;
     }
 
-    return {};
+    return desc ? { description: desc } : {};
   }
 
   private convertComplexType(ct: any): JsonSchema {
+    const desc = this.extractDescription(ct);
+
     // complexContent: extension or restriction of another complex type
     if (ct["xsd:complexContent"]) {
-      return this.convertComplexContent(ct["xsd:complexContent"]);
+      const result = this.convertComplexContent(ct["xsd:complexContent"]);
+      if (desc && !result.description) result.description = desc;
+      return result;
     }
 
     // simpleContent: extend a simple type with attributes
     if (ct["xsd:simpleContent"]) {
-      return this.convertSimpleContent(ct["xsd:simpleContent"]);
+      const result = this.convertSimpleContent(ct["xsd:simpleContent"]);
+      if (desc && !result.description) result.description = desc;
+      return result;
     }
 
     // Direct sequence/choice/all + attributes
     const result: JsonSchema = { type: "object" };
+    if (desc) result.description = desc;
     const { properties, required } = this.extractProperties(ct);
 
     // Direct attributes
     for (const attr of this.asArray(ct["xsd:attribute"])) {
       const name = attr["@_name"];
       if (name) {
-        properties[name] = this.resolveTypeRef(attr["@_type"] || "xsd:string");
+        const schema = this.withDescription(
+          this.resolveTypeRef(attr["@_type"] || "xsd:string"),
+          this.extractDescription(attr),
+        );
+        schema.xml = { attribute: true };
+        properties[name] = schema;
       }
     }
 
@@ -280,7 +326,12 @@ export class XsdToJsonSchema {
       for (const attr of this.asArray(ext["xsd:attribute"])) {
         const name = attr["@_name"];
         if (name) {
-          properties[name] = this.resolveTypeRef(attr["@_type"] || "xsd:string");
+          const schema = this.withDescription(
+            this.resolveTypeRef(attr["@_type"] || "xsd:string"),
+            this.extractDescription(attr),
+          );
+          schema.xml = { attribute: true };
+          properties[name] = schema;
         }
       }
       this.inlineAttributeGroups(ext, properties);
@@ -313,7 +364,12 @@ export class XsdToJsonSchema {
       for (const attr of this.asArray(ext["xsd:attribute"])) {
         const name = attr["@_name"];
         if (name) {
-          properties[name] = this.resolveTypeRef(attr["@_type"] || "xsd:string");
+          const schema = this.withDescription(
+            this.resolveTypeRef(attr["@_type"] || "xsd:string"),
+            this.extractDescription(attr),
+          );
+          schema.xml = { attribute: true };
+          properties[name] = schema;
         }
       }
       this.inlineAttributeGroups(ext, properties);
@@ -330,14 +386,17 @@ export class XsdToJsonSchema {
   }
 
   private convertSimpleType(st: any): JsonSchema {
+    const desc = this.extractDescription(st);
+
     if (st["xsd:restriction"]) {
       const rest = st["xsd:restriction"];
       const base = rest["@_base"];
       const result: JsonSchema = base ? { ...this.resolveTypeRef(base) } : { type: "string" };
+      if (desc) result.description = desc;
 
       const enums = this.asArray(rest["xsd:enumeration"]);
       if (enums.length > 0) {
-        result.enum = enums.map((e: any) => e["@_value"]);
+        result.enum = [...new Set(enums.map((e: any) => e["@_value"]))];
       }
 
       const patterns = this.asArray(rest["xsd:pattern"]);
@@ -356,24 +415,34 @@ export class XsdToJsonSchema {
     if (st["xsd:union"]) {
       const memberTypes = st["xsd:union"]["@_memberTypes"];
       if (memberTypes) {
-        return { anyOf: memberTypes.split(/\s+/).map((t: string) => this.resolveTypeRef(t)) };
+        const result: JsonSchema = {
+          anyOf: memberTypes.split(/\s+/).map((t: string) => this.resolveTypeRef(t)),
+        };
+        if (desc) result.description = desc;
+        return result;
       }
       // Inline member types
       const memberSimpleTypes = this.asArray(st["xsd:union"]["xsd:simpleType"]);
       if (memberSimpleTypes.length > 0) {
-        return { anyOf: memberSimpleTypes.map((s: any) => this.convertSimpleType(s)) };
+        const result: JsonSchema = {
+          anyOf: memberSimpleTypes.map((s: any) => this.convertSimpleType(s)),
+        };
+        if (desc) result.description = desc;
+        return result;
       }
     }
 
     if (st["xsd:list"]) {
       const itemType = st["xsd:list"]["@_itemType"];
-      return {
+      const result: JsonSchema = {
         type: "array",
         items: itemType ? this.resolveTypeRef(itemType) : { type: "string" },
       };
+      if (desc) result.description = desc;
+      return result;
     }
 
-    return { type: "string" };
+    return desc ? { type: "string", description: desc } : { type: "string" };
   }
 
   // ── Property extraction ───────────────────────────────────────────────────
@@ -445,6 +514,7 @@ export class XsdToJsonSchema {
     const maxOccurs = el["@_maxOccurs"];
     const isRequired = minOccurs !== "0";
     const isArray = maxOccurs === "unbounded" || (maxOccurs !== undefined && parseInt(maxOccurs) > 1);
+    const desc = this.extractDescription(el);
 
     if (name) {
       let typeSchema: JsonSchema;
@@ -460,12 +530,15 @@ export class XsdToJsonSchema {
         typeSchema = {};
       }
 
+      typeSchema = this.withDescription(typeSchema, desc);
       properties[name] = isArray ? { type: "array", items: typeSchema } : typeSchema;
       if (isRequired) required.push(name);
     } else if (ref) {
       const refName = this.stripNs(ref);
       const refSchema: JsonSchema = { $ref: `#/definitions/${refName}` };
-      properties[refName] = isArray ? { type: "array", items: refSchema } : refSchema;
+      properties[refName] = isArray
+        ? this.withDescription({ type: "array", items: refSchema }, desc)
+        : this.withDescription(refSchema, desc);
       if (isRequired) required.push(refName);
     }
   }
@@ -491,7 +564,12 @@ export class XsdToJsonSchema {
       for (const attr of this.asArray(groupDef.schema["xsd:attribute"])) {
         const name = attr["@_name"];
         if (name) {
-          properties[name] = this.resolveTypeRef(attr["@_type"] || "xsd:string");
+          const schema = this.withDescription(
+            this.resolveTypeRef(attr["@_type"] || "xsd:string"),
+            this.extractDescription(attr),
+          );
+          schema.xml = { attribute: true };
+          properties[name] = schema;
         }
       }
     }
@@ -544,8 +622,6 @@ export class XsdToJsonSchema {
 
     return {
       $schema: "http://json-schema.org/draft-07/schema#",
-      $id: "netex.json",
-      type: "object",
       definitions,
     };
   }
@@ -577,6 +653,17 @@ export class XsdToJsonSchema {
   getSourceFile(name: string): string | undefined {
     this.convert();
     return this.types.get(name)?.sourceFile ?? this.elements.get(name)?.sourceFile;
+  }
+
+  /** Return all definition names → source file paths (types + elements). */
+  getTypeSourceMap(): Map<string, string> {
+    this.convert();
+    const map = new Map<string, string>();
+    for (const [name, entry] of this.types) map.set(name, entry.sourceFile);
+    for (const [name, entry] of this.elements) {
+      if (!map.has(name)) map.set(name, entry.sourceFile);
+    }
+    return map;
   }
 
   get stats() {

@@ -18,10 +18,12 @@
 
 import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { execSync } from "node:child_process";
 import type { JSONSchema4 } from "json-schema";
 import { compile } from "json-schema-to-typescript";
 import { XsdToJsonSchema } from "./xsd-to-jsonschema.js";
 import type { JsonSchema } from "./xsd-to-jsonschema.js";
+import { splitTypeScript } from "./split-output.js";
 
 interface PartConfig {
   enabled?: boolean;
@@ -42,12 +44,32 @@ interface RootXsdConfig {
 const REQUIRED_PARTS = ["framework", "gml", "siri", "service"] as const;
 const REQUIRED_ROOT_XSDS = ["publication"] as const;
 
+/** Short filesystem-friendly names for optional parts. */
+const NATURAL_SLUGS: Record<string, string> = {
+  part1_network: "network",
+  part2_timetable: "timetable",
+  part3_fares: "fares",
+  part5_new_modes: "new-modes",
+};
+
+/**
+ * Resolve a directory name from enabled optional parts.
+ * Required parts are always present and don't differentiate the output.
+ * Falls back to stripping `partN_` prefix if no natural slug is defined.
+ */
+function resolveOutputSlug(parts: Record<string, PartConfig>): string {
+  const enabled = Object.entries(parts)
+    .filter(([k, p]) => !k.startsWith("_") && !p.required && p.enabled)
+    .map(([k]) => NATURAL_SLUGS[k] ?? k.replace(/^part\d+_/, "").replace(/_/g, "-"))
+    .sort();
+
+  return enabled.length === 0 ? "base" : enabled.join("+");
+}
+
 class Config {
   readonly netexVersion: string;
   readonly xsdRoot: string;
-  readonly generatedJsonSchema: string;
-  readonly generatedInterfaces: string;
-  readonly generatedZod: string;
+  private readonly generatedBase: string;
   readonly parts: Record<string, PartConfig>;
   readonly rootXsds: Record<string, RootXsdConfig>;
 
@@ -57,13 +79,27 @@ class Config {
 
     this.netexVersion = raw.netex.version;
     this.xsdRoot = resolve(root, raw.paths.xsdRoot, this.netexVersion);
-    this.generatedJsonSchema = resolve(root, raw.paths.generatedJsonSchema);
-    this.generatedInterfaces = resolve(root, raw.paths.generatedInterfaces);
-    this.generatedZod = resolve(root, raw.paths.generatedZod);
+    this.generatedBase = resolve(root, raw.paths.generated);
     this.parts = raw.parts;
     this.rootXsds = raw.rootXsds;
 
     this.enforceRequiredParts();
+  }
+
+  get outputSlug(): string {
+    return resolveOutputSlug(this.parts);
+  }
+
+  get generatedJsonSchema(): string {
+    return resolve(this.generatedBase, this.outputSlug, "jsonschema");
+  }
+
+  get generatedInterfaces(): string {
+    return resolve(this.generatedBase, this.outputSlug, "interfaces");
+  }
+
+  get generatedZod(): string {
+    return resolve(this.generatedBase, this.outputSlug, "zod");
   }
 
   private enforceRequiredParts(): void {
@@ -217,6 +253,42 @@ function countXsdFiles(dir: string): number {
   return count;
 }
 
+// ── Validation ────────────────────────────────────────────────────────────────
+
+/**
+ * Walk all definitions and verify every $ref target resolves.
+ * Returns broken refs as [source definition, $ref target] pairs.
+ */
+function validateRefs(schema: JsonSchema): [string, string][] {
+  const defs = schema.definitions ?? {};
+  const defNames = new Set(Object.keys(defs));
+  const broken: [string, string][] = [];
+
+  function walk(obj: unknown, source: string): void {
+    if (typeof obj !== "object" || obj === null) return;
+    const record = obj as Record<string, unknown>;
+    if (typeof record.$ref === "string") {
+      const target = record.$ref.replace("#/definitions/", "");
+      if (!defNames.has(target)) {
+        broken.push([source, target]);
+      }
+    }
+    for (const v of Object.values(record)) {
+      if (typeof v === "object" && v !== null) walk(v, source);
+    }
+  }
+
+  for (const [name, def] of Object.entries(defs)) {
+    walk(def, name);
+  }
+  return broken;
+}
+
+/** Count export declarations in a TypeScript string. */
+function countExports(ts: string): number {
+  return [...ts.matchAll(/^export (?:type|interface) /gm)].length;
+}
+
 // ── Generation pipeline ───────────────────────────────────────────────────────
 
 function cleanDir(dir: string): void {
@@ -224,7 +296,7 @@ function cleanDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
 }
 
-function generateJsonSchema(config: Config): JsonSchema {
+function generateJsonSchema(config: Config): { schema: JsonSchema; converter: XsdToJsonSchema } {
   if (!existsSync(config.xsdRoot)) {
     console.error(`XSD directory not found: ${config.xsdRoot}`);
     console.error("Run 'npm run download' first.");
@@ -258,7 +330,21 @@ function generateJsonSchema(config: Config): JsonSchema {
   const defCount = Object.keys(schema.definitions || {}).length;
   console.log(`  ${defCount} definitions in filtered schema`);
 
-  return schema;
+  // Validate: every $ref must resolve to an existing definition
+  const brokenRefs = validateRefs(schema);
+  if (brokenRefs.length > 0) {
+    console.error(`\n  ERROR: ${brokenRefs.length} broken $ref targets in JSON Schema:`);
+    for (const [source, target] of brokenRefs.slice(0, 10)) {
+      console.error(`    ${source} → $ref "#/definitions/${target}" (missing)`);
+    }
+    if (brokenRefs.length > 10) {
+      console.error(`    ... and ${brokenRefs.length - 10} more`);
+    }
+    process.exit(1);
+  }
+  console.log(`  $ref integrity: all references resolve`);
+
+  return { schema, converter };
 }
 
 function persistJsonSchema(schema: JsonSchema, config: Config): void {
@@ -268,12 +354,16 @@ function persistJsonSchema(schema: JsonSchema, config: Config): void {
   console.log(`  Written to ${outPath}`);
 }
 
-async function generateTypeScript(schema: JsonSchema, config: Config): Promise<void> {
+
+async function generateTypeScript(schema: JsonSchema, config: Config): Promise<string> {
   console.log("\nStep 3: Generating TypeScript interfaces...");
   cleanDir(config.generatedInterfaces);
 
   try {
-    // json-schema-to-typescript declares JSONSchema4 but handles draft-07 at runtime
+    // We produce Draft 07 (JSONSchema7 from @types/json-schema) but
+    // json-schema-to-typescript's public API is typed as JSONSchema4 — a legacy
+    // signature it never updated. Internally it handles Draft 07 features
+    // (if/then/else, $defs, const, etc.) fine. The cast is safe.
     const ts = await compile(schema as unknown as JSONSchema4, "NeTEx", {
       bannerComment: [
         "/* eslint-disable */",
@@ -297,6 +387,7 @@ async function generateTypeScript(schema: JsonSchema, config: Config): Promise<v
     const lineCount = ts.split("\n").length;
     console.log(`  Generated ${lineCount} lines of TypeScript`);
     console.log(`  Written to ${outPath}`);
+    return ts;
   } catch (e: any) {
     console.error(`  TypeScript generation failed: ${e.message}`);
     console.error("  JSON Schema was persisted — you can inspect it for issues.");
@@ -318,18 +409,59 @@ if (cliPart) config.applyCliPart(cliPart);
 
 console.log("=== NeTEx TypeScript Model Generator ===\n");
 console.log(`XSD root: ${config.xsdRoot}`);
-console.log(`NeTEx version: ${config.netexVersion}\n`);
+console.log(`NeTEx version: ${config.netexVersion}`);
+console.log(`Output slug: ${config.outputSlug}\n`);
 
 config.printParts();
 config.printRootXsds();
 config.printSubsetSummary();
 
 // Pipeline
-const schema = generateJsonSchema(config);
+const { schema, converter } = generateJsonSchema(config);
 persistJsonSchema(schema, config);
-await generateTypeScript(schema, config);
+const ts = await generateTypeScript(schema, config);
 
-// TODO: Step 4 — invoke ts-to-zod on generated interfaces
+// Step 4: Split into per-category modules
+console.log("\nStep 4: Splitting into category modules...");
+const splitResult = splitTypeScript(ts, converter.getTypeSourceMap(), config.generatedInterfaces);
+for (const [cat, count] of [...splitResult.counts.entries()].sort((a, b) => b[1] - a[1])) {
+  console.log(`  ${cat}.ts: ${count} declarations`);
+}
+console.log(`  index.ts: barrel re-export (${splitResult.files.size} modules)`);
+
+// Validate: split modules should account for all monolithic declarations
+const monolithicCount = countExports(ts);
+let splitCount = 0;
+for (const [, filePath] of splitResult.files) {
+  splitCount += countExports(readFileSync(filePath, "utf-8"));
+}
+if (splitCount < monolithicCount) {
+  console.warn(
+    `\n  WARNING: split produced ${splitCount} declarations but monolithic file has ${monolithicCount}` +
+      ` — ${monolithicCount - splitCount} declarations were lost during splitting`,
+  );
+} else {
+  console.log(`  Split completeness: ${splitCount}/${monolithicCount} declarations accounted for`);
+}
+
+// Step 5: Type-check the split modules
+console.log("\nStep 5: Type-checking generated output...");
+try {
+  execSync("npx tsc --noEmit", { cwd: ROOT, stdio: "pipe" });
+  console.log("  Type-check passed (zero errors)");
+} catch (e: any) {
+  const stderr = e.stderr?.toString() || "";
+  const stdout = e.stdout?.toString() || "";
+  const output = (stdout + stderr).trim();
+  const errorCount = output.split("\n").filter((l: string) => l.includes("error TS")).length;
+  console.error(`\n  ERROR: Type-check failed with ${errorCount} error(s):`);
+  for (const line of output.split("\n").slice(0, 20)) {
+    console.error(`    ${line}`);
+  }
+  process.exit(1);
+}
+
+// TODO: Step 6 — invoke ts-to-zod on generated interfaces
 console.log("\n[stub] Zod schema generation not yet wired up");
 console.log(`  Would output to: ${config.generatedZod}/`);
 

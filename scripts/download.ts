@@ -1,12 +1,12 @@
 /**
- * Downloads NeTEx XSD schemas and strips annotations.
+ * Downloads NeTEx XSD schemas from GitHub.
  * All configuration read from inputs/config.json.
  *
  * Usage: npx tsx scripts/download.ts
  */
 
 import AdmZip from "adm-zip";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -55,32 +55,8 @@ function extractXsd(zipBuf: Buffer): void {
   console.log(`Extracted ${extracted} files to ${dest}`);
 }
 
-// --- Step 3: Strip <xsd:annotation> elements ---
-
-const ANNOTATION_RE = /<xsd:annotation[\s\S]*?<\/xsd:annotation>/g;
-
-function stripAnnotations(dir: string): number {
-  let count = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      count += stripAnnotations(full);
-    } else if (entry.name.endsWith(".xsd")) {
-      const before = readFileSync(full, "utf-8");
-      const after = before.replace(ANNOTATION_RE, "");
-      if (after !== before) {
-        writeFileSync(full, after);
-        count++;
-      }
-    }
-  }
-  return count;
-}
-
 // --- Run ---
 
 const zipBuf = await downloadZip();
 extractXsd(zipBuf);
-const stripped = stripAnnotations(dest);
-console.log(`Stripped annotations from ${stripped} XSD files`);
 console.log(`\nXSDs ready at ${dest}`);
