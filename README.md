@@ -9,7 +9,7 @@ See the [Subset Selection Guide](docs/subset-selection-guide.md) for how to choo
 ```bash
 npm install
 npm run download   # fetch NeTEx 2.0 XSDs from GitHub
-npm run generate   # generate TypeScript types (stub — not yet wired up)
+npm run generate   # generate TypeScript types from XSD subset
 ```
 
 ## How It Works
@@ -24,12 +24,12 @@ The ZIP is cached locally (`NeTEx-next.zip`) — delete it to force re-download.
 
 ### Generation Pipeline (`npm run generate`)
 
-Planned two-step pipeline (not yet implemented):
+1. **Parse all XSD files** — recursively loads all 433 XSD files starting from `NeTEx_publication.xsd` (cross-references need the full set)
+2. **XSD → JSON Schema** — custom converter (`scripts/xsd-to-jsonschema.ts`) using `fast-xml-parser`, filtered to enabled parts
+3. **JSON Schema → TypeScript interfaces** — via `json-schema-to-typescript`
+4. **(Future) TypeScript interfaces → Zod schemas** — via ts-to-zod
 
-1. **XSD → TypeScript interfaces** via cxsd
-2. **TypeScript interfaces → Zod schemas** via ts-to-zod
-
-Only a configurable subset of XSDs is processed (see below).
+Only definitions from enabled parts are included in the output. References to disabled-part types become `unknown` placeholders.
 
 ## XSD Subset
 
@@ -39,11 +39,12 @@ NeTEx 2.0 contains 458+ XSD files across several functional parts. Generation is
 |---|---|---|---|
 | `framework` | `netex_framework` | 143 | Base types, reusable components, organizations (always required) |
 | `gml` | `gml` | 7 | Geographic coordinates (always required) |
+| `siri` | `siri` + `siri_utility` | 12 | Real-time updates (always required — imported by NeTEx_publication.xsd) |
+| `service` | `netex_service` | 4 | NeTEx service definitions and filters (always required) |
 | `part1_network` | `netex_part_1` | 93 | Routes, lines, stop places, timing patterns |
 | `part2_timetable` | `netex_part_2` | 56 | Service journeys, passing times, vehicle services |
 | `part3_fares` | `netex_part_3` | 92 | Fare products, pricing, distribution, sales |
 | `part5_new_modes` | `netex_part_5` | 32 | Mobility services, vehicle meeting points (Part 4 was never published) |
-| `siri` | `siri` + `siri_utility` | 12 | Real-time updates (SIRI standard) |
 
 Enable a part by setting `"enabled": true` in its config entry. See the [Subset Selection Guide](docs/subset-selection-guide.md) for dependency info between parts.
 
@@ -65,7 +66,8 @@ inputs/
   config.json              # all configuration (version, URLs, subset)
 scripts/
   download.ts              # download + extract + strip annotations
-  generate.ts              # TypeScript/Zod generation (stub)
+  generate.ts              # TypeScript generation from XSD subset
+  xsd-to-jsonschema.ts     # custom XSD → JSON Schema converter
 xsd/                       # downloaded XSDs (gitignored)
 src/generated/             # generated output (gitignored)
   interfaces/              # TypeScript interfaces

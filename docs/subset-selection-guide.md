@@ -30,11 +30,15 @@ Root-level XSD files:
 
 ## Required Baseline
 
-Regardless of which parts you select, you always need:
+Regardless of which parts you select, these are always included:
 
 - **`netex_framework`** — The foundation of NeTEx. Contains `DataManagedObject`, `EntityInVersion`, `VersionFrame`, `ValidBetween`, `MultilingualString`, `PrivateCode`, and all the base types every other part inherits from. This is non-negotiable.
 - **`gml`** — Defines `<gml:pos>`, `<gml:Polygon>`, and coordinate reference systems. Required unless your types have zero geographic content.
+- **`siri`** + **`siri_utility`** — Real-time update types (SIRI standard). Required because `NeTEx_publication.xsd` unconditionally imports three SIRI files. Only 12 files / ~2,200 lines — making it optional adds stub complexity for no real benefit.
+- **`netex_service`** — NeTEx service definitions (filters, aggregator `netex_all.xsd`). Required because `NeTEx_publication.xsd` includes them directly.
 - **`NeTEx_publication.xsd`** — The `PublicationDelivery` document wrapper. Any consumer that reads or writes NeTEx XML needs this.
+
+This matches `netex-java-model` which always includes SIRI and the service definitions.
 
 The framework sub-directories:
 
@@ -73,7 +77,7 @@ Part 5 (new modes) ──references──► Framework only (mostly self-contain
 Part 1 ──references──► Framework + GML + IFOPT
 ```
 
-**Practical approach:** Start with your target part, attempt generation, and see which unresolved type references appear. Then either add the missing part entirely, or add only the specific sub-directory containing the referenced types. Sub-directory level inclusion gives finer control — for example, if Part 3 only needs `ScheduledStopPoint` from Part 1, you might add just `part1_networkDescription` rather than all 93 Part 1 files.
+**How the generator handles this:** All 433 XSD files are loaded for cross-reference resolution, but only definitions from enabled parts produce TypeScript output. References to types in disabled parts become `unknown` placeholders. This means you can enable Part 3 without Part 1, and types referencing Part 1 will compile (as `unknown`) — you just won't get the full type information for those cross-references.
 
 ## Configuring the Subset
 
@@ -93,7 +97,7 @@ Edit `inputs/config.json`. Each part has an `enabled` flag:
 }
 ```
 
-Then run `npm run generate` to see file counts and (once wired up) generate types from the enabled parts.
+Then run `npm run generate` to generate TypeScript types from the enabled parts.
 
 To try a part without editing config.json, use `--part`:
 
@@ -101,7 +105,7 @@ To try a part without editing config.json, use `--part`:
 npm run generate -- --part part1_network
 ```
 
-This enables the part for that run only. Required parts (`framework`, `gml`, `publication`) are hardwired in the generator and cannot be disabled — the script warns and re-enables them if config.json is tampered with.
+This enables the part for that run only. Required parts (`framework`, `gml`, `siri`, `service`, `publication`) are hardwired in the generator and cannot be disabled — the script warns and re-enables them if config.json is tampered with.
 
 ## Deployment Strategy
 

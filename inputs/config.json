@@ -8,6 +8,7 @@
   },
   "paths": {
     "xsdRoot": "xsd",
+    "generatedJsonSchema": "src/generated/jsonschema",
     "generatedInterfaces": "src/generated/interfaces",
     "generatedZod": "src/generated/zod"
   },
@@ -46,9 +47,16 @@
       "description": "New modes: mobility services, vehicle meeting points. Self-contained (framework only)."
     },
     "siri": {
-      "enabled": false,
+      "enabled": true,
+      "required": true,
       "dirs": ["siri", "siri_utility"],
-      "description": "Real-time updates (SIRI standard)."
+      "description": "Real-time updates (SIRI standard). Required — NeTEx_publication.xsd unconditionally imports SIRI."
+    },
+    "service": {
+      "enabled": true,
+      "required": true,
+      "dirs": ["netex_service"],
+      "description": "NeTEx service definitions (filters, aggregator). Required — included by NeTEx_publication.xsd."
     }
   },
   "rootXsds": {
