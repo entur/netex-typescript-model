@@ -1,0 +1,5 @@
+{
+  "extends": ["github>entur/ror-renovate-config", "group:allNonMajor", "schedule:weekly"],
+  "baseBranch": "main",
+  "timezone": "Europe/Oslo"
+}
