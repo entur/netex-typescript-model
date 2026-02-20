@@ -379,7 +379,6 @@ function buildHtml(
       width: 380px;
       min-width: 380px;
       padding: 1rem;
-      overflow-y: auto;
     }
     .explorer-header {
       display: flex;
@@ -449,6 +448,35 @@ function buildHtml(
       color: var(--muted);
       margin-top: 0.1rem;
     }
+
+    /* Explorer tabs */
+    .explorer-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 0.75rem;
+      flex-shrink: 0;
+    }
+    .explorer-tab {
+      flex: 1;
+      padding: 0.35rem 0;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: system-ui, sans-serif;
+    }
+    .explorer-tab:hover { color: var(--fg); }
+    .explorer-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .explorer-tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; }
+    .explorer-tab-content.active { display: block; }
+    .graph-container { width: 100%; }
+    .graph-container svg { display: block; }
+    .graph-node { cursor: pointer; }
+    .graph-node:hover rect { opacity: 0.8; }
   </style>
 </head>
 <body>
@@ -474,7 +502,12 @@ ${sections}
       <button class="explorer-close" id="explorerClose">&times;</button>
     </div>
     <p class="explorer-subtitle" id="explorerSubtitle"></p>
-    <div class="explorer-body" id="explorerBody"></div>
+    <div class="explorer-tabs">
+      <button class="explorer-tab active" data-tab="props">Properties</button>
+      <button class="explorer-tab" data-tab="graph">Graph</button>
+    </div>
+    <div class="explorer-tab-content active" id="explorerProps"></div>
+    <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
   </aside>
 
   <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
@@ -525,8 +558,20 @@ ${sections}
     const explorerPanel = document.getElementById('explorerPanel');
     const explorerTitle = document.getElementById('explorerTitle');
     const explorerSubtitle = document.getElementById('explorerSubtitle');
-    const explorerBody = document.getElementById('explorerBody');
+    const explorerProps = document.getElementById('explorerProps');
+    const graphContainer = document.getElementById('graphContainer');
     let currentExplored = null;
+
+    // Tab switching
+    explorerPanel.addEventListener('click', e => {
+      const tab = e.target.closest('.explorer-tab');
+      if (!tab) return;
+      explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
+      explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.tab === 'graph' ? 'explorerGraph' : 'explorerProps';
+      document.getElementById(target).classList.add('active');
+    });
 
     function resolveType(prop) {
       if (!prop || typeof prop !== 'object') return 'unknown';
@@ -629,9 +674,145 @@ ${sections}
       if (lastOrigin !== null) html += '</div>';
       if (props.length === 0) html = '<p style="color:var(--muted);font-size:0.85rem;">No properties found.</p>';
 
-      explorerBody.innerHTML = html;
+      explorerProps.innerHTML = html;
+      renderGraph(name);
       currentExplored = name;
     }
+
+    // ── Graph tab ────────────────────────────────────────────────────────
+
+    function buildInheritanceChain(defsMap, name) {
+      const chain = [];
+      const visited = new Set();
+      function walk(n) {
+        if (visited.has(n)) return;
+        visited.add(n);
+        const def = defsMap[n];
+        if (!def) return;
+        if (def.$ref) { walk(def.$ref.replace('#/definitions/', '')); return; }
+        let parent = null;
+        const ownProps = [];
+        if (def.allOf) {
+          for (const entry of def.allOf) {
+            if (entry.$ref) parent = entry.$ref.replace('#/definitions/', '');
+            else if (entry.properties) {
+              for (const [k, v] of Object.entries(entry.properties)) ownProps.push({ name: k, schema: v });
+            }
+          }
+        }
+        if (def.properties) {
+          for (const [k, v] of Object.entries(def.properties)) {
+            if (!ownProps.some(p => p.name === k)) ownProps.push({ name: k, schema: v });
+          }
+        }
+        if (parent) walk(parent);
+        chain.push({ name: n, ownProps });
+      }
+      walk(name);
+      return chain;
+    }
+
+    function renderGraph(name) {
+      const chain = buildInheritanceChain(defs, name);
+      if (chain.length === 0) {
+        graphContainer.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;padding:0.5rem;">No inheritance chain.</p>';
+        return;
+      }
+
+      const NODE_W = 200, NODE_H = 38, NODE_RX = 6;
+      const GAP_Y = 28;
+      const COMP_W = 130, COMP_H = 24, COMP_GAP_X = 28, COMP_GAP_Y = 4;
+      const PAD = 14;
+      const MAX_COMPS = 6;
+
+      const rows = [];
+      let totalH = PAD;
+      let maxW = PAD + NODE_W + PAD;
+
+      for (const node of chain) {
+        const refs = node.ownProps
+          .filter(p => isRefType(p.schema))
+          .slice(0, MAX_COMPS)
+          .map(p => ({ name: p.name, target: refTarget(p.schema), type: resolveType(p.schema) }));
+        const compBlockH = refs.length > 0 ? refs.length * (COMP_H + COMP_GAP_Y) - COMP_GAP_Y : 0;
+        const rowH = Math.max(NODE_H, compBlockH);
+        rows.push({ ...node, refs, y: totalH + rowH / 2, rowH, compBlockH });
+        totalH += rowH + GAP_Y;
+        if (refs.length > 0) maxW = Math.max(maxW, PAD + NODE_W + COMP_GAP_X + COMP_W + PAD);
+      }
+      totalH = totalH - GAP_Y + PAD;
+
+      const cs = getComputedStyle(document.documentElement);
+      const accent = cs.getPropertyValue('--accent').trim();
+      const fg = cs.getPropertyValue('--fg').trim();
+      const muted = cs.getPropertyValue('--muted').trim();
+      const cardBg = cs.getPropertyValue('--card-bg').trim();
+      const cardBorder = cs.getPropertyValue('--card-border').trim();
+
+      let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + maxW + '" height="' + totalH + '">';
+      svg += '<defs><marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">';
+      svg += '<path d="M0,0 L10,3 L0,6 Z" fill="' + muted + '"/></marker></defs>';
+
+      // Inheritance edges
+      for (let i = 0; i < rows.length - 1; i++) {
+        const x = PAD + NODE_W / 2;
+        svg += '<line x1="' + x + '" y1="' + (rows[i].y + NODE_H / 2) + '" x2="' + x + '" y2="' + (rows[i + 1].y - NODE_H / 2) + '" stroke="' + muted + '" stroke-width="1.5" marker-end="url(#arrow)"/>';
+      }
+
+      // Composition edges
+      for (const row of rows) {
+        if (row.refs.length === 0) continue;
+        const sx = PAD + NODE_W;
+        const compStartY = row.y - row.compBlockH / 2;
+        for (let j = 0; j < row.refs.length; j++) {
+          const cy = compStartY + j * (COMP_H + COMP_GAP_Y) + COMP_H / 2;
+          svg += '<line x1="' + sx + '" y1="' + row.y + '" x2="' + (PAD + NODE_W + COMP_GAP_X) + '" y2="' + cy + '" stroke="' + cardBorder + '" stroke-width="1" stroke-dasharray="4,3"/>';
+        }
+      }
+
+      // Chain nodes
+      for (const row of rows) {
+        const isTarget = row.name === name;
+        const fill = isTarget ? accent : cardBg;
+        const textFill = isTarget ? '#fff' : fg;
+        const stroke = isTarget ? accent : cardBorder;
+        const ny = row.y - NODE_H / 2;
+        const label = row.name.length > 26 ? row.name.slice(0, 24) + '\u2026' : row.name;
+
+        svg += '<g class="graph-node" data-def="' + esc(row.name) + '">';
+        svg += '<title>' + esc(row.name) + ' (' + row.ownProps.length + ' properties)</title>';
+        svg += '<rect x="' + PAD + '" y="' + ny + '" width="' + NODE_W + '" height="' + NODE_H + '" rx="' + NODE_RX + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>';
+        svg += '<text x="' + (PAD + NODE_W / 2) + '" y="' + (row.y + 1) + '" text-anchor="middle" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="600" fill="' + textFill + '">' + esc(label) + '</text>';
+        svg += '<text x="' + (PAD + NODE_W - 8) + '" y="' + (ny + 12) + '" text-anchor="end" font-family="system-ui,sans-serif" font-size="9" fill="' + (isTarget ? 'rgba(255,255,255,0.7)' : muted) + '">' + row.ownProps.length + 'p</text>';
+        svg += '</g>';
+
+        // Composition nodes
+        const compStartY = row.y - row.compBlockH / 2;
+        for (let j = 0; j < row.refs.length; j++) {
+          const ref = row.refs[j];
+          const cy = compStartY + j * (COMP_H + COMP_GAP_Y);
+          const clabel = ref.name.length > 16 ? ref.name.slice(0, 14) + '\u2026' : ref.name;
+          const hasDef = ref.target && defs[ref.target];
+          svg += '<g' + (hasDef ? ' class="graph-node" data-def="' + esc(ref.target) + '"' : '') + '>';
+          svg += '<title>' + esc(ref.name) + ': ' + esc(ref.type) + '</title>';
+          svg += '<rect x="' + (PAD + NODE_W + COMP_GAP_X) + '" y="' + cy + '" width="' + COMP_W + '" height="' + COMP_H + '" rx="4" fill="' + cardBg + '" stroke="' + cardBorder + '" stroke-width="1" stroke-dasharray="3,2"/>';
+          svg += '<text x="' + (PAD + NODE_W + COMP_GAP_X + 6) + '" y="' + (cy + COMP_H / 2 + 1) + '" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="10" fill="' + muted + '">' + esc(clabel) + '</text>';
+          svg += '</g>';
+        }
+      }
+
+      svg += '</svg>';
+      graphContainer.innerHTML = svg;
+    }
+
+    // Graph node clicks
+    graphContainer.addEventListener('click', e => {
+      const node = e.target.closest('.graph-node');
+      if (node && node.dataset.def && defs[node.dataset.def]) {
+        location.hash = '#' + node.dataset.def;
+        renderExplorer(node.dataset.def);
+      }
+    });
 
     document.addEventListener('click', e => {
       // Explore button click
