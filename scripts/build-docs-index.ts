@@ -235,6 +235,26 @@ const html = `<!DOCTYPE html>
       color: var(--muted);
       opacity: 0.8;
     }
+    .chip-experimental {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #e65100;
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      border-radius: 1rem;
+      padding: 0.15rem 0.65rem;
+      margin-left: 0.5rem;
+      vertical-align: middle;
+    }
+    @media (prefers-color-scheme: dark) {
+      .chip-experimental {
+        color: #ffb74d;
+        background: rgba(255,167,38,0.12);
+        border-color: rgba(255,167,38,0.3);
+      }
+    }
     footer {
       margin-top: 3rem;
       font-size: 0.8rem;
@@ -245,7 +265,7 @@ const html = `<!DOCTYPE html>
 </head>
 <body>
   <header>
-    <h1>NeTEx TypeScript Model</h1>
+    <h1>NeTEx TypeScript Model <span class="chip-experimental">EXPERIMENTAL</span></h1>
     <p class="subtitle">Generated from <a href="https://github.com/NeTEx-CEN/NeTEx">NeTEx</a> XSD v${version} (branch <code>${branch}</code>)</p>
   </header>
 
