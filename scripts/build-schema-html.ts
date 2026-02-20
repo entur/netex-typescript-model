@@ -685,11 +685,13 @@ ${sections}
       <button class="explorer-tab" data-tab="graph">Graph</button>
       <button class="explorer-tab" data-tab="iface">Interface</button>
       <button class="explorer-tab" data-tab="mapping">Mapping</button>
+      <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
+    <div class="explorer-tab-content" id="explorerUtils"></div>
   </aside>
 
   <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
@@ -755,7 +757,7 @@ ${sections}
         chip.textContent = mode === 'code' ? 'Code' : 'Explore';
       }
       var tabs = explorerPanel.querySelectorAll('.explorer-tab');
-      var visible = mode === 'code' ? { iface: true, mapping: true } : { props: true, graph: true };
+      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true } : { props: true, graph: true };
       var firstVisible = null;
       tabs.forEach(function(t) {
         var show = !!visible[t.dataset.tab];
@@ -767,7 +769,7 @@ ${sections}
         tabs.forEach(function(t) { t.classList.remove('active'); });
         explorerPanel.querySelectorAll('.explorer-tab-content').forEach(function(c) { c.classList.remove('active'); });
         firstVisible.classList.add('active');
-        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping' };
+        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
         document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
       }
     }
@@ -779,7 +781,7 @@ ${sections}
       explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping' };
+      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
       document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
     });
 
@@ -815,9 +817,11 @@ ${sections}
       renderGraph(name);
       explorerIface.innerHTML = '<div class="spinner"></div>';
       explorerMapping.innerHTML = '<div class="spinner"></div>';
+      explorerUtils.innerHTML = '<div class="spinner"></div>';
       setTimeout(function() {
         renderInterface(name);
-        renderMapping(name);
+        renderMappingGuide(name);
+        renderUtils(name);
       }, 0);
       currentExplored = name;
     }
@@ -961,7 +965,7 @@ ${sections}
       lines.push(' * Suggested flat interface for ' + esc(name));
       lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
       lines.push(' */</span>');
-      lines.push('<span class="if-kw">interface</span> ' + esc(name) + ' {');
+      lines.push('<span class="if-kw">interface</span> My_' + esc(name) + ' {');
 
       let lastOrigin = null;
       for (const p of props) {
@@ -1023,7 +1027,76 @@ ${sections}
 
     const explorerMapping = document.getElementById('explorerMapping');
 
-    function renderMapping(name) {
+    function renderMappingGuide(name) {
+      var props = flattenAllOf(defs, name);
+      var myName = 'My_' + name;
+
+      var html = '';
+      html += '<div class="mapping-section">';
+      html += '<p style="color:var(--muted);font-size:0.85rem;margin:0 0 1rem 0;">';
+      html += 'The generated <code>' + esc(name) + '</code> uses intersection types from the NeTEx inheritance chain. ';
+      html += 'The flat <code>' + esc(myName) + '</code> from the Interface tab is simpler to work with. ';
+      html += 'These functions convert between them.</p>';
+
+      // ── To generated type ──
+      html += '<h3>' + esc(myName) + ' \\u2192 ' + esc(name) + '</h3>';
+      html += '<div class="interface-block">';
+      var toLines = [];
+      toLines.push('<span class="if-kw">function</span> toGenerated(src: <span class="if-ref">' + esc(myName) + '</span>): <span class="if-ref">' + esc(name) + '</span> {');
+      toLines.push('  <span class="if-cmt">// The generated type is an intersection (allOf),</span>');
+      toLines.push('  <span class="if-cmt">// but at runtime it\\u2019s just a plain object with the same keys.</span>');
+      toLines.push('  <span class="if-kw">return</span> src <span class="if-kw">as unknown as</span> <span class="if-ref">' + esc(name) + '</span>;');
+      toLines.push('}');
+      html += toLines.join('\\n');
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      // ── From generated type ──
+      html += '<h3>' + esc(name) + ' \\u2192 ' + esc(myName) + '</h3>';
+      html += '<div class="interface-block">';
+      var fromLines = [];
+      fromLines.push('<span class="if-kw">function</span> fromGenerated(src: <span class="if-ref">' + esc(name) + '</span>): <span class="if-ref">' + esc(myName) + '</span> {');
+      fromLines.push('  <span class="if-kw">return</span> {');
+      for (var i = 0; i < props.length; i++) {
+        var p = props[i];
+        var resolved = resolvePropertyType(p.schema);
+        var leaf = null;
+        if (resolved.complex) {
+          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
+          leaf = resolveValueLeaf(typeName);
+        }
+        if (leaf) {
+          fromLines.push('    ' + esc(p.prop) + ': src.' + esc(p.prop) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(leaf) + '</span>');
+        } else {
+          fromLines.push('    ' + esc(p.prop) + ': src.' + esc(p.prop) + ',');
+        }
+      }
+      fromLines.push('  };');
+      fromLines.push('}');
+      html += fromLines.join('\\n');
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      html += '</div>';
+      explorerMapping.innerHTML = html;
+    }
+
+    // Copy handler for mapping tab
+    explorerMapping.addEventListener('click', function(e) {
+      if (!e.target.closest('.copy-btn')) return;
+      var block = e.target.closest('.interface-block');
+      if (!block) return;
+      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
+      navigator.clipboard.writeText(plain).then(function() {
+        var btn = e.target.closest('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+
+    // ── Utilities tab ─────────────────────────────────────────────────
+
+    const explorerUtils = document.getElementById('explorerUtils');
+
+    function renderUtils(name) {
       var props = flattenAllOf(defs, name);
       var required = collectRequired(defs, name);
       var rev = buildReverseIndex();
@@ -1134,11 +1207,11 @@ ${sections}
       }
       html += '</div></div>';
 
-      explorerMapping.innerHTML = html;
+      explorerUtils.innerHTML = html;
     }
 
-    // Copy handler for mapping tab
-    explorerMapping.addEventListener('click', function(e) {
+    // Copy handler for utilities tab
+    explorerUtils.addEventListener('click', function(e) {
       if (!e.target.closest('.copy-btn')) return;
       var block = e.target.closest('.interface-block');
       if (!block) return;
