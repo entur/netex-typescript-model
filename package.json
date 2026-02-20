@@ -6,7 +6,9 @@
     "download": "tsx scripts/download.ts",
     "generate": "tsx scripts/generate.ts && tsx scripts/validate-generated-schemas.ts",
     "build": "tsc",
-    "test": "vitest run",
+    "test": "npm run generate && vitest run",
+    "test:unit": "vitest run --exclude '**/*.integration.test.*'",
+    "test:integration": "vitest run scripts/lib/schema-viewer-fns.integration.test.ts",
     "docs": "tsx scripts/generate-docs.ts"
   },
   "dependencies": {

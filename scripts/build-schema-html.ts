@@ -14,6 +14,7 @@
 
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import ts from "typescript";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const config = JSON.parse(readFileSync(resolve(ROOT, "inputs/config.json"), "utf-8"));
@@ -123,12 +124,72 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
       const jsonHtml = highlightJson(displayDef);
 
       return `    <section id="${escapeHtml(name)}" class="def-section">
-      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}<button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
+      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button><button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
       ${desc ? `<p class="def-desc">${escapeHtml(desc)}</p>` : ""}
       <pre><code>${jsonHtml}</code></pre>
     </section>`;
     })
     .join("\n\n");
+}
+
+/**
+ * Read the canonical viewer functions from schema-viewer-fns.ts and compile
+ * to plain JS via the TypeScript compiler API.
+ *
+ * The util functions take `defs` as an explicit first parameter. The browser
+ * wrappers close over the page-level `defs` variable and bind it automatically.
+ */
+function buildViewerFnsScript(): string {
+  const src = readFileSync(resolve(import.meta.dirname, "lib/schema-viewer-fns.ts"), "utf-8");
+
+  // Strip `export` keywords before transpiling — ts.transpileModule still
+  // emits `exports.x = x` for exported declarations even with ModuleKind.None.
+  const stripped = src.replace(/^export /gm, "");
+
+  const { outputText: js } = ts.transpileModule(stripped, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.None,
+      removeComments: false,
+    },
+  });
+
+  // The util functions take `defs` as first arg. Create bound wrappers that
+  // close over the page-level `defs` for use in the rest of the inline script.
+  const bound = `
+    // ── Viewer functions (generated from scripts/lib/schema-viewer-fns.ts) ──
+    var _fns = (function() {
+      ${js}
+      return {
+        resolveType: resolveType,
+        isRefType: isRefType,
+        refTarget: refTarget,
+        flattenAllOf: flattenAllOf,
+        collectRequired: collectRequired,
+        resolveLeafType: resolveLeafType,
+        resolvePropertyType: resolvePropertyType,
+        resolveValueLeaf: resolveValueLeaf,
+        buildReverseIndex: buildReverseIndex,
+        defaultForType: defaultForType
+      };
+    })();
+
+    // Bound wrappers — close over page-level defs
+    function resolveType(p) { return _fns.resolveType(p); }
+    function isRefType(p) { return _fns.isRefType(p); }
+    function refTarget(p) { return _fns.refTarget(p); }
+    function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
+    function collectRequired(d, n) { return _fns.collectRequired(d, n); }
+    function resolveLeafType(n, v) { return _fns.resolveLeafType(defs, n, v); }
+    function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
+    function resolveValueLeaf(n) { return _fns.resolveValueLeaf(defs, n); }
+    function defaultForType(t) { return _fns.defaultForType(t); }
+    var _reverseIdx = null;
+    function buildReverseIndex() {
+      if (!_reverseIdx) _reverseIdx = _fns.buildReverseIndex(defs);
+      return _reverseIdx;
+    }`;
+  return bound;
 }
 
 function buildHtml(
@@ -139,6 +200,7 @@ function buildHtml(
 ): string {
   const sidebarItems = buildSidebarItems(defNames);
   const sections = buildDefinitionSections(defs, defNames);
+  const viewerFns = buildViewerFnsScript();
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -339,23 +401,56 @@ function buildHtml(
         cursor: pointer;
       }
       main { padding: 1rem; padding-top: 2.5rem; }
-      .explore-btn { display: none; }
+      .explore-btn, .suggest-btn { display: none; }
     }
 
-    /* Explore button */
-    .explore-btn {
+    /* Section action buttons */
+    .explore-btn, .suggest-btn {
       float: right;
-      background: var(--accent);
-      color: #fff;
-      border: none;
       border-radius: 0.25rem;
-      padding: 0.15rem 0.5rem;
+      padding: 0.2rem 0.55rem;
       font-size: 0.75rem;
       cursor: pointer;
       font-family: system-ui, sans-serif;
       font-weight: 500;
+      margin-left: 0.35rem;
     }
-    .explore-btn:hover { background: var(--accent-hover); }
+    .explore-btn {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .explore-btn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+    .suggest-btn {
+      background: color-mix(in srgb, #d97706 12%, transparent);
+      color: #d97706;
+      border: 1px solid color-mix(in srgb, #d97706 35%, transparent);
+    }
+    .suggest-btn:hover { background: color-mix(in srgb, #d97706 22%, transparent); border-color: #d97706; }
+    @media (prefers-color-scheme: dark) {
+      .suggest-btn { color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 35%, transparent); background: color-mix(in srgb, #fbbf24 12%, transparent); }
+      .suggest-btn:hover { background: color-mix(in srgb, #fbbf24 22%, transparent); border-color: #fbbf24; }
+    }
+
+    /* Mode chip in explorer header */
+    .mode-chip {
+      display: inline-block;
+      font-size: 0.6rem;
+      font-weight: 700;
+      font-family: system-ui, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.1rem 0.4rem;
+      border-radius: 0.2rem;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+      line-height: 1.4;
+    }
+    .mode-chip.explore { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+    .mode-chip.code { background: color-mix(in srgb, #d97706 18%, transparent); color: #d97706; }
+    @media (prefers-color-scheme: dark) {
+      .mode-chip.code { color: #fbbf24; background: color-mix(in srgb, #fbbf24 18%, transparent); }
+    }
 
     /* Explorer panel */
     .explorer-panel {
@@ -503,6 +598,38 @@ function buildHtml(
       color: var(--muted);
     }
     .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
+    .spinner {
+      width: 24px; height: 24px; margin: 2rem auto;
+      border: 3px solid var(--card-border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Mapping tab */
+    .mapping-section { margin-bottom: 1rem; }
+    .mapping-section h3 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }
+    .ref-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; }
+    .ref-chip {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.72rem;
+      font-family: ui-monospace, monospace;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.2rem;
+      color: var(--link-color);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .ref-chip:hover { border-color: var(--accent); background: var(--card-bg); }
+    .ref-empty { font-size: 0.75rem; color: var(--muted); font-style: italic; }
 
     /* Resize handles */
     .resize-handle {
@@ -557,10 +684,12 @@ ${sections}
       <button class="explorer-tab active" data-tab="props">Properties</button>
       <button class="explorer-tab" data-tab="graph">Graph</button>
       <button class="explorer-tab" data-tab="iface">Interface</button>
+      <button class="explorer-tab" data-tab="mapping">Mapping</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
     <div class="explorer-tab-content" id="explorerIface"></div>
+    <div class="explorer-tab-content" id="explorerMapping"></div>
   </aside>
 
   <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
@@ -608,12 +737,40 @@ ${sections}
 
     // Explorer panel
     const defs = JSON.parse(document.getElementById('schema-data').textContent);
+    ${viewerFns}
     const explorerPanel = document.getElementById('explorerPanel');
     const explorerTitle = document.getElementById('explorerTitle');
     const explorerSubtitle = document.getElementById('explorerSubtitle');
     const explorerProps = document.getElementById('explorerProps');
     const graphContainer = document.getElementById('graphContainer');
     let currentExplored = null;
+    let currentMode = null;
+
+    function setExplorerMode(mode) {
+      currentMode = mode;
+      // Update mode chip in title
+      var chip = explorerTitle.querySelector('.mode-chip');
+      if (chip) {
+        chip.className = 'mode-chip ' + (mode === 'code' ? 'code' : 'explore');
+        chip.textContent = mode === 'code' ? 'Code' : 'Explore';
+      }
+      var tabs = explorerPanel.querySelectorAll('.explorer-tab');
+      var visible = mode === 'code' ? { iface: true, mapping: true } : { props: true, graph: true };
+      var firstVisible = null;
+      tabs.forEach(function(t) {
+        var show = !!visible[t.dataset.tab];
+        t.style.display = show ? '' : 'none';
+        if (show && !firstVisible) firstVisible = t;
+      });
+      // Activate first visible tab
+      if (firstVisible) {
+        tabs.forEach(function(t) { t.classList.remove('active'); });
+        explorerPanel.querySelectorAll('.explorer-tab-content').forEach(function(c) { c.classList.remove('active'); });
+        firstVisible.classList.add('active');
+        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping' };
+        document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
+      }
+    }
 
     // Tab switching
     explorerPanel.addEventListener('click', e => {
@@ -622,82 +779,9 @@ ${sections}
       explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface' };
+      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping' };
       document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
     });
-
-    function resolveType(prop) {
-      if (!prop || typeof prop !== 'object') return 'unknown';
-      if (prop.$ref) return prop.$ref.replace('#/definitions/', '');
-      if (prop.allOf) {
-        for (const entry of prop.allOf) {
-          if (entry.$ref) return entry.$ref.replace('#/definitions/', '');
-        }
-      }
-      if (prop.enum) return prop.enum.join(' | ');
-      if (prop.type === 'array' && prop.items) {
-        if (prop.items.$ref) return prop.items.$ref.replace('#/definitions/', '') + '[]';
-        return (prop.items.type || 'any') + '[]';
-      }
-      if (prop.type) return Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type;
-      return 'object';
-    }
-
-    function isRefType(prop) {
-      if (!prop || typeof prop !== 'object') return false;
-      if (prop.$ref) return true;
-      if (prop.allOf) return prop.allOf.some(e => e.$ref);
-      if (prop.type === 'array' && prop.items && prop.items.$ref) return true;
-      return false;
-    }
-
-    function refTarget(prop) {
-      if (prop.$ref) return prop.$ref.replace('#/definitions/', '');
-      if (prop.allOf) {
-        for (const e of prop.allOf) { if (e.$ref) return e.$ref.replace('#/definitions/', ''); }
-      }
-      if (prop.type === 'array' && prop.items && prop.items.$ref)
-        return prop.items.$ref.replace('#/definitions/', '');
-      return null;
-    }
-
-    function flattenAllOf(defsMap, name) {
-      const results = [];
-      const visited = new Set();
-      function walk(n) {
-        if (visited.has(n)) return;
-        visited.add(n);
-        const def = defsMap[n];
-        if (!def) return;
-        // Follow $ref alias (e.g. VehicleType -> VehicleType_VersionStructure)
-        if (def.$ref) {
-          walk(def.$ref.replace('#/definitions/', ''));
-          return;
-        }
-        // Process allOf entries (inheritance chain)
-        if (def.allOf) {
-          for (const entry of def.allOf) {
-            if (entry.$ref) {
-              walk(entry.$ref.replace('#/definitions/', ''));
-            } else if (entry.properties) {
-              for (const [pn, pv] of Object.entries(entry.properties)) {
-                results.push({ prop: pn, type: resolveType(pv), desc: pv.description || '', origin: n, schema: pv });
-              }
-            }
-          }
-        }
-        // Direct properties
-        if (def.properties) {
-          for (const [pn, pv] of Object.entries(def.properties)) {
-            if (!results.some(r => r.prop === pn && r.origin === n)) {
-              results.push({ prop: pn, type: resolveType(pv), desc: pv.description || '', origin: n, schema: pv });
-            }
-          }
-        }
-      }
-      walk(name);
-      return results;
-    }
 
     function esc(s) {
       const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
@@ -705,7 +789,7 @@ ${sections}
 
     function renderExplorer(name) {
       const props = flattenAllOf(defs, name);
-      explorerTitle.textContent = name;
+      explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
       explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
 
@@ -729,7 +813,12 @@ ${sections}
 
       explorerProps.innerHTML = html;
       renderGraph(name);
-      renderInterface(name);
+      explorerIface.innerHTML = '<div class="spinner"></div>';
+      explorerMapping.innerHTML = '<div class="spinner"></div>';
+      setTimeout(function() {
+        renderInterface(name);
+        renderMapping(name);
+      }, 0);
       currentExplored = name;
     }
 
@@ -861,84 +950,6 @@ ${sections}
 
     // ── Interface tab ─────────────────────────────────────────────────
 
-    function resolveLeafType(name, visited) {
-      if (!visited) visited = new Set();
-      if (visited.has(name)) return { ts: name, complex: true };
-      visited.add(name);
-      const def = defs[name];
-      if (!def) return { ts: name, complex: true };
-
-      // Pure $ref alias
-      if (def.$ref) return resolveLeafType(def.$ref.replace('#/definitions/', ''), visited);
-
-      // allOf with single $ref (wrapper)
-      if (def.allOf && !def.properties) {
-        const refs = def.allOf.filter(e => e.$ref);
-        const hasProps = def.allOf.some(e => e.properties && Object.keys(e.properties).length > 0);
-        if (refs.length === 1 && !hasProps) {
-          return resolveLeafType(refs[0].$ref.replace('#/definitions/', ''), visited);
-        }
-      }
-
-      // Enum
-      if (def.enum) return { ts: def.enum.map(v => JSON.stringify(v)).join(' | '), complex: false };
-
-      // anyOf union
-      if (def.anyOf) {
-        const parts = def.anyOf.map(branch => {
-          if (branch.$ref) return resolveLeafType(branch.$ref.replace('#/definitions/', ''), new Set(visited));
-          if (branch.enum) return { ts: branch.enum.map(v => JSON.stringify(v)).join(' | '), complex: false };
-          if (branch.type) return { ts: branch.type, complex: false };
-          return { ts: 'unknown', complex: false };
-        });
-        return { ts: parts.map(p => p.ts).join(' | '), complex: parts.some(p => p.complex) };
-      }
-
-      // Primitive (no properties)
-      if (def.type && !def.properties && typeof def.type === 'string' && def.type !== 'object') {
-        const fmt = def.format ? ' /* ' + def.format + ' */' : '';
-        return { ts: def.type + fmt, complex: false };
-      }
-
-      // Complex
-      return { ts: name, complex: true };
-    }
-
-    function resolvePropertyType(schema) {
-      if (!schema || typeof schema !== 'object') return { ts: 'unknown', complex: false };
-
-      // Direct $ref
-      if (schema.$ref) {
-        const target = schema.$ref.replace('#/definitions/', '');
-        return resolveLeafType(target);
-      }
-      // allOf wrapper
-      if (schema.allOf) {
-        for (const entry of schema.allOf) {
-          if (entry.$ref) {
-            const target = entry.$ref.replace('#/definitions/', '');
-            return resolveLeafType(target);
-          }
-        }
-      }
-      // Array
-      if (schema.type === 'array' && schema.items) {
-        if (schema.items.$ref) {
-          const inner = resolveLeafType(schema.items.$ref.replace('#/definitions/', ''));
-          return { ts: inner.ts + '[]', complex: inner.complex };
-        }
-        return { ts: (schema.items.type || 'any') + '[]', complex: false };
-      }
-      // Enum
-      if (schema.enum) return { ts: schema.enum.map(v => JSON.stringify(v)).join(' | '), complex: false };
-      // Primitive
-      if (schema.type && schema.type !== 'object') {
-        const fmt = schema.format ? ' /* ' + schema.format + ' */' : '';
-        return { ts: schema.type + fmt, complex: false };
-      }
-      return { ts: 'object', complex: false };
-    }
-
     const explorerIface = document.getElementById('explorerIface');
 
     function renderInterface(name) {
@@ -965,6 +976,8 @@ ${sections}
           const typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
           const suffix = resolved.ts.endsWith('[]') ? '[]' : '';
           typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
+          var leaf = resolveValueLeaf(typeName);
+          if (leaf) typeHtml += ' <span class="if-cmt">// \\u2192 ' + esc(leaf) + '</span>';
         } else if (resolved.ts.includes('|')) {
           // Literal union or multi-type
           const parts = resolved.ts.split(' | ');
@@ -1006,6 +1019,137 @@ ${sections}
       });
     });
 
+    // ── Mapping tab ───────────────────────────────────────────────────
+
+    const explorerMapping = document.getElementById('explorerMapping');
+
+    function renderMapping(name) {
+      var props = flattenAllOf(defs, name);
+      var required = collectRequired(defs, name);
+      var rev = buildReverseIndex();
+
+      var html = '';
+
+      // ── Type Guard ──
+      html += '<div class="mapping-section"><h3>Type Guard</h3>';
+      html += '<div class="interface-block">';
+      var lines = [];
+      lines.push('<span class="if-kw">function</span> is' + esc(name) + '(o: <span class="if-prim">unknown</span>): o <span class="if-kw">is</span> <span class="if-ref">' + esc(name) + '</span> {');
+      lines.push('  <span class="if-kw">if</span> (!o || <span class="if-kw">typeof</span> o !== <span class="if-lit">"object"</span>) <span class="if-kw">return false</span>;');
+      lines.push('  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;');
+      for (var i = 0; i < props.length; i++) {
+        var p = props[i];
+        var resolved = resolvePropertyType(p.schema);
+        var check = '';
+        if (resolved.ts.endsWith('[]')) {
+          check = '!Array.isArray(obj.' + p.prop + ')';
+        } else if (resolved.complex) {
+          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"object"</span>';
+        } else {
+          var base = resolved.ts;
+          if (base.indexOf('/*') !== -1) base = base.slice(0, base.indexOf(' /*')).trim();
+          if (base.indexOf('|') !== -1) {
+            // union — check for the base primitive (string for enums, etc.)
+            var firstPart = base.split('|')[0].trim();
+            if (firstPart.startsWith('"') || firstPart.startsWith("'")) {
+              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"string"</span>';
+            } else {
+              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
+            }
+          } else if (base === 'integer') {
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"number"</span>';
+          } else {
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
+          }
+        }
+        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
+      }
+      lines.push('  <span class="if-kw">return true</span>;');
+      lines.push('}');
+      html += lines.join('\\n');
+      html += '<button class="copy-btn">Copy</button></div></div>';
+
+      // ── Factory ──
+      html += '<div class="mapping-section"><h3>Factory</h3>';
+      html += '<div class="interface-block">';
+      var flines = [];
+      flines.push('<span class="if-kw">function</span> create' + esc(name) + '(');
+      flines.push('  init?: Partial&lt;<span class="if-ref">' + esc(name) + '</span>&gt;');
+      flines.push('): <span class="if-ref">' + esc(name) + '</span> {');
+      if (required.size > 0) {
+        flines.push('  <span class="if-kw">return</span> {');
+        for (var i = 0; i < props.length; i++) {
+          var p = props[i];
+          if (!required.has(p.prop)) continue;
+          var resolved = resolvePropertyType(p.schema);
+          var defVal = defaultForType(resolved.ts);
+          flines.push('    ' + esc(p.prop) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
+        }
+        flines.push('    ...init,');
+        flines.push('  };');
+      } else {
+        flines.push('  <span class="if-kw">return</span> { ...init } <span class="if-kw">as</span> <span class="if-ref">' + esc(name) + '</span>;');
+      }
+      flines.push('}');
+      html += flines.join('\\n');
+      html += '<button class="copy-btn">Copy</button></div></div>';
+
+      // ── References ──
+      html += '<div class="mapping-section"><h3>References</h3>';
+
+      // Uses (outgoing)
+      var uses = [];
+      var seen = {};
+      for (var i = 0; i < props.length; i++) {
+        var t = refTarget(props[i].schema);
+        if (t && !seen[t]) {
+          seen[t] = true;
+          uses.push(t);
+        }
+      }
+      html += '<div style="margin-bottom:0.5rem;"><span style="font-size:0.75rem;font-weight:600;color:var(--fg);">Uses</span>';
+      if (uses.length > 0) {
+        html += '<div class="ref-list">';
+        for (var i = 0; i < uses.length; i++) {
+          html += '<a href="#' + esc(uses[i]) + '" class="ref-chip explorer-type-link">' + esc(uses[i]) + '</a>';
+        }
+        html += '</div>';
+      } else {
+        html += ' <span class="ref-empty">none</span>';
+      }
+      html += '</div>';
+
+      // Used by (incoming)
+      var usedBy = rev[name] || [];
+      usedBy.sort();
+      html += '<div><span style="font-size:0.75rem;font-weight:600;color:var(--fg);">Used by</span>';
+      if (usedBy.length > 0) {
+        html += '<div class="ref-list">';
+        for (var i = 0; i < usedBy.length; i++) {
+          html += '<a href="#' + esc(usedBy[i]) + '" class="ref-chip explorer-type-link">' + esc(usedBy[i]) + '</a>';
+        }
+        html += '</div>';
+      } else {
+        html += ' <span class="ref-empty">none</span>';
+      }
+      html += '</div></div>';
+
+      explorerMapping.innerHTML = html;
+    }
+
+    // Copy handler for mapping tab
+    explorerMapping.addEventListener('click', function(e) {
+      if (!e.target.closest('.copy-btn')) return;
+      var block = e.target.closest('.interface-block');
+      if (!block) return;
+      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
+      navigator.clipboard.writeText(plain).then(function() {
+        var btn = e.target.closest('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+
     // Graph node clicks
     graphContainer.addEventListener('click', e => {
       const node = e.target.closest('.graph-node');
@@ -1030,6 +1174,7 @@ ${sections}
       document.body.classList.remove('explorer-open');
       explorerPanel.style.width = '';
       currentExplored = null;
+      currentMode = null;
     }
 
     handle1.addEventListener('mousedown', e => {
@@ -1069,10 +1214,25 @@ ${sections}
       if (btn) {
         e.preventDefault();
         const name = btn.dataset.def;
-        if (document.body.classList.contains('explorer-open') && currentExplored === name) {
+        if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'explore') {
           closeExplorer();
         } else {
           renderExplorer(name);
+          setExplorerMode('explore');
+          openExplorer();
+        }
+        return;
+      }
+      // Suggest code button click
+      const sbtn = e.target.closest('.suggest-btn');
+      if (sbtn) {
+        e.preventDefault();
+        const name = sbtn.dataset.def;
+        if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'code') {
+          closeExplorer();
+        } else {
+          renderExplorer(name);
+          setExplorerMode('code');
           openExplorer();
         }
         return;
@@ -1085,6 +1245,7 @@ ${sections}
           const targetName = decodeURIComponent(href.slice(1));
           if (defs[targetName]) {
             renderExplorer(targetName);
+            if (currentMode) setExplorerMode(currentMode);
           }
         }
       }

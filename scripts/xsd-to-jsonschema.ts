@@ -13,7 +13,10 @@ import { XMLParser } from "fast-xml-parser";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 
-export type JsonSchema = JSONSchema7 & { xml?: { attribute?: boolean } };
+export type JsonSchema = JSONSchema7 & {
+  xml?: { attribute?: boolean };
+  "x-netex-leaf"?: string;
+};
 
 interface TypeEntry {
   name: string;
@@ -28,6 +31,7 @@ const XSD_TYPE_MAP: Record<string, JsonSchema> = {
   "xsd:token": { type: "string" },
   "xsd:NCName": { type: "string" },
   "xsd:NMTOKEN": { type: "string" },
+  "xsd:NMTOKENS": { type: "string" },
   "xsd:Name": { type: "string" },
   "xsd:ID": { type: "string" },
   "xsd:IDREF": { type: "string" },
@@ -182,6 +186,9 @@ export class XsdToJsonSchema {
         this.warn(`failed to convert element '${name}' in ${sourceFile}: ${e.message}`);
       }
     }
+
+    // Pass 3: annotate simpleContent-derived types with their leaf primitive.
+    this.annotateValueLeaves();
   }
 
   /**
@@ -590,6 +597,136 @@ export class XsdToJsonSchema {
 
     // Reference to a user-defined type
     return { $ref: `#/definitions/${localName}` };
+  }
+
+  // ── Leaf annotation ───────────────────────────────────────────────────────
+
+  /**
+   * Annotate simpleContent-derived types with `x-netex-leaf`.
+   *
+   * XSD simpleContent types wrap a primitive `value` property with XML attribute
+   * metadata. The converter flattens these into `{ type: "object", properties:
+   * { value: baseRef, ...attrs } }`, which is structurally correct but hides
+   * the underlying primitive from consumers.
+   *
+   * This pass walks every definition that has a `value` property, follows the
+   * chain through $ref aliases and intermediate value-wrapping types, and stamps
+   * the result on the definition as `x-netex-leaf: "string"` (or number, etc.).
+   *
+   * Design choice (Option B — propagate through the full chain):
+   *   Every type whose `value` property ultimately resolves to a primitive gets
+   *   annotated, even through intermediaries. For example:
+   *     GroupOfEntitiesRefStructure_Dummy → value → VersionOfObjectRefStructure
+   *     VersionOfObjectRefStructure → value → ObjectIdType → string
+   *   Both get `x-netex-leaf: "string"`.
+   *
+   * Alternative (Option A — annotate only the direct simpleContent type):
+   *   Only the type that directly wraps a primitive `value` gets annotated.
+   *   Consumers must still chase intermediate refs. Simpler in the converter
+   *   but pushes complexity to every viewer/consumer.
+   */
+  private annotateValueLeaves(): void {
+    const allDefs = new Map<string, JsonSchema>();
+    for (const [n, e] of this.types) allDefs.set(n, e.schema);
+    for (const [n, e] of this.elements) {
+      if (!allDefs.has(n)) allDefs.set(n, e.schema);
+    }
+
+    for (const [name, schema] of allDefs) {
+      if (this.getValueProperties(schema)?.value) {
+        const leaf = this.resolveValueLeaf(name, allDefs, new Set());
+        if (leaf) schema["x-netex-leaf"] = leaf;
+      }
+    }
+  }
+
+  /**
+   * Follow the `value` property chain to find the underlying primitive type.
+   *
+   * Handles three link types in the chain:
+   *   1. $ref aliases — definition is just `{ $ref: "..." }`
+   *   2. allOf inheritance — parent may carry the `value` property
+   *   3. value → $ref — `value` property points to another type that may itself
+   *      be a value-wrapper (Option B recursion)
+   *
+   * Returns the primitive type name ("string", "number", etc.) or null if the
+   * chain doesn't bottom out at a primitive.
+   */
+  private resolveValueLeaf(
+    name: string,
+    allDefs: Map<string, JsonSchema>,
+    visited: Set<string>,
+  ): string | null {
+    if (visited.has(name)) return null;
+    visited.add(name);
+
+    const def = allDefs.get(name);
+    if (!def) return null;
+
+    // $ref alias (e.g. VehicleType → VehicleType_VersionStructure)
+    if (def.$ref) {
+      return this.resolveValueLeaf(
+        def.$ref.replace("#/definitions/", ""),
+        allDefs,
+        visited,
+      );
+    }
+
+    // allOf: check parent for value property
+    if (def.allOf) {
+      for (const entry of def.allOf as JsonSchema[]) {
+        if (entry.$ref) {
+          const result = this.resolveValueLeaf(
+            entry.$ref.replace("#/definitions/", ""),
+            allDefs,
+            visited,
+          );
+          if (result) return result;
+        }
+      }
+    }
+
+    // Terminal: definition IS a simple type (reached via $ref alias chain)
+    if (def.type && typeof def.type === "string" && def.type !== "object") {
+      return def.type;
+    }
+
+    // Look for a `value` property (may be on def.properties or inside allOf)
+    const props = this.getValueProperties(def);
+    if (!props?.value) return null;
+    const vp = props.value as JsonSchema;
+
+    // value points to another type — recurse (Option B: follow the full chain)
+    if (vp.$ref) {
+      const target = vp.$ref.replace("#/definitions/", "");
+      // Target may itself be a value-wrapper → recurse
+      const inner = this.resolveValueLeaf(target, allDefs, visited);
+      if (inner) return inner;
+      // Or target may be a simple type (string, number) → check directly
+      const targetDef = allDefs.get(target);
+      if (targetDef?.type && typeof targetDef.type === "string" && targetDef.type !== "object") {
+        return targetDef.type;
+      }
+      return null;
+    }
+
+    // value is an inline primitive
+    if (vp.type && typeof vp.type === "string" && vp.type !== "object") {
+      return vp.type;
+    }
+
+    return null;
+  }
+
+  /** Get properties from a definition, checking both top-level and allOf members. */
+  private getValueProperties(def: JsonSchema): Record<string, JsonSchema> | null {
+    if (def.properties) return def.properties as Record<string, JsonSchema>;
+    if (def.allOf) {
+      for (const entry of def.allOf as JsonSchema[]) {
+        if (entry.properties) return entry.properties as Record<string, JsonSchema>;
+      }
+    }
+    return null;
   }
 
   // ── Output ────────────────────────────────────────────────────────────────
