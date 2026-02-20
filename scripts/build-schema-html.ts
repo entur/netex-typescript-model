@@ -471,6 +471,39 @@ function buildHtml(
     .graph-node { cursor: pointer; }
     .graph-node:hover rect { opacity: 0.8; }
 
+    /* Interface tab */
+    .interface-block {
+      position: relative;
+      background: var(--code-bg);
+      border-radius: 0.35rem;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+      white-space: pre;
+    }
+    .if-kw { color: var(--bool-color); font-weight: 600; }
+    .if-prop { color: var(--fg); }
+    .if-prim { color: var(--num-color); }
+    .if-lit { color: var(--str-color); }
+    .if-cmt { color: var(--muted); font-style: italic; }
+    .if-ref { color: var(--link-color); text-decoration: underline dotted; cursor: pointer; }
+    .if-ref:hover { text-decoration-style: solid; }
+    .copy-btn {
+      position: absolute;
+      top: 0.4rem;
+      right: 0.4rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.25rem;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.7rem;
+      cursor: pointer;
+      color: var(--muted);
+    }
+    .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
+
     /* Resize handles */
     .resize-handle {
       width: 4px;
@@ -523,9 +556,11 @@ ${sections}
     <div class="explorer-tabs">
       <button class="explorer-tab active" data-tab="props">Properties</button>
       <button class="explorer-tab" data-tab="graph">Graph</button>
+      <button class="explorer-tab" data-tab="iface">Interface</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
+    <div class="explorer-tab-content" id="explorerIface"></div>
   </aside>
 
   <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
@@ -587,8 +622,8 @@ ${sections}
       explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const target = tab.dataset.tab === 'graph' ? 'explorerGraph' : 'explorerProps';
-      document.getElementById(target).classList.add('active');
+      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface' };
+      document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
     });
 
     function resolveType(prop) {
@@ -694,6 +729,7 @@ ${sections}
 
       explorerProps.innerHTML = html;
       renderGraph(name);
+      renderInterface(name);
       currentExplored = name;
     }
 
@@ -822,6 +858,153 @@ ${sections}
       svg += '</svg>';
       graphContainer.innerHTML = svg;
     }
+
+    // ── Interface tab ─────────────────────────────────────────────────
+
+    function resolveLeafType(name, visited) {
+      if (!visited) visited = new Set();
+      if (visited.has(name)) return { ts: name, complex: true };
+      visited.add(name);
+      const def = defs[name];
+      if (!def) return { ts: name, complex: true };
+
+      // Pure $ref alias
+      if (def.$ref) return resolveLeafType(def.$ref.replace('#/definitions/', ''), visited);
+
+      // allOf with single $ref (wrapper)
+      if (def.allOf && !def.properties) {
+        const refs = def.allOf.filter(e => e.$ref);
+        const hasProps = def.allOf.some(e => e.properties && Object.keys(e.properties).length > 0);
+        if (refs.length === 1 && !hasProps) {
+          return resolveLeafType(refs[0].$ref.replace('#/definitions/', ''), visited);
+        }
+      }
+
+      // Enum
+      if (def.enum) return { ts: def.enum.map(v => JSON.stringify(v)).join(' | '), complex: false };
+
+      // anyOf union
+      if (def.anyOf) {
+        const parts = def.anyOf.map(branch => {
+          if (branch.$ref) return resolveLeafType(branch.$ref.replace('#/definitions/', ''), new Set(visited));
+          if (branch.enum) return { ts: branch.enum.map(v => JSON.stringify(v)).join(' | '), complex: false };
+          if (branch.type) return { ts: branch.type, complex: false };
+          return { ts: 'unknown', complex: false };
+        });
+        return { ts: parts.map(p => p.ts).join(' | '), complex: parts.some(p => p.complex) };
+      }
+
+      // Primitive (no properties)
+      if (def.type && !def.properties && typeof def.type === 'string' && def.type !== 'object') {
+        const fmt = def.format ? ' /* ' + def.format + ' */' : '';
+        return { ts: def.type + fmt, complex: false };
+      }
+
+      // Complex
+      return { ts: name, complex: true };
+    }
+
+    function resolvePropertyType(schema) {
+      if (!schema || typeof schema !== 'object') return { ts: 'unknown', complex: false };
+
+      // Direct $ref
+      if (schema.$ref) {
+        const target = schema.$ref.replace('#/definitions/', '');
+        return resolveLeafType(target);
+      }
+      // allOf wrapper
+      if (schema.allOf) {
+        for (const entry of schema.allOf) {
+          if (entry.$ref) {
+            const target = entry.$ref.replace('#/definitions/', '');
+            return resolveLeafType(target);
+          }
+        }
+      }
+      // Array
+      if (schema.type === 'array' && schema.items) {
+        if (schema.items.$ref) {
+          const inner = resolveLeafType(schema.items.$ref.replace('#/definitions/', ''));
+          return { ts: inner.ts + '[]', complex: inner.complex };
+        }
+        return { ts: (schema.items.type || 'any') + '[]', complex: false };
+      }
+      // Enum
+      if (schema.enum) return { ts: schema.enum.map(v => JSON.stringify(v)).join(' | '), complex: false };
+      // Primitive
+      if (schema.type && schema.type !== 'object') {
+        const fmt = schema.format ? ' /* ' + schema.format + ' */' : '';
+        return { ts: schema.type + fmt, complex: false };
+      }
+      return { ts: 'object', complex: false };
+    }
+
+    const explorerIface = document.getElementById('explorerIface');
+
+    function renderInterface(name) {
+      const props = flattenAllOf(defs, name);
+      const origins = [...new Set(props.map(p => p.origin))];
+
+      let lines = [];
+      lines.push('<span class="if-cmt">/**');
+      lines.push(' * Suggested flat interface for ' + esc(name));
+      lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
+      lines.push(' */</span>');
+      lines.push('<span class="if-kw">interface</span> ' + esc(name) + ' {');
+
+      let lastOrigin = null;
+      for (const p of props) {
+        if (p.origin !== lastOrigin) {
+          if (lastOrigin !== null) lines.push('');
+          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
+          lastOrigin = p.origin;
+        }
+        const resolved = resolvePropertyType(p.schema);
+        let typeHtml;
+        if (resolved.complex) {
+          const typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
+          const suffix = resolved.ts.endsWith('[]') ? '[]' : '';
+          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
+        } else if (resolved.ts.includes('|')) {
+          // Literal union or multi-type
+          const parts = resolved.ts.split(' | ');
+          typeHtml = parts.map(part => {
+            part = part.trim();
+            if (part.startsWith('"') || part.startsWith("'")) return '<span class="if-lit">' + esc(part) + '</span>';
+            return '<span class="if-prim">' + esc(part) + '</span>';
+          }).join(' | ');
+        } else if (resolved.ts.indexOf('/*') !== -1) {
+          // Primitive with format comment
+          const ci = resolved.ts.indexOf(' /*');
+          if (ci !== -1) typeHtml = '<span class="if-prim">' + esc(resolved.ts.slice(0, ci)) + '</span><span class="if-cmt">' + esc(resolved.ts.slice(ci)) + '</span>';
+          else typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
+        } else {
+          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
+        }
+        lines.push('  <span class="if-prop">' + esc(p.prop) + '</span>?: ' + typeHtml + ';');
+      }
+
+      lines.push('}');
+
+      let html = '<div class="interface-block">' + lines.join('\\n');
+      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
+
+      explorerIface.innerHTML = html;
+    }
+
+    // Copy handler
+    explorerIface.addEventListener('click', e => {
+      if (!e.target.closest('.copy-btn')) return;
+      const block = explorerIface.querySelector('.interface-block');
+      if (!block) return;
+      // Extract plain text (strip HTML tags)
+      const plain = block.innerText.replace(/Copy$/, '').trimEnd();
+      navigator.clipboard.writeText(plain).then(() => {
+        const btn = e.target.closest('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 1500);
+      });
+    });
 
     // Graph node clicks
     graphContainer.addEventListener('click', e => {
