@@ -123,7 +123,7 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
       const jsonHtml = highlightJson(displayDef);
 
       return `    <section id="${escapeHtml(name)}" class="def-section">
-      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}</h2>
+      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}<button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
       ${desc ? `<p class="def-desc">${escapeHtml(desc)}</p>` : ""}
       <pre><code>${jsonHtml}</code></pre>
     </section>`;
@@ -342,6 +342,112 @@ function buildHtml(
         cursor: pointer;
       }
       main { padding: 1rem; padding-top: 2.5rem; }
+      .explore-btn { display: none; }
+    }
+
+    /* Explore button */
+    .explore-btn {
+      float: right;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 0.25rem;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      font-family: system-ui, sans-serif;
+      font-weight: 500;
+    }
+    .explore-btn:hover { background: var(--accent-hover); }
+
+    /* Explorer panel */
+    .explorer-panel {
+      width: 0;
+      overflow: hidden;
+      transition: width 0.2s, min-width 0.2s, padding 0.2s;
+      border-left: 1px solid var(--sidebar-border);
+      background: var(--sidebar-bg);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      min-width: 0;
+    }
+    body.explorer-open .explorer-panel {
+      width: 380px;
+      min-width: 380px;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+    .explorer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+    .explorer-header h2 {
+      font-size: 1rem;
+      font-family: ui-monospace, monospace;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .explorer-close {
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 0 0.25rem;
+      line-height: 1;
+    }
+    .explorer-close:hover { color: var(--fg); }
+    .explorer-subtitle {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .explorer-body { flex: 1; min-height: 0; }
+    .origin-group { margin-bottom: 0.75rem; }
+    .origin-heading {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--accent);
+      font-family: ui-monospace, monospace;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 0.25rem;
+    }
+    .origin-heading a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .origin-heading a:hover { text-decoration: underline; }
+    .prop-row {
+      padding: 0.3rem 0.4rem;
+      border-radius: 0.2rem;
+      font-size: 0.8rem;
+    }
+    .prop-row:nth-child(even) { background: var(--code-bg); }
+    .prop-name {
+      font-family: ui-monospace, monospace;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .prop-type {
+      font-family: ui-monospace, monospace;
+      color: var(--accent);
+      font-size: 0.75rem;
+    }
+    .prop-type a { color: inherit; text-decoration: underline dotted; }
+    .prop-type a:hover { text-decoration-style: solid; }
+    .prop-pdesc {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 0.1rem;
     }
   </style>
 </head>
@@ -361,6 +467,17 @@ ${sidebarItems}
   <main id="main">
 ${sections}
   </main>
+
+  <aside class="explorer-panel" id="explorerPanel">
+    <div class="explorer-header">
+      <h2 id="explorerTitle"></h2>
+      <button class="explorer-close" id="explorerClose">&times;</button>
+    </div>
+    <p class="explorer-subtitle" id="explorerSubtitle"></p>
+    <div class="explorer-body" id="explorerBody"></div>
+  </aside>
+
+  <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
 
   <script>
     // Search / filter
@@ -401,6 +518,152 @@ ${sections}
     toggle.addEventListener('click', () => sidebar.classList.toggle('open'));
     sidebar.addEventListener('click', e => {
       if (e.target.classList.contains('sidebar-link')) sidebar.classList.remove('open');
+    });
+
+    // Explorer panel
+    const defs = JSON.parse(document.getElementById('schema-data').textContent);
+    const explorerPanel = document.getElementById('explorerPanel');
+    const explorerTitle = document.getElementById('explorerTitle');
+    const explorerSubtitle = document.getElementById('explorerSubtitle');
+    const explorerBody = document.getElementById('explorerBody');
+    let currentExplored = null;
+
+    function resolveType(prop) {
+      if (!prop || typeof prop !== 'object') return 'unknown';
+      if (prop.$ref) return prop.$ref.replace('#/definitions/', '');
+      if (prop.allOf) {
+        for (const entry of prop.allOf) {
+          if (entry.$ref) return entry.$ref.replace('#/definitions/', '');
+        }
+      }
+      if (prop.enum) return prop.enum.join(' | ');
+      if (prop.type === 'array' && prop.items) {
+        if (prop.items.$ref) return prop.items.$ref.replace('#/definitions/', '') + '[]';
+        return (prop.items.type || 'any') + '[]';
+      }
+      if (prop.type) return Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type;
+      return 'object';
+    }
+
+    function isRefType(prop) {
+      if (!prop || typeof prop !== 'object') return false;
+      if (prop.$ref) return true;
+      if (prop.allOf) return prop.allOf.some(e => e.$ref);
+      if (prop.type === 'array' && prop.items && prop.items.$ref) return true;
+      return false;
+    }
+
+    function refTarget(prop) {
+      if (prop.$ref) return prop.$ref.replace('#/definitions/', '');
+      if (prop.allOf) {
+        for (const e of prop.allOf) { if (e.$ref) return e.$ref.replace('#/definitions/', ''); }
+      }
+      if (prop.type === 'array' && prop.items && prop.items.$ref)
+        return prop.items.$ref.replace('#/definitions/', '');
+      return null;
+    }
+
+    function flattenAllOf(defsMap, name) {
+      const results = [];
+      const visited = new Set();
+      function walk(n) {
+        if (visited.has(n)) return;
+        visited.add(n);
+        const def = defsMap[n];
+        if (!def) return;
+        // Follow $ref alias (e.g. VehicleType -> VehicleType_VersionStructure)
+        if (def.$ref) {
+          walk(def.$ref.replace('#/definitions/', ''));
+          return;
+        }
+        // Process allOf entries (inheritance chain)
+        if (def.allOf) {
+          for (const entry of def.allOf) {
+            if (entry.$ref) {
+              walk(entry.$ref.replace('#/definitions/', ''));
+            } else if (entry.properties) {
+              for (const [pn, pv] of Object.entries(entry.properties)) {
+                results.push({ prop: pn, type: resolveType(pv), desc: pv.description || '', origin: n, schema: pv });
+              }
+            }
+          }
+        }
+        // Direct properties
+        if (def.properties) {
+          for (const [pn, pv] of Object.entries(def.properties)) {
+            if (!results.some(r => r.prop === pn && r.origin === n)) {
+              results.push({ prop: pn, type: resolveType(pv), desc: pv.description || '', origin: n, schema: pv });
+            }
+          }
+        }
+      }
+      walk(name);
+      return results;
+    }
+
+    function esc(s) {
+      const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+    }
+
+    function renderExplorer(name) {
+      const props = flattenAllOf(defs, name);
+      explorerTitle.textContent = name;
+      const origins = [...new Set(props.map(p => p.origin))];
+      explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
+
+      let html = '';
+      let lastOrigin = null;
+      for (const p of props) {
+        if (p.origin !== lastOrigin) {
+          if (lastOrigin !== null) html += '</div>';
+          html += '<div class="origin-group"><div class="origin-heading"><a href="#' + esc(p.origin) + '" class="explorer-type-link">' + esc(p.origin) + '</a></div>';
+          lastOrigin = p.origin;
+        }
+        const typeHtml = isRefType(p.schema)
+          ? '<a href="#' + esc(refTarget(p.schema)) + '" class="explorer-type-link">' + esc(p.type) + '</a>'
+          : esc(p.type);
+        html += '<div class="prop-row"><div class="prop-name">' + esc(p.prop) + ' <span class="prop-type">' + typeHtml + '</span></div>';
+        if (p.desc) html += '<div class="prop-pdesc">' + esc(p.desc) + '</div>';
+        html += '</div>';
+      }
+      if (lastOrigin !== null) html += '</div>';
+      if (props.length === 0) html = '<p style="color:var(--muted);font-size:0.85rem;">No properties found.</p>';
+
+      explorerBody.innerHTML = html;
+      currentExplored = name;
+    }
+
+    document.addEventListener('click', e => {
+      // Explore button click
+      const btn = e.target.closest('.explore-btn');
+      if (btn) {
+        e.preventDefault();
+        const name = btn.dataset.def;
+        if (document.body.classList.contains('explorer-open') && currentExplored === name) {
+          document.body.classList.remove('explorer-open');
+          currentExplored = null;
+        } else {
+          renderExplorer(name);
+          document.body.classList.add('explorer-open');
+        }
+        return;
+      }
+      // Type link click inside explorer panel
+      const typeLink = e.target.closest('.explorer-type-link');
+      if (typeLink && explorerPanel.contains(typeLink)) {
+        const href = typeLink.getAttribute('href');
+        if (href && href.startsWith('#')) {
+          const targetName = decodeURIComponent(href.slice(1));
+          if (defs[targetName]) {
+            renderExplorer(targetName);
+          }
+        }
+      }
+    });
+
+    document.getElementById('explorerClose').addEventListener('click', () => {
+      document.body.classList.remove('explorer-open');
+      currentExplored = null;
     });
   </script>
 </body>
