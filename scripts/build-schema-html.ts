@@ -205,9 +205,7 @@ function buildHtml(
     /* Sidebar */
     .sidebar {
       width: 280px;
-      min-width: 280px;
       background: var(--sidebar-bg);
-      border-right: 1px solid var(--sidebar-border);
       padding: 1rem;
       overflow-y: auto;
       position: sticky;
@@ -268,7 +266,6 @@ function buildHtml(
     main {
       flex: 1;
       padding: 1.5rem 2rem;
-      max-width: 64rem;
       min-width: 0;
     }
     .def-section {
@@ -364,8 +361,6 @@ function buildHtml(
     .explorer-panel {
       width: 0;
       overflow: hidden;
-      transition: width 0.2s, min-width 0.2s, padding 0.2s;
-      border-left: 1px solid var(--sidebar-border);
       background: var(--sidebar-bg);
       position: sticky;
       top: 0;
@@ -373,11 +368,9 @@ function buildHtml(
       display: flex;
       flex-direction: column;
       padding: 0;
-      min-width: 0;
     }
     body.explorer-open .explorer-panel {
       width: 380px;
-      min-width: 380px;
       padding: 1rem;
     }
     .explorer-header {
@@ -477,6 +470,29 @@ function buildHtml(
     .graph-container svg { display: block; }
     .graph-node { cursor: pointer; }
     .graph-node:hover rect { opacity: 0.8; }
+
+    /* Resize handles */
+    .resize-handle {
+      width: 4px;
+      flex-shrink: 0;
+      cursor: col-resize;
+      background: var(--sidebar-border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      z-index: 2;
+    }
+    .resize-handle:hover, .resize-handle.active {
+      background: var(--accent);
+    }
+    #handle2 { display: none; }
+    body.explorer-open #handle2 { display: block; }
+    body.resizing { cursor: col-resize !important; }
+    body.resizing * { user-select: none !important; pointer-events: none !important; }
+    body.resizing .resize-handle { pointer-events: auto !important; }
+    @media (max-width: 768px) {
+      .resize-handle { display: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -491,10 +507,12 @@ function buildHtml(
 ${sidebarItems}
     </ul>
   </nav>
+  <div class="resize-handle" id="handle1"></div>
 
   <main id="main">
 ${sections}
   </main>
+  <div class="resize-handle" id="handle2"></div>
 
   <aside class="explorer-panel" id="explorerPanel">
     <div class="explorer-header">
@@ -814,6 +832,54 @@ ${sections}
       }
     });
 
+    // ── Resizable panes ──────────────────────────────────────────────────
+
+    let explorerW = 380;
+    const handle1 = document.getElementById('handle1');
+    const handle2 = document.getElementById('handle2');
+    let drag = null;
+
+    function openExplorer() {
+      explorerPanel.style.width = explorerW + 'px';
+      document.body.classList.add('explorer-open');
+    }
+    function closeExplorer() {
+      document.body.classList.remove('explorer-open');
+      explorerPanel.style.width = '';
+      currentExplored = null;
+    }
+
+    handle1.addEventListener('mousedown', e => {
+      e.preventDefault();
+      handle1.classList.add('active');
+      document.body.classList.add('resizing');
+      drag = { handle: 1, startX: e.clientX, startW: sidebar.offsetWidth };
+    });
+    handle2.addEventListener('mousedown', e => {
+      e.preventDefault();
+      handle2.classList.add('active');
+      document.body.classList.add('resizing');
+      drag = { handle: 2, startX: e.clientX, startW: explorerPanel.offsetWidth };
+    });
+    document.addEventListener('mousemove', e => {
+      if (!drag) return;
+      if (drag.handle === 1) {
+        const w = Math.max(160, Math.min(500, drag.startW + e.clientX - drag.startX));
+        sidebar.style.width = w + 'px';
+      } else {
+        const w = Math.max(250, drag.startW - (e.clientX - drag.startX));
+        explorerW = w;
+        explorerPanel.style.width = w + 'px';
+      }
+    });
+    document.addEventListener('mouseup', () => {
+      if (!drag) return;
+      handle1.classList.remove('active');
+      handle2.classList.remove('active');
+      document.body.classList.remove('resizing');
+      drag = null;
+    });
+
     document.addEventListener('click', e => {
       // Explore button click
       const btn = e.target.closest('.explore-btn');
@@ -821,11 +887,10 @@ ${sections}
         e.preventDefault();
         const name = btn.dataset.def;
         if (document.body.classList.contains('explorer-open') && currentExplored === name) {
-          document.body.classList.remove('explorer-open');
-          currentExplored = null;
+          closeExplorer();
         } else {
           renderExplorer(name);
-          document.body.classList.add('explorer-open');
+          openExplorer();
         }
         return;
       }
@@ -842,10 +907,7 @@ ${sections}
       }
     });
 
-    document.getElementById('explorerClose').addEventListener('click', () => {
-      document.body.classList.remove('explorer-open');
-      currentExplored = null;
-    });
+    document.getElementById('explorerClose').addEventListener('click', closeExplorer);
   </script>
 </body>
 </html>`;
