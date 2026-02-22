@@ -1,6 +1,6 @@
 # NeTEx Subset Selection Guide
 
-This project generates TypeScript types from NeTEx XSD schemas. NeTEx 2.0 contains 458+ XSD files across several functional parts. Rather than generating types for the entire standard, you configure a **subset** in `inputs/config.json` that matches your use case.
+This project generates TypeScript types from NeTEx XSD schemas. NeTEx 2.0 contains 458+ XSD files across several functional parts. Rather than generating types for the entire standard, you configure a **subset** in `assembly-config.json` that matches your use case.
 
 This guide explains the structure of the NeTEx XSD, how to choose which parts to include, and how to plan deployment of the generated package.
 
@@ -81,14 +81,14 @@ Part 1 ──references──► Framework + GML + IFOPT
 
 ## Configuring the Subset
 
-Edit `inputs/config.json`. Each part has an `enabled` flag:
+Edit `assembly-config.json` at the repo root. Each part has an `enabled` flag:
 
 ```json
 {
   "parts": {
-    "framework": { "enabled": true, "required": true, "dirs": ["netex_framework"] },
-    "gml":       { "enabled": true, "required": true, "dirs": ["gml"] },
-    "part1_network": { "enabled": true, "dirs": ["netex_part_1"] }
+    "framework": { "required": true, "dirs": ["netex_framework"] },
+    "gml":       { "required": true, "dirs": ["gml"] },
+    "part1_network": { "enabled": false, "dirs": ["netex_part_1"] }
   },
   "rootXsds": {
     "ifopt":       { "enabled": true, "file": "ifopt.xsd" },
@@ -97,16 +97,14 @@ Edit `inputs/config.json`. Each part has an `enabled` flag:
 }
 ```
 
-Then run `npm run generate` to generate TypeScript types from the enabled parts.
-
-To try a part without editing config.json, use `xsd-to-jsonschema-1st-try.ts --parts` and then pass the schema to `generate.ts`:
+To try a part without editing config, pass `ASSEMBLY` to the Makefile. Parts are derived automatically from the assembly name:
 
 ```bash
-npx tsx scripts/xsd-to-jsonschema-1st-try.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part1_network
-npx tsx scripts/generate.ts --schema-source /tmp/netex/network.schema.json
+make all ASSEMBLY=network              # base + part1_network
+make all ASSEMBLY=network+timetable    # base + part1_network + part2_timetable
 ```
 
-This enables the part for that run only. Required parts (`framework`, `gml`, `siri`, `service`, `publication`) are hardwired in the generator and cannot be disabled — the script warns and re-enables them if config.json is tampered with.
+Natural names (`network`, `timetable`, `fares`, `new-modes`) and config keys (`part1_network`, etc.) are both accepted. Required parts (`framework`, `gml`, `siri`, `service`, `publication`) are always included and cannot be disabled.
 
 ## Deployment Strategy
 

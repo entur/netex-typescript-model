@@ -32,39 +32,39 @@ cd typescript && npm install   # once
 ## Quick Start
 
 ```bash
-make                           # download XSDs → JSON Schema → schema HTML (base)
+make all                       # full pipeline: XSD → JSON Schema → HTML → TypeScript → TypeDoc
 ```
 
-This runs the full Stage 1 pipeline: downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, and generates an interactive HTML viewer.
-
-Then generate TypeScript interfaces:
-
-```bash
-cd typescript
-npx tsx scripts/generate.ts ../generated-src/base/base.schema.json
-```
+This downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, generates an interactive HTML viewer, TypeScript interfaces, and TypeDoc documentation.
 
 ## Generating Variants
 
-Pass `ASSEMBLY` and `PARTS` to build a different NeTEx subset:
+Pass `ASSEMBLY` to build a different NeTEx subset. Parts are derived automatically from the assembly name:
 
 ```bash
-make ASSEMBLY=network PARTS=part1_network
-cd typescript
-npx tsx scripts/generate.ts ../generated-src/network/network.schema.json
+make all ASSEMBLY=network              # base + part1_network
+make all ASSEMBLY=network+timetable    # base + part1_network + part2_timetable
 ```
 
-Available parts: `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`. See the [Subset Selection Guide](typescript/docs/subset-selection-guide.md) for dependencies between parts.
+Available parts: `network`, `timetable`, `fares`, `new-modes` (also accepted as `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`). Multi-part assemblies use `+` separators and are sorted alphabetically. See the [Subset Selection Guide](typescript/docs/subset-selection-guide.md) for dependencies between parts.
 
 ## Makefile Targets
 
-| Command                            | What it does                                           |
-| ---------------------------------- | ------------------------------------------------------ |
-| `make`                             | Base JSON Schema + schema HTML (default)               |
-| `make ASSEMBLY=<name> PARTS=<key>` | Named variant                                          |
-| `make clean`                       | Remove `generated-src/`, `xsd/`, `json-schema/target/` |
+| Command                              | What it does                                           |
+| ------------------------------------ | ------------------------------------------------------ |
+| `make all`                           | Full pipeline: schema + types + docs (default: base)   |
+| `make all ASSEMBLY=network`          | Full pipeline for a named variant                      |
+| `make schema`                        | JSON Schema + schema HTML only                         |
+| `make types`                         | TypeScript interfaces only                             |
+| `make docs`                          | TypeDoc HTML only                                      |
+| `make tarball VERSION=1.0.0`         | Package assembly as `.tgz` release tarball             |
+| `make clean`                         | Remove `generated-src/`, `xsd/`, `json-schema/target/` |
 
 The Makefile is incremental — re-running `make` after a successful build is a no-op.
+
+## Releases
+
+Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds each assembly, packages them as `.tgz` tarballs, and attaches them to a GitHub Release. Tarball naming: `netex-<version>-<branch>-<assembly>-v<tag>.tgz`.
 
 ## Pipeline
 
@@ -96,7 +96,7 @@ npm run docs                          # TypeDoc HTML per assembly
 npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
 
-CI generates all variants, builds TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
+CI builds `base` and `network+timetable` assemblies, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
 
 ## XSD Subset
 

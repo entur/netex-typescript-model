@@ -26,6 +26,10 @@ Currently `generate.ts` emits interfaces for every JSON Schema definition. Most 
 - Would reduce generated code size and make the TypeDoc surface more navigable
 - Need to verify that entity/frameMember interfaces don't reference excluded types (or inline them)
 
+## Add test suite using netex-validator-java XML fixtures
+
+The [netex-validator-java](https://github.com/entur/netex-validator-java) repo contains real NeTEx XML fixtures. Use these to build a validation/round-trip test suite for the generated schemas and (future) parser. See [typescript/docs/netex-testing-landscape.md](typescript/docs/netex-testing-landscape.md) for an overview of existing NeTEx test infrastructure.
+
 ## Implement NeTEx XML parser
 
 Build a TypeScript parser that can read NeTEx XML documents into the generated interfaces. See [typescript/docs/PARSER.md](typescript/docs/PARSER.md) for the design plan.
