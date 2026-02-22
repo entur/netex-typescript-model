@@ -19,8 +19,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REFINEMENT_DIR="$REPO_ROOT/typescript"
 PREPROC_DIR="$SCRIPT_DIR"
 XSD_ROOT="$REPO_ROOT/xsd/2.0"
-CONFIG_PATH="$REFINEMENT_DIR/inputs/config.json"
-REFERENCE_JSON="$REFINEMENT_DIR/src/generated/base/jsonschema/base.schema.json"
+CONFIG_PATH="$REPO_ROOT/assembly-config.json"
+REFERENCE_JSON="$REPO_ROOT/generated-src/base/base.schema.json"
 PREPROC_OUT="/tmp/netex-preproc-out"
 
 SKIP_REFERENCE=false
@@ -39,7 +39,7 @@ done
 
 if [[ ! -d "$XSD_ROOT" ]]; then
   echo "ERROR: XSD directory not found at $XSD_ROOT"
-  echo "  Run: cd $REPO_ROOT/typescript && npm run download"
+  echo "  Run: cd $REPO_ROOT/json-schema && mvn initialize"
   exit 1
 fi
 

@@ -1,44 +1,42 @@
 /**
- * Generates TypeScript interfaces and Zod schemas from downloaded NeTEx XSDs.
- * Only processes the parts enabled in inputs/config.json.
+ * Generates TypeScript interfaces from a pre-generated NeTEx JSON Schema.
  *
- * Usage: npx tsx scripts/generate.ts [--schema-source <path>]
+ * Usage: npx tsx scripts/generate.ts <schema.json>
  *
- * Options:
- *   --schema-source <path>  Use a pre-generated JSON Schema file instead of running
- *                           the XSD converter. The schema must contain an
- *                           "x-netex-assembly" field identifying the assembly name.
- *                           Skips the category split (no typeSourceMap).
+ * The schema must contain an "x-netex-assembly" field identifying the assembly name.
+ * Per-definition "x-netex-source" annotations are used to build the source map for
+ * splitting into per-category modules.
  *
  * Pipeline:
- *   1. Collect and parse all XSD files (cross-references need full set)
- *   2. Convert XSD → JSON Schema via custom converter (xsd-to-jsonschema.ts)
- *   3. Filter JSON Schema definitions to enabled parts only
+ *   1. Load JSON Schema from positional argument
+ *   2. Build typeSourceMap from per-definition x-netex-source annotations
+ *   3. Inject @see links into a clone (persisted JSON stays clean)
  *   4. Convert JSON Schema → TypeScript interfaces via json-schema-to-typescript
- *   5. (Future) Generate Zod schemas from TypeScript interfaces
+ *   5. Split into per-category modules (using source map from step 2)
+ *   6. Type-check with tsc --noEmit
  */
 
 import { readFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import type { JSONSchema4 } from "json-schema";
 import { compile } from "json-schema-to-typescript";
-import { XsdToJsonSchema } from "./xsd-to-jsonschema.js";
-import type { JsonSchema } from "./xsd-to-jsonschema.js";
 import { splitTypeScript } from "./split-output.js";
-import { Config, resolveAssembly } from "./lib/config.js";
+import type { JSONSchema7 } from "json-schema";
+
+type JsonSchema = JSONSchema7 & {
+  "x-netex-source"?: string;
+  "x-netex-assembly"?: string;
+};
 
 const DOCS_BASE_URL = "https://entur.github.io/netex-typescript-model";
 
-function parseCliArgs(): { schemaSource?: string } {
-  const args: { schemaSource?: string } = {};
-  const argv = process.argv;
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === "--schema-source" && argv[i + 1]) {
-      args.schemaSource = argv[++i];
-    }
-  }
-  return args;
+// ── CLI ─────────────────────────────────────────────────────────────────────
+
+const schemaPath = process.argv[2];
+if (!schemaPath) {
+  console.error("Usage: npx tsx scripts/generate.ts <schema.json>");
+  process.exit(1);
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -101,25 +99,21 @@ function injectSchemaLinks(schema: JsonSchema, assembly: string): JsonSchema {
   return clone;
 }
 
-// ── External schema loading ─────────────────────────────────────────────────
+// ── Schema loading ──────────────────────────────────────────────────────────
 
-/**
- * Load a pre-generated JSON Schema from disk and validate $ref integrity.
- * The schema must contain an "x-netex-assembly" field.
- */
-function loadExternalSchema(path: string): JsonSchema {
+function loadSchema(path: string): JsonSchema {
   const absPath = resolve(path);
   if (!existsSync(absPath)) {
-    console.error(`Schema source not found: ${absPath}`);
+    console.error(`Schema not found: ${absPath}`);
     process.exit(1);
   }
 
-  console.log(`\nLoading external JSON Schema: ${absPath}`);
+  console.log(`\nLoading JSON Schema: ${absPath}`);
   const schema: JsonSchema = JSON.parse(readFileSync(absPath, "utf-8"));
 
   if (!schema["x-netex-assembly"]) {
-    console.error(`\n  ERROR: External schema is missing "x-netex-assembly" field.`);
-    console.error(`  Generate the schema with xsd-to-jsonschema.ts to include it.`);
+    console.error(`\n  ERROR: Schema is missing "x-netex-assembly" field.`);
+    console.error(`  Generate the schema with xsd-to-jsonschema to include it.`);
     process.exit(1);
   }
 
@@ -129,7 +123,7 @@ function loadExternalSchema(path: string): JsonSchema {
 
   const brokenRefs = validateRefs(schema);
   if (brokenRefs.length > 0) {
-    console.error(`\n  ERROR: ${brokenRefs.length} broken $ref targets in external schema:`);
+    console.error(`\n  ERROR: ${brokenRefs.length} broken $ref targets:`);
     for (const [source, target] of brokenRefs.slice(0, 10)) {
       console.error(`    ${source} → $ref "#/definitions/${target}" (missing)`);
     }
@@ -150,67 +144,8 @@ function cleanDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
 }
 
-function generateJsonSchema(config: Config): { schema: JsonSchema; converter: XsdToJsonSchema } {
-  if (!existsSync(config.xsdRoot)) {
-    console.error(`XSD directory not found: ${config.xsdRoot}`);
-    console.error("Run 'npm run download' first.");
-    process.exit(1);
-  }
-
-  console.log("\nStep 1: Parsing XSD files...");
-  const converter = new XsdToJsonSchema(config.xsdRoot);
-
-  // Load from publication entry point — recursively resolves all includes/imports
-  const entryXsd = "NeTEx_publication.xsd";
-  converter.loadFile(entryXsd);
-
-  const stats = converter.stats;
-  console.log(`  Parsed ${stats.files} XSD files`);
-  console.log(`  Found ${stats.types} types, ${stats.elements} elements, ${stats.groups} groups`);
-
-  const warnings = converter.getWarnings();
-  if (warnings.length > 0) {
-    console.log(`  ${warnings.length} warnings:`);
-    for (const w of warnings.slice(0, 10)) {
-      console.log(`    - ${w}`);
-    }
-    if (warnings.length > 10) {
-      console.log(`    ... and ${warnings.length - 10} more`);
-    }
-  }
-
-  console.log("\nStep 2: Generating JSON Schema (filtered to enabled parts)...");
-  const schema = converter.toJsonSchema((sourceFile) => config.isEnabledPath(sourceFile));
-  const defCount = Object.keys(schema.definitions || {}).length;
-  console.log(`  ${defCount} definitions in filtered schema`);
-
-  // Validate: every $ref must resolve to an existing definition
-  const brokenRefs = validateRefs(schema);
-  if (brokenRefs.length > 0) {
-    console.error(`\n  ERROR: ${brokenRefs.length} broken $ref targets in JSON Schema:`);
-    for (const [source, target] of brokenRefs.slice(0, 10)) {
-      console.error(`    ${source} → $ref "#/definitions/${target}" (missing)`);
-    }
-    if (brokenRefs.length > 10) {
-      console.error(`    ... and ${brokenRefs.length - 10} more`);
-    }
-    process.exit(1);
-  }
-  console.log(`  $ref integrity: all references resolve`);
-
-  return { schema, converter };
-}
-
-function persistJsonSchema(schema: JsonSchema, jsonSchemaDir: string, assembly: string): void {
-  cleanDir(jsonSchemaDir);
-  const outPath = resolve(jsonSchemaDir, `${assembly}.schema.json`);
-  writeFileSync(outPath, JSON.stringify(schema, null, 2));
-  console.log(`  Written to ${outPath}`);
-}
-
-
 async function generateTypeScript(schema: JsonSchema, interfacesDir: string): Promise<string> {
-  console.log("\nStep 3: Generating TypeScript interfaces...");
+  console.log("\nGenerating TypeScript interfaces...");
   cleanDir(interfacesDir);
 
   try {
@@ -244,7 +179,6 @@ async function generateTypeScript(schema: JsonSchema, interfacesDir: string): Pr
     return ts;
   } catch (e: any) {
     console.error(`  TypeScript generation failed: ${e.message}`);
-    console.error("  JSON Schema was persisted — you can inspect it for issues.");
     process.exit(1);
   }
 }
@@ -255,49 +189,42 @@ async function generateTypeScript(schema: JsonSchema, interfacesDir: string): Pr
 //
 // ###################################
 
-const ROOT = resolve(import.meta.dirname, "..");
-const config = new Config(resolve(ROOT, "inputs/config.json"));
+const REPO_ROOT = resolve(import.meta.dirname, "../..");
 
-const cliArgs = parseCliArgs();
+console.log("=== NeTEx TypeScript Interface Generator ===");
 
-console.log("=== NeTEx TypeScript Model Generator ===\n");
-console.log(`XSD root: ${config.xsdRoot}`);
-console.log(`NeTEx version: ${config.netexVersion}\n`);
-
-config.printParts();
-config.printRootXsds();
-
-let schema: JsonSchema;
-let typeSourceMap: Map<string, string> | undefined;
-
-if (cliArgs.schemaSource) {
-  // External schema — skip XSD parsing, skip subset summary
-  schema = loadExternalSchema(cliArgs.schemaSource);
-} else {
-  // Standard pipeline — XSD → JSON Schema
-  config.printSubsetSummary();
-  const result = generateJsonSchema(config);
-  schema = result.schema;
-  schema["x-netex-assembly"] = resolveAssembly(config.parts);
-  typeSourceMap = result.converter.getTypeSourceMap();
-}
-
-// Derive output paths from the assembly embedded in the schema
+const schema = loadSchema(schemaPath);
 const assembly = schema["x-netex-assembly"]!;
-const generatedJsonSchema = resolve(config.generatedBase, assembly, "jsonschema");
-const generatedInterfaces = resolve(config.generatedBase, assembly, "interfaces");
-const generatedZod = resolve(config.generatedBase, assembly, "zod");
+
+// Derive output directory from schema path:
+// Schema lives at generated-src/<assembly>/<assembly>.schema.json
+// Output goes to sibling interfaces/ dir
+const generatedInterfaces = resolve(dirname(schemaPath), "interfaces");
 
 console.log(`\nOutput assembly: ${assembly}`);
+console.log(`Interfaces dir: ${generatedInterfaces}`);
 
-persistJsonSchema(schema, generatedJsonSchema, assembly);
+// Build typeSourceMap from per-definition x-netex-source annotations
+const typeSourceMap = new Map<string, string>();
+for (const [name, def] of Object.entries(schema.definitions ?? {})) {
+  const d = def as Record<string, unknown>;
+  if (typeof d["x-netex-source"] === "string") {
+    typeSourceMap.set(name, d["x-netex-source"]);
+  }
+}
+
+if (typeSourceMap.size > 0) {
+  console.log(`  Source map: ${typeSourceMap.size} definitions with provenance`);
+} else {
+  console.log(`  Source map: none (no x-netex-source annotations)`);
+}
 
 const linkedSchema = injectSchemaLinks(schema, assembly);
 const ts = await generateTypeScript(linkedSchema, generatedInterfaces);
 
-// Step 4: Split into per-category modules (only when we have source mapping)
-if (typeSourceMap) {
-  console.log("\nStep 4: Splitting into category modules...");
+// Split into per-category modules (only when we have source mapping)
+if (typeSourceMap.size > 0) {
+  console.log("\nSplitting into category modules...");
   const splitResult = splitTypeScript(ts, typeSourceMap, generatedInterfaces);
   for (const [cat, count] of [...splitResult.counts.entries()].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${cat}.ts: ${count} declarations`);
@@ -319,13 +246,13 @@ if (typeSourceMap) {
     console.log(`  Split completeness: ${splitCount}/${monolithicCount} declarations accounted for`);
   }
 } else {
-  console.log("\nStep 4: Skipping category split (no type source map from external schema)");
+  console.log("\nSkipping category split (no x-netex-source annotations in schema)");
 }
 
-// Step 5: Type-check the generated output
-console.log("\nStep 5: Type-checking generated output...");
+// Type-check the generated output
+console.log("\nType-checking generated output...");
 try {
-  execSync("npx tsc --noEmit", { cwd: ROOT, stdio: "pipe" });
+  execSync("npx --prefix typescript tsc --noEmit -p tsconfig.generated.json", { cwd: REPO_ROOT, stdio: "pipe" });
   console.log("  Type-check passed (zero errors)");
 } catch (e: any) {
   const stderr = e.stderr?.toString() || "";
@@ -338,9 +265,5 @@ try {
   }
   process.exit(1);
 }
-
-// TODO: Step 6 — invoke ts-to-zod on generated interfaces
-console.log("\n[stub] Zod schema generation not yet wired up");
-console.log(`  Would output to: ${generatedZod}/`);
 
 console.log("\nDone.");

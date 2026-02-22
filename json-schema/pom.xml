@@ -18,6 +18,11 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <graaljs.version>24.1.2</graaljs.version>
+    <netex.version>2.0</netex.version>
+    <netex.branch>next</netex.branch>
+    <netex.repoName>NeTEx</netex.repoName>
+    <netex.githubUrl>https://github.com/NeTEx-CEN/NeTEx</netex.githubUrl>
+    <xsd.dest>${project.basedir}/../xsd/${netex.version}</xsd.dest>
   </properties>
 
   <dependencies>
@@ -50,6 +55,38 @@
 
   <build>
     <plugins>
+      <!-- Download and extract NeTEx XSD schemas from GitHub -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>download-netex-xsd</id>
+            <phase>initialize</phase>
+            <goals><goal>run</goal></goals>
+            <configuration>
+              <target>
+                <get src="${netex.githubUrl}/archive/refs/heads/${netex.branch}.zip"
+                     dest="${project.build.directory}/${netex.repoName}-${netex.branch}.zip"
+                     skipexisting="true"/>
+                <delete dir="${xsd.dest}" failonerror="false"/>
+                <mkdir dir="${xsd.dest}"/>
+                <unzip src="${project.build.directory}/${netex.repoName}-${netex.branch}.zip"
+                       dest="${xsd.dest}">
+                  <patternset>
+                    <include name="${netex.repoName}-${netex.branch}/xsd/**"/>
+                  </patternset>
+                  <mapper type="glob"
+                          from="${netex.repoName}-${netex.branch}/xsd/*"
+                          to="*"/>
+                </unzip>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
       <!-- Write dependency classpath to target/classpath.txt -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -70,8 +107,10 @@
         Launch GraalJS shell. Java.type() interop is available by default
         when JSLauncher runs on JVM (as opposed to native-image mode).
 
-        Usage:
-          mvn generate-resources exec:exec -Dscript.args="../xsd/2.0 /tmp/out"
+        Full pipeline (download XSDs + resolve JARs + run converter):
+          mvn initialize generate-resources exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../typescript/inputs/config.json"
+
+        If XSDs are already downloaded:
           mvn generate-resources exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../typescript/inputs/config.json"
       -->
       <plugin>

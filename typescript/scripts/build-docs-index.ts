@@ -15,12 +15,13 @@ import {
   writeFileSync,
   cpSync,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 
-const ROOT = resolve(import.meta.dirname, "..");
-const config = JSON.parse(readFileSync(resolve(ROOT, "inputs/config.json"), "utf-8"));
-const generatedBase = resolve(ROOT, config.paths.generated);
-const siteDir = resolve(ROOT, "docs-site");
+const CONFIG_PATH = resolve(import.meta.dirname, "../../assembly-config.json");
+const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+const configDir = dirname(CONFIG_PATH);
+const generatedBase = resolve(configDir, config.paths.generated);
+const siteDir = resolve(configDir, "docs-site");
 
 // Descriptions for each assembly, derived from config parts
 const ASSEMBLY_DESCRIPTIONS: Record<string, string> = {
@@ -65,18 +66,16 @@ for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
     ).length;
   }
 
-  // Count definitions from JSON Schema (glob for *.schema.json)
+  // Count definitions from JSON Schema
   let definitionCount = 0;
-  const jsonschemaDir = join(generatedBase, entry.name, "jsonschema");
-  if (existsSync(jsonschemaDir)) {
-    const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
-    if (schemaFile) {
-      try {
-        const schema = JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8"));
-        definitionCount = Object.keys(schema.definitions ?? {}).length;
-      } catch {
-        // ignore parse errors
-      }
+  const assemblyDir = join(generatedBase, entry.name);
+  const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
+  if (schemaFile) {
+    try {
+      const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
+      definitionCount = Object.keys(schema.definitions ?? {}).length;
+    } catch {
+      // ignore parse errors
     }
   }
 

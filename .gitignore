@@ -1,5 +1,6 @@
 node_modules/
 typescript/dist/
+generated-src/
 typescript/src/generated/
 docs-site/
 xsd/

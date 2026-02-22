@@ -8,7 +8,7 @@ import {
   type Defs,
 } from "./schema-viewer-fns.js";
 
-const jsonschemaDir = resolve(import.meta.dirname, "../../src/generated/base/jsonschema");
+const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
 
 let defs: Defs;
 

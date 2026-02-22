@@ -1,7 +1,7 @@
 /**
  * XSD → JSON Schema converter for NeTEx — GraalVM JavaScript edition.
  *
- * Feature-parity port of typescript/scripts/xsd-to-jsonschema.ts.
+ * Feature-parity port of typescript/scripts/xsd-to-jsonschema-1st-try.ts.
  * Uses Java DOM (via GraalVM Java interop) instead of fast-xml-parser.
  * No Node.js APIs — plain JS + Java.type().
  *
@@ -750,6 +750,7 @@ class XsdToJsonSchema {
     for (const [name, entry] of Object.entries(this.types)) {
       if (!enabledFilter || enabledFilter(entry.sourceFile)) {
         definitions[name] = entry.schema;
+        entry.schema["x-netex-source"] = entry.sourceFile;
       }
     }
 
@@ -757,6 +758,7 @@ class XsdToJsonSchema {
       if (!enabledFilter || enabledFilter(entry.sourceFile)) {
         if (!definitions[name]) {
           definitions[name] = entry.schema;
+          entry.schema["x-netex-source"] = entry.sourceFile;
         }
       }
     }
@@ -955,11 +957,21 @@ function main() {
 
   if (configPath) {
     const config = loadConfig(configPath);
-    // Apply CLI parts
+    // Apply CLI parts (validate each)
     for (const part of cliParts) {
-      if (config.parts[part] && !config.parts[part].required) {
-        config.parts[part].enabled = true;
+      const p = config.parts[part];
+      if (!p || part.startsWith("_")) {
+        const optional = Object.keys(config.parts)
+          .filter(k => !k.startsWith("_") && !config.parts[k].required);
+        print(`ERROR: Unknown part: ${part}`);
+        print(`Available optional parts: ${optional.join(", ")}`);
+        java.lang.System.exit(1);
       }
+      if (p.required) {
+        print(`ERROR: Part '${part}' is already required and always enabled.`);
+        java.lang.System.exit(1);
+      }
+      p.enabled = true;
     }
     enabledDirList = enabledDirs(config.parts);
     enabledRootXsdList = enabledRootXsdFiles(config.rootXsds);

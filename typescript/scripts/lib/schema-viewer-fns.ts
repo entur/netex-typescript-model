@@ -233,7 +233,7 @@ export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
 /**
  * Read the x-netex-leaf annotation for a definition.
  *
- * The converter (xsd-to-jsonschema.ts) stamps `x-netex-leaf` on simpleContent-
+ * The converter (xsd-to-jsonschema-1st-try.ts) stamps `x-netex-leaf` on simpleContent-
  * derived types at build time (Option B: propagated through the full value chain).
  * This function is a simple property read — no chain-walking needed.
  */

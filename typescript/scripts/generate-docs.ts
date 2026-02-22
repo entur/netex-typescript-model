@@ -1,18 +1,19 @@
 /**
  * Generates TypeDoc HTML documentation for each generated assembly.
- * Discovers assemblies by listing directories in src/generated/.
+ * Discovers assemblies by listing directories in generated-src/.
  * Creates an assembly-specific README for the TypeDoc landing page.
  *
  * Usage: npx tsx scripts/generate-docs.ts
  */
 
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 
-const ROOT = resolve(import.meta.dirname, "..");
-const config = JSON.parse(readFileSync(resolve(ROOT, "inputs/config.json"), "utf-8"));
-const generatedBase = resolve(ROOT, config.paths.generated);
+const CONFIG_PATH = resolve(import.meta.dirname, "../../assembly-config.json");
+const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+const configDir = dirname(CONFIG_PATH);
+const generatedBase = resolve(configDir, config.paths.generated);
 
 if (!existsSync(generatedBase)) {
   console.error(`Generated directory not found: ${generatedBase}`);
@@ -119,7 +120,7 @@ for (const assembly of assemblies) {
         `--name "${packageName(assembly)}"`,
         "--skipErrorChecking",
       ].join(" "),
-      { cwd: ROOT, stdio: "pipe" },
+      { cwd: configDir, stdio: "pipe" },
     );
     console.log(`  Written to ${outDir}`);
     generated++;

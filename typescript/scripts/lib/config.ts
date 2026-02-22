@@ -1,7 +1,7 @@
 /**
  * Shared configuration for the NeTEx TypeScript generation pipeline.
  *
- * Extracted from generate.ts so that xsd-to-jsonschema.ts and other scripts
+ * Extracted from generate.ts so that xsd-to-jsonschema-1st-try.ts and other scripts
  * can reuse Config, part definitions, and assembly resolution without pulling in
  * the full generation pipeline.
  */
@@ -72,12 +72,11 @@ export class Config {
 
   constructor(configPath: string) {
     const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-    const pkgRoot = resolve(dirname(configPath), "..");
-    const repoRoot = resolve(pkgRoot, "..");
+    const configDir = dirname(configPath);
 
     this.netexVersion = raw.netex.version;
-    this.xsdRoot = resolve(repoRoot, raw.paths.xsdRoot, this.netexVersion);
-    this.generatedBase = resolve(pkgRoot, raw.paths.generated);
+    this.xsdRoot = resolve(configDir, raw.paths.xsdRoot, this.netexVersion);
+    this.generatedBase = resolve(configDir, raw.paths.generated);
     this.parts = raw.parts;
     this.rootXsds = raw.rootXsds;
 
@@ -204,7 +203,7 @@ export class Config {
         totalFiles += n;
         console.log(`  ${dir}/  (${n} XSD files)`);
       } catch {
-        console.log(`  ${dir}/  (not found — run 'npm run download' first)`);
+        console.log(`  ${dir}/  (not found — run 'cd ../json-schema && mvn initialize' to download XSDs)`);
       }
     }
 

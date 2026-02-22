@@ -16,6 +16,7 @@ import { resolve, dirname, join } from "node:path";
 export type JsonSchema = JSONSchema7 & {
   xml?: { attribute?: boolean };
   "x-netex-leaf"?: string;
+  "x-netex-source"?: string;
   "x-netex-assembly"?: string;
 };
 
@@ -744,6 +745,7 @@ export class XsdToJsonSchema {
     for (const [name, entry] of this.types) {
       if (!enabledFilter || enabledFilter(entry.sourceFile)) {
         definitions[name] = entry.schema;
+        entry.schema["x-netex-source"] = entry.sourceFile;
       }
     }
 
@@ -751,6 +753,7 @@ export class XsdToJsonSchema {
       if (!enabledFilter || enabledFilter(entry.sourceFile)) {
         if (!definitions[name]) {
           definitions[name] = entry.schema;
+          entry.schema["x-netex-source"] = entry.sourceFile;
         }
       }
     }
@@ -838,7 +841,7 @@ export class XsdToJsonSchema {
 
 // ── Standalone CLI ────────────────────────────────────────────────────────────
 //
-// Usage: npx tsx scripts/xsd-to-jsonschema.ts <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]
+// Usage: npx tsx scripts/xsd-to-jsonschema-1st-try.ts <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]
 //
 // Mirrors json-schema/'s main() interface:
 //   xsdRoot    — path to the XSD directory (e.g. ../xsd/2.0)
@@ -861,7 +864,7 @@ if (resolve(process.argv[1]) === import.meta.filename) {
   const [xsdRoot, outDir, configPath] = positional;
   if (!xsdRoot || !outDir) {
     console.error(
-      "Usage: npx tsx scripts/xsd-to-jsonschema.ts <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]",
+      "Usage: npx tsx scripts/xsd-to-jsonschema-1st-try.ts <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]",
     );
     process.exit(1);
   }

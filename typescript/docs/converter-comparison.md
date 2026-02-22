@@ -17,7 +17,7 @@ This is **not** about XSD `<xsd:annotation>/<xsd:documentation>` (human-readable
 
 ## Current state
 
-The custom converter (`xsd-to-jsonschema.ts`, ~630 lines) already parses the XSD constructs that carry this information:
+The custom converter (`xsd-to-jsonschema-1st-try.ts`, ~630 lines) already parses the XSD constructs that carry this information:
 
 - **Attributes are parsed** — `xsd:attribute` elements are read and emitted as properties, but nothing marks them as `xml: { attribute: true }`. They're indistinguishable from child elements in the output.
 - **Namespaces are stripped** — `stripNs()` removes all prefixes. The original namespace/prefix is discarded.

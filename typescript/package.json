@@ -3,22 +3,19 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "download": "tsx scripts/download.ts",
-    "generate": "tsx scripts/generate.ts && tsx scripts/validate-generated-schemas.ts",
-    "generate:schema": "tsx scripts/xsd-to-jsonschema.ts",
-    "build": "tsc",
-    "test": "npm run generate && vitest run",
+    "generate:schema": "tsx scripts/xsd-to-jsonschema-1st-try.ts",
+    "generate:ts": "tsx scripts/generate.ts",
+    "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.*'",
     "test:integration": "vitest run scripts/lib/schema-viewer-fns.integration.test.ts",
+    "validate:jsonschema": "tsx scripts/validate-generated-schemas.ts",
     "docs": "tsx scripts/generate-docs.ts"
   },
   "dependencies": {
     "zod": "^3.23"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.7",
     "@types/json-schema": "^7.0.15",
-    "adm-zip": "^0.5.16",
     "ajv": "^8.18.0",
     "fast-xml-parser": "^5.3.6",
     "json-schema-to-typescript": "^15.0.4",

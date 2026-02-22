@@ -1,8 +1,8 @@
 /**
  * Generates a self-contained HTML page per assembly from the JSON Schema.
  *
- * For each assembly in src/generated/<assembly>/jsonschema/*.schema.json, produces
- * src/generated/<assembly>/netex-schema.html with:
+ * For each assembly in generated-src/<assembly>/*.schema.json, produces
+ * generated-src/<assembly>/netex-schema.html with:
  * - Sidebar with alphabetical definition index and search/filter
  * - Per-definition sections with permalink anchors
  * - Pretty-printed JSON with syntax highlighting and clickable $ref links
@@ -13,12 +13,13 @@
  */
 
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import ts from "typescript";
 
-const ROOT = resolve(import.meta.dirname, "..");
-const config = JSON.parse(readFileSync(resolve(ROOT, "inputs/config.json"), "utf-8"));
-const generatedBase = resolve(ROOT, config.paths.generated);
+const CONFIG_PATH = resolve(import.meta.dirname, "../../assembly-config.json");
+const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+const configDir = dirname(CONFIG_PATH);
+const generatedBase = resolve(configDir, config.paths.generated);
 
 if (!existsSync(generatedBase)) {
   console.error(`Generated directory not found: ${generatedBase}`);
@@ -29,13 +30,12 @@ let built = 0;
 
 for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
-  const jsonschemaDir = join(generatedBase, entry.name, "jsonschema");
-  if (!existsSync(jsonschemaDir)) continue;
-  const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
+  const assemblyDir = join(generatedBase, entry.name);
+  const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
   if (!schemaFile) continue;
 
   const assembly = entry.name;
-  const schema = JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8"));
+  const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
   const defs = schema.definitions ?? {};
   const defNames = Object.keys(defs).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 

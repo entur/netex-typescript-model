@@ -6,7 +6,7 @@ This guide explains the structure of the NeTEx XSD, how to choose which parts to
 
 ## NeTEx XSD Structure
 
-After running `npm run download`, the `xsd/2.0/` directory contains:
+After running `cd json-schema && mvn initialize`, the `xsd/2.0/` directory contains:
 
 | Directory | Files | Domain |
 |---|---|---|
@@ -99,10 +99,10 @@ Edit `inputs/config.json`. Each part has an `enabled` flag:
 
 Then run `npm run generate` to generate TypeScript types from the enabled parts.
 
-To try a part without editing config.json, use `xsd-to-jsonschema.ts --parts` and then pass the schema to `generate.ts`:
+To try a part without editing config.json, use `xsd-to-jsonschema-1st-try.ts --parts` and then pass the schema to `generate.ts`:
 
 ```bash
-npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part1_network
+npx tsx scripts/xsd-to-jsonschema-1st-try.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part1_network
 npx tsx scripts/generate.ts --schema-source /tmp/netex/network.schema.json
 ```
 

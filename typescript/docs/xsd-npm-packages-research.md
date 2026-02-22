@@ -1,7 +1,7 @@
 # XSD-Aware npm Packages: Research Report
 
 **Date:** 2026-02-19
-**Context:** Evaluating alternatives/supplements to our custom 612-line `xsd-to-jsonschema.ts` which treats XSD files as "just XML" via fast-xml-parser.
+**Context:** Evaluating alternatives/supplements to our custom 612-line `xsd-to-jsonschema-1st-try.ts` which treats XSD files as "just XML" via fast-xml-parser.
 
 ---
 
@@ -152,7 +152,7 @@ The most promising finding is **`@kie-tools/xml-parser-ts-codegen`** (Apache KIE
 
 **What it does:** Pure JavaScript XSD to JSON Schema converter. Supports Draft-04/06/07.
 
-**Why we already rejected it:** Our `xsd-to-jsonschema.ts` header says:
+**Why we already rejected it:** Our `xsd-to-jsonschema-1st-try.ts` header says:
 > "xsd2jsonschema (the npm package) has xs:include as a no-op and crashes on xsd:simpleContent — both are fundamental NeTEx patterns."
 
 **Current state of those bugs:**

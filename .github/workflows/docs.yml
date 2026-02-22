@@ -17,11 +17,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: typescript
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
 
       - uses: actions/setup-node@v4
         with:
@@ -30,55 +32,60 @@ jobs:
           cache-dependency-path: typescript/package-lock.json
 
       - run: npm ci
+        working-directory: typescript
 
-      - name: Download XSD schemas
-        run: npm run download
+      # Generate JSON Schema + schema HTML for all variants via Makefile
+      - name: Generate base schema
+        run: make ASSEMBLY=base
 
-      # Generate base (required parts only) + each optional part individually.
-      # Each generate writes to src/generated/<assembly>/.
-      # Variant builds use xsd-to-jsonschema.ts --parts then generate.ts --schema-source.
-      - name: Generate base
-        run: npm run generate
+      - name: Generate network schema
+        run: make ASSEMBLY=network PARTS=part1_network
+
+      - name: Generate timetable schema
+        run: make ASSEMBLY=timetable PARTS=part2_timetable
+
+      - name: Generate fares schema
+        run: make ASSEMBLY=fares PARTS=part3_fares
+
+      - name: Generate new-modes schema
+        run: make ASSEMBLY=new-modes PARTS=part5_new_modes
+
+      # Generate TypeScript interfaces for each variant
+      - name: Generate base TypeScript
+        working-directory: typescript
+        run: npx tsx scripts/generate.ts ../generated-src/base/base.schema.json
 
       - name: Run tests
+        working-directory: typescript
         run: npx vitest run
 
-      - name: Generate network
-        run: |
-          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part1_network
-          npx tsx scripts/generate.ts --schema-source /tmp/netex/network.schema.json
-          npx tsx scripts/validate-generated-schemas.ts
+      - name: Generate network TypeScript
+        working-directory: typescript
+        run: npx tsx scripts/generate.ts ../generated-src/network/network.schema.json
 
-      - name: Generate timetable
-        run: |
-          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part2_timetable
-          npx tsx scripts/generate.ts --schema-source /tmp/netex/timetable.schema.json
-          npx tsx scripts/validate-generated-schemas.ts
+      - name: Generate timetable TypeScript
+        working-directory: typescript
+        run: npx tsx scripts/generate.ts ../generated-src/timetable/timetable.schema.json
 
-      - name: Generate fares
-        run: |
-          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part3_fares
-          npx tsx scripts/generate.ts --schema-source /tmp/netex/fares.schema.json
-          npx tsx scripts/validate-generated-schemas.ts
+      - name: Generate fares TypeScript
+        working-directory: typescript
+        run: npx tsx scripts/generate.ts ../generated-src/fares/fares.schema.json
 
-      - name: Generate new-modes
-        run: |
-          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part5_new_modes
-          npx tsx scripts/generate.ts --schema-source /tmp/netex/new-modes.schema.json
-          npx tsx scripts/validate-generated-schemas.ts
+      - name: Generate new-modes TypeScript
+        working-directory: typescript
+        run: npx tsx scripts/generate.ts ../generated-src/new-modes/new-modes.schema.json
 
       - name: Generate TypeDoc per assembly
+        working-directory: typescript
         run: npm run docs
 
-      - name: Build schema HTML pages
-        run: npx tsx scripts/build-schema-html.ts
-
       - name: Build welcome page
+        working-directory: typescript
         run: npx tsx scripts/build-docs-index.ts
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: typescript/docs-site
+          path: docs-site
 
   deploy:
     needs: build
