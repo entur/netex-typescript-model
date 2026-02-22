@@ -46,7 +46,7 @@ make all ASSEMBLY=network              # base + part1_network
 make all ASSEMBLY=network+timetable    # base + part1_network + part2_timetable
 ```
 
-Available parts: `network`, `timetable`, `fares`, `new-modes` (also accepted as `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`). Multi-part assemblies use `+` separators and are sorted alphabetically. See the [Subset Selection Guide](typescript/docs/subset-selection-guide.md) for dependencies between parts.
+Available parts: `network`, `timetable`, `fares`, `new-modes` (also accepted as `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`). Multi-part assemblies use `+` separators and are sorted alphabetically. See the [Subset Selection Guide](docs/subset-selection-guide.md) for dependencies between parts.
 
 ## Makefile Targets
 
@@ -120,7 +120,7 @@ NeTEx 2.0 contains 458+ XSD files across several functional parts. Generation is
 | `part3_fares`     | `netex_part_3` | 92    | Fare products, pricing, distribution, sales                            |
 | `part5_new_modes` | `netex_part_5` | 32    | Mobility services, vehicle meeting points (Part 4 was never published) |
 
-Enable a part by setting `"enabled": true` in its config entry. See the [Subset Selection Guide](typescript/docs/subset-selection-guide.md) for dependency info between parts.
+Enable a part by setting `"enabled": true` in its config entry. See the [Subset Selection Guide](docs/subset-selection-guide.md) for dependency info between parts.
 
 ## Configuration
 

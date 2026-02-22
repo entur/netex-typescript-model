@@ -28,11 +28,13 @@ Currently `generate.ts` emits interfaces for every JSON Schema definition. Most 
 
 ## Add test suite using netex-validator-java XML fixtures
 
-The [netex-validator-java](https://github.com/entur/netex-validator-java) repo contains real NeTEx XML fixtures. Use these to build a validation/round-trip test suite for the generated schemas and (future) parser. See [typescript/docs/netex-testing-landscape.md](typescript/docs/netex-testing-landscape.md) for an overview of existing NeTEx test infrastructure.
+The [netex-validator-java](https://github.com/entur/netex-validator-java) repo contains real NeTEx XML fixtures. Use these to build a validation/round-trip test suite for the generated schemas and (future) parser. See [docs/netex-testing-landscape.md](docs/netex-testing-landscape.md) for an overview of existing NeTEx test infrastructure.
+
+Also evaluate [openapi-sampler](https://github.com/Redocly/openapi-sampler) (or `json-schema-faker`) for generating sample data from the JSON Schema, then roundtrip-testing: JSON Schema → generate sample object → parse into TypeScript interfaces → serialize to XML → verify valid NeTEx XML.
 
 ## Implement NeTEx XML parser
 
-Build a TypeScript parser that can read NeTEx XML documents into the generated interfaces. See [typescript/docs/PARSER.md](typescript/docs/PARSER.md) for the design plan.
+Build a TypeScript parser that can read NeTEx XML documents into the generated interfaces. See [docs/PARSER.md](docs/PARSER.md) for the design plan.
 
 ## Sync GitHub Actions with Entur conventions
 

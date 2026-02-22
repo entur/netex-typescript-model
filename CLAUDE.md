@@ -94,7 +94,7 @@ Everything flows from `assembly-config.json` at the repo root. Scripts read this
 
 Full NeTEx 2.0 has 458+ XSD files. The `parts` config toggles which parts to include in generation. All files are loaded (cross-references need to resolve), but only enabled parts produce TypeScript output.
 
-Each part has an `enabled` flag. Framework, GML, SIRI, and service are always required. Domain parts (`part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`) are toggled per use case. See `typescript/docs/subset-selection-guide.md` for details.
+Each part has an `enabled` flag. Framework, GML, SIRI, and service are always required. Domain parts (`part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`) are toggled per use case. See `docs/subset-selection-guide.md` for details.
 
 ### Output Assemblies
 
