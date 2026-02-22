@@ -2,7 +2,7 @@
 
 ## Experimental / Work-in-progress !!
 
-TypeScript interfaces generated from [NeTEx](http://netex-cen.eu/) (Network Timetable Exchange) XSD schemas. Sibling project to [netex-java-model](https://github.com/entur/netex-java-model).
+Generates JSON Schema and TypeScript interfaces from [NeTEx](http://netex-cen.eu/) (Network Timetable Exchange) XSD schemas. The JSON Schema is a standalone artifact useful on its own (validation, code generation in other languages, interactive HTML viewer); the TypeScript interfaces build on top of it. Sibling project to [netex-java-model](https://github.com/entur/netex-java-model).
 
 **[API Documentation](https://entur.github.io/netex-typescript-model/)** — TypeDoc for every NeTEx part, generated and deployed automatically via GitHub Actions.
 
@@ -55,11 +55,21 @@ The Makefile is incremental — re-running `make` after a successful build is a 
 
 ## Pipeline
 
-### Stage 1: XSD → JSON Schema (Makefile)
+```mermaid
+graph LR
+    XSD[NeTEx XSDs] --> JS[JSON Schema]
+    JS --> HTML[Schema HTML]
+    JS --> TS[TypeScript interfaces]
+    TS --> DOC[TypeDoc]
 
+    style XSD fill:#f5f5f5,stroke:#999
+    style JS fill:#e8f4e8,stroke:#4a4
+    style HTML fill:#e8f0f8,stroke:#48a
+    style TS fill:#e8f0f8,stroke:#48a
+    style DOC fill:#e8f0f8,stroke:#48a
 ```
-NeTEx XSDs (GitHub) → Java DOM parser → JSON Schema (Draft 07) → schema HTML viewer
-```
+
+### Stage 1: XSD → JSON Schema (Makefile)
 
 1. Maven Ant plugin downloads the NeTEx ZIP from GitHub (`next` branch)
 2. GraalJS runs `json-schema/xsd-to-jsonschema.js` on stock JDK via Java DOM APIs
