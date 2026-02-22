@@ -18,9 +18,9 @@ const ajv = new Ajv({ allErrors: true });
 let checked = 0;
 let failed = 0;
 
-for (const slug of readdirSync(generatedBase, { withFileTypes: true })) {
-  if (!slug.isDirectory()) continue;
-  const schemaDir = join(generatedBase, slug.name, "jsonschema");
+for (const dir of readdirSync(generatedBase, { withFileTypes: true })) {
+  if (!dir.isDirectory()) continue;
+  const schemaDir = join(generatedBase, dir.name, "jsonschema");
   let files: string[];
   try {
     files = readdirSync(schemaDir).filter((f) => f.endsWith(".json"));
@@ -35,10 +35,10 @@ for (const slug of readdirSync(generatedBase, { withFileTypes: true })) {
 
     const valid = ajv.validateSchema(schema);
     if (valid) {
-      console.log(`  ✓ ${slug.name}/jsonschema/${file}`);
+      console.log(`  ✓ ${dir.name}/jsonschema/${file}`);
     } else {
       failed++;
-      console.error(`  ✗ ${slug.name}/jsonschema/${file}`);
+      console.error(`  ✗ ${dir.name}/jsonschema/${file}`);
       for (const err of ajv.errors?.slice(0, 10) ?? []) {
         console.error(`    ${err.instancePath} ${err.message}`);
       }

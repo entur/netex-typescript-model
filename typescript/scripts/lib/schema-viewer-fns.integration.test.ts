@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { resolve, join } from "node:path";
 import {
   resolveLeafType,
   resolveValueLeaf,
@@ -8,17 +8,23 @@ import {
   type Defs,
 } from "./schema-viewer-fns.js";
 
-const schemaPath = resolve(import.meta.dirname, "../../src/generated/base/jsonschema/netex.json");
+const jsonschemaDir = resolve(import.meta.dirname, "../../src/generated/base/jsonschema");
 
 let defs: Defs;
 
 beforeAll(() => {
-  if (!existsSync(schemaPath)) {
+  if (!existsSync(jsonschemaDir)) {
     throw new Error(
-      `Base schema not found at ${schemaPath}.\nRun "npm run generate" first.`,
+      `Base jsonschema dir not found at ${jsonschemaDir}.\nRun "npm run generate" first.`,
     );
   }
-  defs = JSON.parse(readFileSync(schemaPath, "utf-8")).definitions;
+  const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
+  if (!schemaFile) {
+    throw new Error(
+      `No *.schema.json found in ${jsonschemaDir}.\nRun "npm run generate" first.`,
+    );
+  }
+  defs = JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8")).definitions;
 });
 
 describe("integration with real schema", () => {

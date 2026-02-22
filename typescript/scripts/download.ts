@@ -9,13 +9,14 @@ import AdmZip from "adm-zip";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const ROOT = resolve(import.meta.dirname, "..");
-const config = JSON.parse(readFileSync(resolve(ROOT, "inputs/config.json"), "utf-8"));
+const PKG_ROOT = resolve(import.meta.dirname, "..");
+const REPO_ROOT = resolve(PKG_ROOT, "..");
+const config = JSON.parse(readFileSync(resolve(PKG_ROOT, "inputs/config.json"), "utf-8"));
 
 const { version, branch, repoName, githubUrl } = config.netex;
-const dest = resolve(ROOT, config.paths.xsdRoot, version);
+const dest = resolve(REPO_ROOT, config.paths.xsdRoot, version);
 const zipUrl = `${githubUrl}/archive/refs/heads/${branch}.zip`;
-const zipPath = resolve(ROOT, `NeTEx-${branch}.zip`);
+const zipPath = resolve(REPO_ROOT, `NeTEx-${branch}.zip`);
 const zipPrefix = `${repoName}-${branch}/xsd/`;
 
 // --- Step 1: Download ZIP (cached) ---

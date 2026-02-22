@@ -9,9 +9,9 @@ inputs/config.json ────────────────────�
 ┌─────────────────────────────────┐                                      │
 │  Config                         │                                      │
 │  Parse config, enforce required │                                      │
-│  parts, resolve output slug     │                                      │
+│  parts, resolve assembly        │                                      │
 └──────┬──────────────────────────┘                                      │
-       │ enabledDirs[], xsdRoot, outputSlug                              │
+       │ enabledDirs[], xsdRoot, assembly                                │
        ▼                                                                 │
 ┌──────────────────────────────────────────┐                             │
 │  Step 1: XsdToJsonSchema.loadFile()      │                             │
@@ -54,9 +54,9 @@ inputs/config.json ────────────────────�
 │                        │   │                                          │
 │  OUT: file written     │   │  IN:  JsonSchema object                  │
 │  src/generated/        │   │       options: unreachableDefinitions,   │
-│    <slug>/             │   │       additionalProperties: false,       │
+│    <assembly>/             │   │       additionalProperties: false,       │
 │      jsonschema/       │   │       format: false                      │
-│        netex.json  ●   │   │                                          │
+│    <asm>.schema.json ● │   │                                          │
 │                        │   │  Compiles all definitions to TypeScript  │
 │  ⚠ NO VALIDATION      │   │  description → JSDoc comments            │
 │                        │   │  $ref → type references                  │
@@ -71,7 +71,7 @@ inputs/config.json ────────────────────�
                                     │  │                          │     │
                                     │  │  OUT: file written       │     │
                                     │  │  src/generated/          │     │
-                                    │  │    <slug>/               │     │
+                                    │  │    <assembly>/               │     │
                                     │  │      interfaces/         │     │
                                     │  │        netex.ts  ●       │     │
                                     │  └──────────────────────────┘     │
@@ -103,7 +103,7 @@ inputs/config.json ────────────────────�
 │     import statements, and declarations  │                            │
 │                                          │                            │
 │  OUT: files written                      │                            │
-│  src/generated/<slug>/interfaces/        │                            │
+│  src/generated/<assembly>/interfaces/        │                            │
 │    core.ts  ●                            │                            │
 │    generic.ts  ●                         │                            │
 │    reusable.ts  ●                        │                            │

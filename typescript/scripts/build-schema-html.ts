@@ -1,8 +1,8 @@
 /**
- * Generates a self-contained HTML page per slug from the JSON Schema.
+ * Generates a self-contained HTML page per assembly from the JSON Schema.
  *
- * For each slug in src/generated/<slug>/jsonschema/netex.json, produces
- * src/generated/<slug>/netex-schema.html with:
+ * For each assembly in src/generated/<assembly>/jsonschema/*.schema.json, produces
+ * src/generated/<assembly>/netex-schema.html with:
  * - Sidebar with alphabetical definition index and search/filter
  * - Per-definition sections with permalink anchors
  * - Pretty-printed JSON with syntax highlighting and clickable $ref links
@@ -29,23 +29,25 @@ let built = 0;
 
 for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
-  const schemaPath = join(generatedBase, entry.name, "jsonschema", "netex.json");
-  if (!existsSync(schemaPath)) continue;
+  const jsonschemaDir = join(generatedBase, entry.name, "jsonschema");
+  if (!existsSync(jsonschemaDir)) continue;
+  const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
+  if (!schemaFile) continue;
 
-  const slug = entry.name;
-  const schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
+  const assembly = entry.name;
+  const schema = JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8"));
   const defs = schema.definitions ?? {};
   const defNames = Object.keys(defs).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
   if (defNames.length === 0) {
-    console.log(`  ${slug}: no definitions, skipping`);
+    console.log(`  ${assembly}: no definitions, skipping`);
     continue;
   }
 
-  const html = buildHtml(slug, defs, defNames, config.netex.version);
-  const outPath = join(generatedBase, slug, "netex-schema.html");
+  const html = buildHtml(assembly, defs, defNames, config.netex.version);
+  const outPath = join(generatedBase, assembly, "netex-schema.html");
   writeFileSync(outPath, html);
-  console.log(`  ${slug}: ${defNames.length} definitions → netex-schema.html`);
+  console.log(`  ${assembly}: ${defNames.length} definitions → netex-schema.html`);
   built++;
 }
 
@@ -193,7 +195,7 @@ function buildViewerFnsScript(): string {
 }
 
 function buildHtml(
-  slug: string,
+  assembly: string,
   defs: Record<string, unknown>,
   defNames: string[],
   version: string,
@@ -207,7 +209,7 @@ function buildHtml(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NeTEx JSON Schema — ${escapeHtml(slug)}</title>
+  <title>NeTEx JSON Schema — ${escapeHtml(assembly)}</title>
   <style>
     :root {
       --bg: #fafafa;
@@ -660,7 +662,7 @@ function buildHtml(
 
   <nav class="sidebar" id="sidebar">
     <h1>NeTEx JSON Schema</h1>
-    <p class="subtitle">${escapeHtml(slug)} · v${escapeHtml(version)}</p>
+    <p class="subtitle">${escapeHtml(assembly)} · v${escapeHtml(version)}</p>
     <input type="text" class="search-box" id="search" placeholder="Filter definitions…" autocomplete="off">
     <p class="sidebar-count"><span id="visibleCount">${defNames.length}</span> / ${defNames.length} definitions</p>
     <ul class="sidebar-list" id="sidebarList">

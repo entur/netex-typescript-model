@@ -14,7 +14,7 @@ See the [Subset Selection Guide](docs/subset-selection-guide.md) for how to choo
 npm install
 npm run download   # fetch NeTEx 2.0 XSDs from GitHub
 npm run generate   # generate TypeScript types from XSD subset
-npm run docs       # generate TypeDoc HTML per slug
+npm run docs       # generate TypeDoc HTML per assembly
 ```
 
 ## How It Works
@@ -37,17 +37,17 @@ Annotations (`xsd:documentation`) are preserved — the converter reads them and
 
 Only definitions from enabled parts are included in the output. References to disabled-part types become `unknown` placeholders.
 
-Output is written to `src/generated/<slug>/` where `<slug>` reflects the enabled parts (e.g. `base`, `network`, `fares+network`).
+Output is written to `src/generated/<assembly>/` where `<assembly>` reflects the enabled parts (e.g. `base`, `network`, `fares+network`).
 
 ### Documentation Pipeline (`npm run docs`)
 
-1. **TypeDoc generation** — `scripts/generate-docs.ts` discovers slugs in `src/generated/`, runs TypeDoc on the split module files. Output: `src/generated/<slug>/docs/`
-2. **JSON Schema HTML viewer** — `scripts/build-schema-html.ts` generates a self-contained HTML page per slug with a searchable, syntax-highlighted JSON Schema browser. `$ref` values are rendered as clickable links. Output: `src/generated/<slug>/netex-schema.html`
-3. **Docs site assembly** — `scripts/build-docs-index.ts` copies each slug's TypeDoc output and schema HTML into `docs-site/<slug>/` and generates a welcome `index.html` with links to both
+1. **TypeDoc generation** — `scripts/generate-docs.ts` discovers assemblies in `src/generated/`, runs TypeDoc on the split module files. Output: `src/generated/<assembly>/docs/`
+2. **JSON Schema HTML viewer** — `scripts/build-schema-html.ts` generates a self-contained HTML page per assembly with a searchable, syntax-highlighted JSON Schema browser. `$ref` values are rendered as clickable links. Output: `src/generated/<assembly>/netex-schema.html`
+3. **Docs site assembly** — `scripts/build-docs-index.ts` copies each assembly's TypeDoc output and schema HTML into `docs-site/<assembly>/` and generates a welcome `index.html` with links to both
 
 Generated TypeScript JSDoc includes `@see` links pointing to the JSON Schema viewer, creating a two-way bridge between TypeDoc and JSON Schema definitions.
 
-The [GitHub Actions workflow](.github/workflows/docs.yml) generates all parts (base + each optional part individually), builds TypeDoc and schema HTML per slug, and deploys to GitHub Pages on every push to `main`.
+The [GitHub Actions workflow](.github/workflows/docs.yml) generates all parts (base + each optional part individually), builds TypeDoc and schema HTML per assembly, and deploys to GitHub Pages on every push to `main`.
 
 ## XSD Subset
 
@@ -80,28 +80,33 @@ All settings live in [`inputs/config.json`](inputs/config.json):
 ## Project Structure
 
 ```
-inputs/
-  config.json                       # all configuration (version, URLs, subset)
-scripts/
-  download.ts                       # download + extract XSDs (annotations preserved)
-  generate.ts                       # TypeScript generation orchestrator (with @see link injection)
-  xsd-to-jsonschema.ts              # custom XSD → JSON Schema converter
-  split-output.ts                   # split monolithic .ts into per-category modules
-  validate-generated-schemas.ts     # validate JSON Schema against Draft 07 meta-schema
-  generate-docs.ts                  # generate TypeDoc HTML per slug
-  build-schema-html.ts              # generate JSON Schema HTML viewer per slug
-  build-docs-index.ts               # assemble docs-site/ with welcome page for GitHub Pages
-docs/
-  subset-selection-guide.md         # guide to NeTEx parts and subset configuration
-  npm-publishing.md                 # npm publishing instructions
+typescript/                         # Node.js/TypeScript pipeline
+  inputs/
+    config.json                     # all configuration (version, URLs, subset)
+  scripts/
+    download.ts                     # download + extract XSDs (annotations preserved)
+    generate.ts                     # TypeScript generation orchestrator (with @see link injection)
+    xsd-to-jsonschema.ts            # custom XSD → JSON Schema converter
+    split-output.ts                 # split monolithic .ts into per-category modules
+    validate-generated-schemas.ts   # validate JSON Schema against Draft 07 meta-schema
+    generate-docs.ts                # generate TypeDoc HTML per assembly
+    build-schema-html.ts            # generate JSON Schema HTML viewer per assembly
+    build-docs-index.ts             # assemble docs-site/ with welcome page for GitHub Pages
+  docs/
+    subset-selection-guide.md       # guide to NeTEx parts and subset configuration
+    npm-publishing.md               # npm publishing instructions
+  src/generated/                    # generated output (gitignored)
+    <assembly>/
+      jsonschema/<assembly>.schema.json  # intermediate JSON Schema
+      interfaces/                   # TypeScript interfaces (split modules + barrel index.ts)
+      docs/                         # TypeDoc HTML output
+      netex-schema.html             # JSON Schema HTML viewer
+  docs-site/                        # assembled GitHub Pages site (gitignored)
+json-schema/                        # GraalVM/Java DOM pipeline
+  pom.xml                           # Maven POM (GraalJS + Xerces dependencies)
+  xsd-to-jsonschema.js              # feature-parity JS port (Java DOM, no Node.js)
+  verify-parity.sh                  # compare output against typescript/ reference
 xsd/                                # downloaded XSDs (gitignored)
-src/generated/                      # generated output (gitignored)
-  <slug>/
-    jsonschema/netex.json           # intermediate JSON Schema
-    interfaces/                     # TypeScript interfaces (split modules + barrel index.ts)
-    docs/                           # TypeDoc HTML output
-    netex-schema.html               # JSON Schema HTML viewer
-docs-site/                          # assembled GitHub Pages site (gitignored)
 .github/workflows/docs.yml         # CI: generate all parts, build TypeDoc, deploy to Pages
 ```
 
@@ -110,10 +115,10 @@ docs-site/                          # assembled GitHub Pages site (gitignored)
 | Script | Description |
 |---|---|
 | `npm run download` | Download and prepare XSD schemas |
-| `npm run generate` | Generate TypeScript types from XSD subset. Use `-- --part <key>` to enable one optional part for a single run |
+| `npm run generate` | Generate TypeScript types from XSD subset. Use `-- --schema-source <path>` to use a pre-generated JSON Schema |
 | `npm run build` | Compile TypeScript |
 | `npm run test` | Run tests (vitest) |
-| `npm run docs` | Generate TypeDoc HTML per slug (requires `generate` first) |
+| `npm run docs` | Generate TypeDoc HTML per assembly (requires `generate` first) |
 
 ## Related Projects
 

@@ -1,7 +1,7 @@
 /**
- * Generates TypeDoc HTML documentation for each generated slug.
- * Discovers slugs by listing directories in src/generated/.
- * Creates a slug-specific README for the TypeDoc landing page.
+ * Generates TypeDoc HTML documentation for each generated assembly.
+ * Discovers assemblies by listing directories in src/generated/.
+ * Creates an assembly-specific README for the TypeDoc landing page.
  *
  * Usage: npx tsx scripts/generate-docs.ts
  */
@@ -20,30 +20,30 @@ if (!existsSync(generatedBase)) {
   process.exit(1);
 }
 
-const slugs = readdirSync(generatedBase, { withFileTypes: true })
+const assemblies = readdirSync(generatedBase, { withFileTypes: true })
   .filter((d) => d.isDirectory())
   .map((d) => d.name);
 
-if (slugs.length === 0) {
-  console.error("No slugs found in generated directory.");
+if (assemblies.length === 0) {
+  console.error("No assemblies found in generated directory.");
   process.exit(1);
 }
 
-/** Derive package name from config: @entur/netex-model-VERSION-BRANCH-SLUG */
-function packageName(slug: string): string {
-  return `@entur/netex-model-${config.netex.version}-${config.netex.branch}-${slug}`;
+/** Derive package name from config: @entur/netex-model-VERSION-BRANCH-ASSEMBLY */
+function packageName(assembly: string): string {
+  return `@entur/netex-model-${config.netex.version}-${config.netex.branch}-${assembly}`;
 }
 
-/** Build a slug-specific README describing the generated output. */
-function buildReadme(slug: string, interfacesDir: string): string {
+/** Build an assembly-specific README describing the generated output. */
+function buildReadme(assembly: string, interfacesDir: string): string {
   const lines: string[] = [
-    `# NeTEx TypeScript Interfaces — \`${slug}\``,
+    `# NeTEx TypeScript Interfaces — \`${assembly}\``,
     "",
     `Generated from [NeTEx](https://github.com/NeTEx-CEN/NeTEx) XSD schemas (version ${config.netex.version}, branch \`${config.netex.branch}\`).`,
     "",
   ];
 
-  // List the module files in this slug
+  // List the module files in this assembly
   const tsFiles = readdirSync(interfacesDir)
     .filter((f) => f.endsWith(".ts") && f !== "index.ts" && f !== "netex.ts")
     .sort();
@@ -63,7 +63,7 @@ function buildReadme(slug: string, interfacesDir: string): string {
   lines.push("## Usage", "");
   lines.push("```typescript");
   lines.push(`// Import everything`);
-  const pkg = packageName(slug);
+  const pkg = packageName(assembly);
   lines.push(`import type { PublicationDeliveryStructure } from '${pkg}';`);
   lines.push("");
   lines.push("// Import from a specific module");
@@ -81,19 +81,19 @@ function buildReadme(slug: string, interfacesDir: string): string {
 
 let generated = 0;
 
-for (const slug of slugs) {
-  const interfacesDir = join(generatedBase, slug, "interfaces");
+for (const assembly of assemblies) {
+  const interfacesDir = join(generatedBase, assembly, "interfaces");
   const indexFile = join(interfacesDir, "index.ts");
   if (!existsSync(indexFile)) {
     // Fall back to monolithic netex.ts
     if (!existsSync(join(interfacesDir, "netex.ts"))) {
-      console.log(`  Skipping ${slug} — no interfaces found`);
+      console.log(`  Skipping ${assembly} — no interfaces found`);
       continue;
     }
   }
 
-  const outDir = join(generatedBase, slug, "docs");
-  console.log(`Generating docs for '${slug}'...`);
+  const outDir = join(generatedBase, assembly, "docs");
+  console.log(`Generating docs for '${assembly}'...`);
 
   // Collect entry points: all split .ts files (excluding netex.ts monolith and index.ts)
   const entryPoints = readdirSync(interfacesDir)
@@ -105,9 +105,9 @@ for (const slug of slugs) {
     entryPoints.push(join(interfacesDir, "netex.ts"));
   }
 
-  // Write slug-specific README
-  const readmePath = join(generatedBase, slug, "README.md");
-  writeFileSync(readmePath, buildReadme(slug, interfacesDir));
+  // Write assembly-specific README
+  const readmePath = join(generatedBase, assembly, "README.md");
+  writeFileSync(readmePath, buildReadme(assembly, interfacesDir));
 
   try {
     execSync(
@@ -116,7 +116,7 @@ for (const slug of slugs) {
         ...entryPoints.map((ep) => `--entryPoints ${ep}`),
         `--out ${outDir}`,
         `--readme ${readmePath}`,
-        `--name "${packageName(slug)}"`,
+        `--name "${packageName(assembly)}"`,
         "--skipErrorChecking",
       ].join(" "),
       { cwd: ROOT, stdio: "pipe" },
@@ -126,10 +126,10 @@ for (const slug of slugs) {
   } catch (e: any) {
     const stderr = e.stderr?.toString() || "";
     const stdout = e.stdout?.toString() || "";
-    console.error(`  TypeDoc failed for '${slug}':`);
+    console.error(`  TypeDoc failed for '${assembly}':`);
     if (stderr) console.error(`  ${stderr.trim().split("\n").join("\n  ")}`);
     if (stdout) console.error(`  ${stdout.trim().split("\n").join("\n  ")}`);
   }
 }
 
-console.log(`\nGenerated docs for ${generated}/${slugs.length} slug(s).`);
+console.log(`\nGenerated docs for ${generated}/${assemblies.length} assembly(ies).`);

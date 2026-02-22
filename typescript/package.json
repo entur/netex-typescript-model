@@ -5,6 +5,7 @@
   "scripts": {
     "download": "tsx scripts/download.ts",
     "generate": "tsx scripts/generate.ts && tsx scripts/validate-generated-schemas.ts",
+    "generate:schema": "tsx scripts/xsd-to-jsonschema.ts",
     "build": "tsc",
     "test": "npm run generate && vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.*'",

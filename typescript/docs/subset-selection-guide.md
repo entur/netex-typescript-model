@@ -99,10 +99,11 @@ Edit `inputs/config.json`. Each part has an `enabled` flag:
 
 Then run `npm run generate` to generate TypeScript types from the enabled parts.
 
-To try a part without editing config.json, use `--part`:
+To try a part without editing config.json, use `xsd-to-jsonschema.ts --parts` and then pass the schema to `generate.ts`:
 
 ```bash
-npm run generate -- --part part1_network
+npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part1_network
+npx tsx scripts/generate.ts --schema-source /tmp/netex/network.schema.json
 ```
 
 This enables the part for that run only. Required parts (`framework`, `gml`, `siri`, `service`, `publication`) are hardwired in the generator and cannot be disabled — the script warns and re-enables them if config.json is tampered with.

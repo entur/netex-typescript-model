@@ -127,7 +127,7 @@ for (const [uri, schema] of jsonSchemas) {
 1. **Smoke test**: `npm run generate` with default config. Check output dirs have files from framework, gml, siri, service only — NOT from part1-5.
 2. **Compile check**: `npx tsc --noEmit` on generated interfaces.
 3. **Inspect output**: Check a known type (e.g., `MultilingualString`) for reasonableness.
-4. **Subset test**: `npm run generate -- --part part5_new_modes`, verify Part 5 appears in output.
+4. **Subset test**: generate with `--parts part5_new_modes`, verify Part 5 appears in output.
 
 ## Risks
 

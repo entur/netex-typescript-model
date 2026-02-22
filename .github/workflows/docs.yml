@@ -17,6 +17,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +27,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: typescript/package-lock.json
 
       - run: npm ci
 
@@ -31,8 +35,8 @@ jobs:
         run: npm run download
 
       # Generate base (required parts only) + each optional part individually.
-      # Each `npm run generate` writes to src/generated/<slug>/.
-      # The `--part` flag enables one optional part for that run only.
+      # Each generate writes to src/generated/<assembly>/.
+      # Variant builds use xsd-to-jsonschema.ts --parts then generate.ts --schema-source.
       - name: Generate base
         run: npm run generate
 
@@ -40,18 +44,30 @@ jobs:
         run: npx vitest run
 
       - name: Generate network
-        run: npx tsx scripts/generate.ts --part part1_network && npx tsx scripts/validate-generated-schemas.ts
+        run: |
+          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part1_network
+          npx tsx scripts/generate.ts --schema-source /tmp/netex/network.schema.json
+          npx tsx scripts/validate-generated-schemas.ts
 
       - name: Generate timetable
-        run: npx tsx scripts/generate.ts --part part2_timetable && npx tsx scripts/validate-generated-schemas.ts
+        run: |
+          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part2_timetable
+          npx tsx scripts/generate.ts --schema-source /tmp/netex/timetable.schema.json
+          npx tsx scripts/validate-generated-schemas.ts
 
       - name: Generate fares
-        run: npx tsx scripts/generate.ts --part part3_fares && npx tsx scripts/validate-generated-schemas.ts
+        run: |
+          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part3_fares
+          npx tsx scripts/generate.ts --schema-source /tmp/netex/fares.schema.json
+          npx tsx scripts/validate-generated-schemas.ts
 
       - name: Generate new-modes
-        run: npx tsx scripts/generate.ts --part part5_new_modes && npx tsx scripts/validate-generated-schemas.ts
+        run: |
+          npx tsx scripts/xsd-to-jsonschema.ts ../xsd/2.0 /tmp/netex inputs/config.json --parts part5_new_modes
+          npx tsx scripts/generate.ts --schema-source /tmp/netex/new-modes.schema.json
+          npx tsx scripts/validate-generated-schemas.ts
 
-      - name: Generate TypeDoc per slug
+      - name: Generate TypeDoc per assembly
         run: npm run docs
 
       - name: Build schema HTML pages
@@ -62,7 +78,7 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs-site
+          path: typescript/docs-site
 
   deploy:
     needs: build
