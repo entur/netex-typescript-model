@@ -1091,14 +1091,21 @@ function main() {
 
   if (configPath) {
     const config = loadConfig(configPath);
-    // Apply CLI parts (validate each)
-    for (const part of cliParts) {
+    // Build reverse lookup: natural name → config key (e.g. "network" → "part1_network")
+    const reverseNames = {};
+    for (const [k, v] of Object.entries(NATURAL_NAMES)) reverseNames[v] = k;
+
+    // Apply CLI parts (validate each — accept both config keys and natural names)
+    for (let part of cliParts) {
+      if (reverseNames[part]) part = reverseNames[part]; // resolve natural name
       const p = config.parts[part];
       if (!p || part.startsWith("_")) {
         const optional = Object.keys(config.parts)
           .filter(k => !k.startsWith("_") && !config.parts[k].required);
+        const naturalAliases = optional.map(k => NATURAL_NAMES[k] || k);
         print(`ERROR: Unknown part: ${part}`);
         print(`Available optional parts: ${optional.join(", ")}`);
+        print(`  (also accepted as: ${naturalAliases.join(", ")})`);
         java.lang.System.exit(1);
       }
       if (p.required) {

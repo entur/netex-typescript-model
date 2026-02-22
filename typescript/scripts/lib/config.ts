@@ -124,14 +124,21 @@ export class Config {
   }
 
   applyCliParts(cliParts: string[]): void {
-    for (const cliPart of cliParts) {
+    // Build reverse lookup: natural name → config key (e.g. "network" → "part1_network")
+    const reverseNames: Record<string, string> = {};
+    for (const [k, v] of Object.entries(NATURAL_NAMES)) reverseNames[v] = k;
+
+    for (let cliPart of cliParts) {
+      if (reverseNames[cliPart]) cliPart = reverseNames[cliPart]; // resolve natural name
       const part = this.parts[cliPart];
       if (!part || cliPart.startsWith("_")) {
         const optional = Object.keys(this.parts).filter(
           (k) => !k.startsWith("_") && !this.parts[k].required,
         );
+        const naturalAliases = optional.map((k) => NATURAL_NAMES[k] ?? k);
         console.error(`Unknown part: ${cliPart}`);
         console.error(`Available optional parts: ${optional.join(", ")}`);
+        console.error(`  (also accepted as: ${naturalAliases.join(", ")})`);
         process.exit(1);
       }
       if (part.required) {

@@ -1,4 +1,4 @@
-name: Generate & Deploy TypeDoc
+name: Generate & Deploy Docs
 
 on:
   push:
@@ -34,50 +34,16 @@ jobs:
       - run: npm ci
         working-directory: typescript
 
-      # Generate JSON Schema + schema HTML for all variants via Makefile
-      - name: Generate base schema
-        run: make ASSEMBLY=base
+      # Generate full pipeline per assembly: XSD → JSON Schema → HTML → TS → TypeDoc
+      - name: Build base assembly
+        run: make all ASSEMBLY=base
 
-      - name: Generate network schema
-        run: make ASSEMBLY=network PARTS=part1_network
-
-      - name: Generate timetable schema
-        run: make ASSEMBLY=timetable PARTS=part2_timetable
-
-      - name: Generate fares schema
-        run: make ASSEMBLY=fares PARTS=part3_fares
-
-      - name: Generate new-modes schema
-        run: make ASSEMBLY=new-modes PARTS=part5_new_modes
-
-      # Generate TypeScript interfaces for each variant
-      - name: Generate base TypeScript
-        working-directory: typescript
-        run: npx tsx scripts/generate.ts ../generated-src/base/base.schema.json
+      - name: Build network+timetable assembly
+        run: make all ASSEMBLY=network+timetable
 
       - name: Run tests
         working-directory: typescript
         run: npx vitest run
-
-      - name: Generate network TypeScript
-        working-directory: typescript
-        run: npx tsx scripts/generate.ts ../generated-src/network/network.schema.json
-
-      - name: Generate timetable TypeScript
-        working-directory: typescript
-        run: npx tsx scripts/generate.ts ../generated-src/timetable/timetable.schema.json
-
-      - name: Generate fares TypeScript
-        working-directory: typescript
-        run: npx tsx scripts/generate.ts ../generated-src/fares/fares.schema.json
-
-      - name: Generate new-modes TypeScript
-        working-directory: typescript
-        run: npx tsx scripts/generate.ts ../generated-src/new-modes/new-modes.schema.json
-
-      - name: Generate TypeDoc per assembly
-        working-directory: typescript
-        run: npm run docs
 
       - name: Build welcome page
         working-directory: typescript

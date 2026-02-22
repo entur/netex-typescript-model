@@ -34,6 +34,8 @@ const ASSEMBLY_DESCRIPTIONS: Record<string, string> = {
     "Part 3 — Fares: fare products, pricing, distribution, sales transactions.",
   "new-modes":
     "Part 5 — New modes: mobility services, vehicle meeting points, shared mobility.",
+  "network+timetable":
+    "Parts 1+2 — Network topology and timetables: routes, lines, stop places, service journeys, passing times.",
 };
 
 interface AssemblyInfo {
