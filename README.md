@@ -6,6 +6,19 @@ Generates JSON Schema and TypeScript interfaces from [NeTEx](http://netex-cen.eu
 
 **[API Documentation](https://entur.github.io/netex-typescript-model/)** — TypeDoc for every NeTEx part, generated and deployed automatically via GitHub Actions.
 
+```mermaid
+graph LR
+    XSD[NeTEx XSDs] --> JS[JSON Schema]
+    JS --> HTML[Schema HTML viewer]
+    JS --> TS[TypeScript interfaces + typeDoc]
+
+    style XSD fill:#f5f5f5,stroke:#999
+    style JS fill:#e8f4e8,stroke:#4a4
+    style HTML fill:#e8f0f8,stroke:#48a
+    style TS fill:#e8f0f8,stroke:#48a
+  
+```
+
 ## Prerequisites
 
 - JDK 21+ (any distribution — GraalVM not required)
@@ -54,20 +67,6 @@ Available parts: `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_m
 The Makefile is incremental — re-running `make` after a successful build is a no-op.
 
 ## Pipeline
-
-```mermaid
-graph LR
-    XSD[NeTEx XSDs] --> JS[JSON Schema]
-    JS --> HTML[Schema HTML]
-    JS --> TS[TypeScript interfaces]
-    TS --> DOC[TypeDoc]
-
-    style XSD fill:#f5f5f5,stroke:#999
-    style JS fill:#e8f4e8,stroke:#4a4
-    style HTML fill:#e8f0f8,stroke:#48a
-    style TS fill:#e8f0f8,stroke:#48a
-    style DOC fill:#e8f0f8,stroke:#48a
-```
 
 ### Stage 1: XSD → JSON Schema (Makefile)
 
