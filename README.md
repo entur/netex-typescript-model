@@ -6,18 +6,34 @@ TypeScript interfaces generated from [NeTEx](http://netex-cen.eu/) (Network Time
 
 **[API Documentation](https://entur.github.io/netex-typescript-model/)** — TypeDoc for every NeTEx part, generated and deployed automatically via GitHub Actions.
 
-See the [Subset Selection Guide](docs/subset-selection-guide.md) for how to choose which parts of the NeTEx standard to include and deployment options.
+## Prerequisites
+
+- JDK 21+ (any distribution — GraalVM not required)
+- Maven 3+
+- Node.js 22+
+
+```bash
+cd typescript && npm install   # once
+```
 
 ## Quick Start
 
 ```bash
-cd typescript && npm install       # install Node.js dependencies (once)
-make                               # download XSDs, generate base JSON Schema + schema HTML
-cd typescript
-npx tsx scripts/generate.ts ../generated-src/base/base.schema.json  # generate TypeScript
+make                           # download XSDs → JSON Schema → schema HTML (base)
 ```
 
-Generate a variant (e.g. network):
+This runs the full Stage 1 pipeline: downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, and generates an interactive HTML viewer.
+
+Then generate TypeScript interfaces:
+
+```bash
+cd typescript
+npx tsx scripts/generate.ts ../generated-src/base/base.schema.json
+```
+
+## Generating Variants
+
+Pass `ASSEMBLY` and `PARTS` to build a different NeTEx subset:
 
 ```bash
 make ASSEMBLY=network PARTS=part1_network
@@ -25,116 +41,122 @@ cd typescript
 npx tsx scripts/generate.ts ../generated-src/network/network.schema.json
 ```
 
-## How It Works
+Available parts: `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`. See the [Subset Selection Guide](typescript/docs/subset-selection-guide.md) for dependencies between parts.
 
-### Pipeline Overview
+## Makefile Targets
 
-The pipeline is split into two decoupled stages:
+| Command                            | What it does                                           |
+| ---------------------------------- | ------------------------------------------------------ |
+| `make`                             | Base JSON Schema + schema HTML (default)               |
+| `make ASSEMBLY=<name> PARTS=<key>` | Named variant                                          |
+| `make clean`                       | Remove `generated-src/`, `xsd/`, `json-schema/target/` |
 
-**Stage 1: XSD → JSON Schema** (Makefile, runs `json-schema/` Maven pipeline)
+The Makefile is incremental — re-running `make` after a successful build is a no-op.
 
-1. Downloads the NeTEx XSD ZIP from GitHub (`next` branch) via Maven Ant plugin
-2. Converts XSD → JSON Schema via Java DOM parser (`xsd-to-jsonschema.js`), filtered to enabled parts
-3. Validates JSON Schema against Draft 07 meta-schema
-4. Generates schema HTML viewer per assembly
+## Pipeline
 
-**Stage 2: JSON Schema → TypeScript** (`typescript/scripts/generate.ts`)
+### Stage 1: XSD → JSON Schema (Makefile)
 
-1. Loads a pre-generated JSON Schema from `generated-src/<assembly>/`
-2. Builds a type source map from per-definition `x-netex-source` annotations
-3. Injects `@see` links into a clone (persisted JSON stays clean)
-4. Compiles JSON Schema → TypeScript interfaces via `json-schema-to-typescript`
-5. Splits monolithic output into per-category modules with cross-imports
-6. Type-checks with `tsc --noEmit`
+```
+NeTEx XSDs (GitHub) → Java DOM parser → JSON Schema (Draft 07) → schema HTML viewer
+```
 
-### Documentation Pipeline
+1. Maven Ant plugin downloads the NeTEx ZIP from GitHub (`next` branch)
+2. GraalJS runs `json-schema/xsd-to-jsonschema.js` on stock JDK via Java DOM APIs
+3. Each definition is stamped with `x-netex-source` (provenance) and `x-netex-leaf` annotations
+4. JSON Schema is validated against the Draft 07 meta-schema
+5. An interactive HTML viewer is generated per assembly
+
+### Stage 2: JSON Schema → TypeScript (`generate.ts`)
+
+```
+<assembly>.schema.json → json-schema-to-typescript → split modules → tsc --noEmit
+```
+
+1. Reads `x-netex-source` annotations to build a type→file source map
+2. Injects `@see` links into a clone (persisted JSON stays clean)
+3. Compiles to monolithic TypeScript via `json-schema-to-typescript`
+4. Splits into per-category modules with cross-imports and a barrel `index.ts`
+5. Type-checks with `tsc --noEmit`
+
+### Documentation
 
 ```bash
 cd typescript
-npm run docs                           # generate TypeDoc HTML per assembly
-npx tsx scripts/build-docs-index.ts    # assemble docs-site/ with welcome page
+npm run docs                          # TypeDoc HTML per assembly
+npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
 
-The [GitHub Actions workflow](.github/workflows/docs.yml) generates all parts (base + each optional part individually), builds TypeDoc and schema HTML per assembly, and deploys to GitHub Pages on every push to `main`.
+CI generates all variants, builds TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
 
 ## XSD Subset
 
 NeTEx 2.0 contains 458+ XSD files across several functional parts. Generation is restricted to the parts you enable in `assembly-config.json`. The framework, GML, SIRI, service, and publication entry point are always required; the domain-specific parts are toggled individually:
 
-| Part key | XSD directory | Files | Domain |
-|---|---|---|---|
-| `framework` | `netex_framework` | 143 | Base types, reusable components, organizations (always required) |
-| `gml` | `gml` | 7 | Geographic coordinates (always required) |
-| `siri` | `siri` + `siri_utility` | 12 | Real-time updates (always required — imported by NeTEx_publication.xsd) |
-| `service` | `netex_service` | 4 | NeTEx service definitions and filters (always required) |
-| `part1_network` | `netex_part_1` | 93 | Routes, lines, stop places, timing patterns |
-| `part2_timetable` | `netex_part_2` | 56 | Service journeys, passing times, vehicle services |
-| `part3_fares` | `netex_part_3` | 92 | Fare products, pricing, distribution, sales |
-| `part5_new_modes` | `netex_part_5` | 32 | Mobility services, vehicle meeting points (Part 4 was never published) |
+#### Required
 
-Enable a part by setting `"enabled": true` in its config entry. See the [Subset Selection Guide](docs/subset-selection-guide.md) for dependency info between parts.
+| Part key    | XSD directory           | Files | Domain                                                |
+| ----------- | ----------------------- | ----- | ----------------------------------------------------- |
+| `framework` | `netex_framework`       | 143   | Base types, reusable components, organizations        |
+| `gml`       | `gml`                   | 7     | Geographic coordinates                                |
+| `siri`      | `siri` + `siri_utility` | 12    | Real-time updates (imported by NeTEx_publication.xsd) |
+| `service`   | `netex_service`         | 4     | NeTEx service definitions and filters                 |
+
+#### Optional
+
+| Part key          | XSD directory  | Files | Domain                                                                 |
+| ----------------- | -------------- | ----- | ---------------------------------------------------------------------- |
+| `part1_network`   | `netex_part_1` | 93    | Routes, lines, stop places, timing patterns                            |
+| `part2_timetable` | `netex_part_2` | 56    | Service journeys, passing times, vehicle services                      |
+| `part3_fares`     | `netex_part_3` | 92    | Fare products, pricing, distribution, sales                            |
+| `part5_new_modes` | `netex_part_5` | 32    | Mobility services, vehicle meeting points (Part 4 was never published) |
+
+Enable a part by setting `"enabled": true` in its config entry. See the [Subset Selection Guide](typescript/docs/subset-selection-guide.md) for dependency info between parts.
 
 ## Configuration
 
 All settings live in [`assembly-config.json`](assembly-config.json):
 
-- `netex.version` — NeTEx version (`2.0`)
-- `netex.branch` — GitHub branch to download (`next`)
-- `netex.githubUrl` — upstream repository
-- `paths.*` — output directories for XSDs and generated code
-- `parts.<key>.enabled` — toggle each NeTEx part on/off
+- `netex.version` / `netex.branch` — which NeTEx release to download
+- `paths.generated` — output directory (`generated-src`)
+- `parts.<key>.enabled` — toggle NeTEx parts on/off
 - `rootXsds.<key>.enabled` — toggle root-level XSD files
 
 ## Project Structure
 
 ```
-assembly-config.json                  # all configuration (version, URLs, subset)
-Makefile                              # build orchestrator (XSD → JSON Schema → schema HTML)
+Makefile                              # build entry point
+assembly-config.json                  # NeTEx version, parts, output paths
 tsconfig.generated.json               # type-check config for generated output
-typescript/                           # Node.js/TypeScript pipeline
+typescript/                           # Node.js/TypeScript tooling
   scripts/
-    generate.ts                       # JSON Schema → TypeScript transformer (positional arg)
-    xsd-to-jsonschema-1st-try.ts      # custom XSD → JSON Schema converter
+    generate.ts                       # JSON Schema → TypeScript (positional arg)
+    xsd-to-jsonschema-1st-try.ts      # reference XSD → JSON Schema converter (fast-xml-parser)
     split-output.ts                   # split monolithic .ts into per-category modules
     validate-generated-schemas.ts     # validate JSON Schema against Draft 07 meta-schema
-    generate-docs.ts                  # generate TypeDoc HTML per assembly
-    build-schema-html.ts              # generate JSON Schema HTML viewer per assembly
-    build-docs-index.ts               # assemble docs-site/ with welcome page for GitHub Pages
-  docs/
-    subset-selection-guide.md         # guide to NeTEx parts and subset configuration
-    npm-publishing.md                 # npm publishing instructions
-generated-src/                        # generated output (gitignored)
+    build-schema-html.ts              # interactive JSON Schema HTML viewer
+    generate-docs.ts                  # TypeDoc HTML per assembly
+    build-docs-index.ts               # docs-site/ welcome page
+json-schema/                          # Java DOM pipeline (feature-parity port)
+  pom.xml                             # Maven POM (GraalJS + Xerces, XSD download)
+  xsd-to-jsonschema.js                # JS converter using Java DOM APIs
+  verify-parity.sh                    # diff output against typescript/ reference
+generated-src/                        # output (gitignored)
   <assembly>/
-    <assembly>.schema.json            # intermediate JSON Schema
-    interfaces/                       # TypeScript interfaces (split modules + barrel index.ts)
-    docs/                             # TypeDoc HTML output
-    netex-schema.html                 # JSON Schema HTML viewer
-docs-site/                            # assembled GitHub Pages site (gitignored)
-json-schema/                          # GraalVM/Java DOM pipeline
-  pom.xml                             # Maven POM (GraalJS + Xerces dependencies)
-  xsd-to-jsonschema.js                # feature-parity JS port (Java DOM, no Node.js)
-  verify-parity.sh                    # compare output against typescript/ reference
-xsd/                                  # downloaded XSDs (gitignored)
-.github/workflows/docs.yml           # CI: generate all parts, build TypeDoc, deploy to Pages
+    <assembly>.schema.json            # JSON Schema
+    interfaces/                       # TypeScript modules + barrel index.ts
+    docs/                             # TypeDoc HTML
+    netex-schema.html                 # interactive schema viewer
 ```
 
 ## npm Scripts (typescript/)
 
-| Script | Description |
-|---|---|
-| `npm run generate:ts -- <schema.json>` | Generate TypeScript interfaces from a pre-generated JSON Schema |
-| `npm run generate:schema -- <args>` | Run the XSD → JSON Schema converter directly |
-| `npm run test` | Run tests (vitest) |
-| `npm run validate:jsonschema` | Validate generated JSON Schemas against Draft 07 meta-schema |
-| `npm run docs` | Generate TypeDoc HTML per assembly (requires generated interfaces) |
-
-## Makefile Targets
-
-| Target | Description |
-|---|---|
-| `make` | Generate base JSON Schema + schema HTML (default) |
-| `make ASSEMBLY=network PARTS=part1_network` | Generate a variant |
-| `make clean` | Remove all generated output, XSDs, and Maven target |
+| Script                                 | Description                                 |
+| -------------------------------------- | ------------------------------------------- |
+| `npm run generate:ts -- <schema.json>` | Generate TypeScript from a JSON Schema      |
+| `npm run test`                         | Run tests (vitest)                          |
+| `npm run validate:jsonschema`          | Validate generated schemas against Draft 07 |
+| `npm run docs`                         | Generate TypeDoc HTML per assembly          |
 
 ## Related Projects
 
