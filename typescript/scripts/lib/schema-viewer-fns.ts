@@ -271,6 +271,103 @@ export function buildReverseIndex(defs: Defs): Record<string, string[]> {
   return idx;
 }
 
+/**
+ * Find entities that transitively use a given definition.
+ *
+ * Walks the reverse-index upward (BFS) through non-entity definitions,
+ * collecting every entity reached. Stops traversal at entities — does not
+ * follow entity→entity chains, since that would surface containment
+ * relationships rather than structural "uses".
+ *
+ * The input name itself is excluded from the result even if it is an entity.
+ */
+export function findTransitiveEntityUsers(
+  defs: Defs,
+  name: string,
+  reverseIndex: Record<string, string[]>,
+): string[] {
+  const entities: string[] = [];
+  const visited = new Set<string>();
+  const queue: string[] = [name];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    // If we reached an entity (that isn't the starting point), record it and stop traversing
+    if (current !== name && defRole(defs[current]) === "entity") {
+      entities.push(current);
+      continue;
+    }
+
+    for (const referrer of reverseIndex[current] ?? []) {
+      if (!visited.has(referrer)) queue.push(referrer);
+    }
+  }
+
+  return entities.sort();
+}
+
+// ── Role filter ─────────────────────────────────────────────────────────────
+
+/** Fixed display order for role filter chips. */
+export const ROLE_DISPLAY_ORDER = [
+  "frameMember",
+  "entity",
+  "abstract",
+  "structure",
+  "collection",
+  "reference",
+  "view",
+  "enumeration",
+  "unclassified",
+] as const;
+
+/** Human-readable labels for each role value. */
+export const ROLE_LABELS: Record<string, string> = {
+  frameMember: "Frame member",
+  entity: "Entity",
+  abstract: "Abstract",
+  structure: "Structure",
+  collection: "Collection",
+  reference: "Reference",
+  view: "View",
+  enumeration: "Enum",
+  unclassified: "Unclassified",
+};
+
+/** Extract the role string from a definition, defaulting to "unclassified". */
+export function defRole(def: Def | undefined): string {
+  return typeof def?.["x-netex-role"] === "string" ? def["x-netex-role"] : "unclassified";
+}
+
+/** Count definitions per role. Returns a Map keyed by role string. */
+export function countRoles(defNames: string[], defs: Defs): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const name of defNames) {
+    const role = defRole(defs[name]);
+    counts.set(role, (counts.get(role) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Return the roles present in the data, sorted in ROLE_DISPLAY_ORDER.
+ * Each entry includes the role key, label, and count.
+ */
+export function presentRoles(
+  defNames: string[],
+  defs: Defs,
+): Array<{ role: string; label: string; count: number }> {
+  const counts = countRoles(defNames, defs);
+  return ROLE_DISPLAY_ORDER.filter((r) => counts.has(r)).map((role) => ({
+    role,
+    label: ROLE_LABELS[role] ?? role,
+    count: counts.get(role) ?? 0,
+  }));
+}
+
 // ── Code generation helpers ──────────────────────────────────────────────────
 
 /** Return a sensible default value literal for a resolved TypeScript type string. */

@@ -152,8 +152,11 @@ class XsdToJsonSchema {
     this.rawSimpleTypes = [];
     this.rawElements = [];
 
+    this.elementMeta = {}; // name → { abstract, substitutionGroup }
+
     this.converted = false;
     this.warnings = [];
+    this.frameRegistry = {}; // entity name → [frame names], populated externally
 
     // DocumentBuilder setup
     const factory = DocumentBuilderFactory.newInstance();
@@ -276,6 +279,13 @@ class XsdToJsonSchema {
       const name = attr(raw, "name");
       if (!name || seenElements.has(name)) continue;
       seenElements.add(name);
+      // Capture element metadata before conversion
+      this.elementMeta[name] = {
+        abstract: attr(raw, "abstract") === "true",
+        substitutionGroup: attr(raw, "substitutionGroup")
+          ? this.stripNs(attr(raw, "substitutionGroup"))
+          : null,
+      };
       try {
         this.elements[name] = { name, schema: this.convertTopLevelElement(raw), sourceFile };
       } catch (e) {
@@ -285,6 +295,9 @@ class XsdToJsonSchema {
 
     // Pass 3: annotate value leaves
     this.annotateValueLeaves();
+
+    // Pass 4: classify definitions by role
+    this.classifyDefinitions();
   }
 
   // ── Description extraction ─────────────────────────────────────────────────
@@ -741,6 +754,127 @@ class XsdToJsonSchema {
     return null;
   }
 
+  // ── Role classification ──────────────────────────────────────────────────
+
+  loadFrameRegistry(jsonPath) {
+    const content = new java.lang.String(
+      Files.readAllBytes(Paths.get(jsonPath)), StandardCharsets.UTF_8
+    );
+    const raw = JSON.parse("" + content);
+    const registry = {}; // entity name → [frame names]
+    for (const [frame, entities] of Object.entries(raw)) {
+      if (frame.startsWith("_")) continue;
+      for (const entity of entities) {
+        if (!registry[entity]) registry[entity] = [];
+        registry[entity].push(frame);
+      }
+    }
+    return registry;
+  }
+
+  extendsDataManagedObject(name) {
+    const allDefs = {};
+    for (const [n, entry] of Object.entries(this.types)) {
+      allDefs[n] = entry.schema;
+    }
+    for (const [n, entry] of Object.entries(this.elements)) {
+      if (!allDefs[n]) allDefs[n] = entry.schema;
+    }
+    return this._chainHasAncestor(name, allDefs, "DataManagedObjectStructure", {});
+  }
+
+  _chainHasAncestor(name, allDefs, target, visited) {
+    if (visited[name]) return false;
+    visited[name] = true;
+    if (name === target) return true;
+
+    const def = allDefs[name];
+    if (!def) return false;
+
+    // $ref alias
+    if (def.$ref) {
+      return this._chainHasAncestor(
+        def.$ref.replace("#/definitions/", ""), allDefs, target, visited
+      );
+    }
+
+    // allOf: follow parent refs
+    if (def.allOf) {
+      for (const entry of def.allOf) {
+        if (entry.$ref) {
+          if (this._chainHasAncestor(
+            entry.$ref.replace("#/definitions/", ""), allDefs, target, visited
+          )) return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  classifyDefinitions() {
+    // Build combined definition map
+    const allDefs = {};
+    for (const [name, entry] of Object.entries(this.types)) {
+      allDefs[name] = entry;
+    }
+    for (const [name, entry] of Object.entries(this.elements)) {
+      if (!allDefs[name]) allDefs[name] = entry;
+    }
+
+    for (const [name, entry] of Object.entries(allDefs)) {
+      const schema = entry.schema;
+      let role = null;
+
+      // 1. Structure suffixes (highest priority — structural classification)
+      if (name.endsWith("_VersionStructure") || name.endsWith("_BaseStructure")) {
+        role = "structure";
+      }
+      // 2. Collection
+      else if (name.endsWith("_RelStructure")) {
+        role = "collection";
+      }
+      // 3. Reference (suffix patterns)
+      else if (name.endsWith("_RefStructure") || name.endsWith("RefStructure")) {
+        role = "reference";
+      }
+      // 4. View
+      else if (name.endsWith("_DerivedViewStructure")) {
+        role = "view";
+      }
+      // 5. Enumeration
+      else if (schema["enum"]) {
+        role = "enumeration";
+      }
+      // 6. Abstract element
+      else if (this.elementMeta[name]?.abstract) {
+        role = "abstract";
+      }
+      // 7. Frame member (from registry)
+      else if (this.frameRegistry[name]) {
+        role = "frameMember";
+        schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
+      }
+      // 8. Concrete element with substitutionGroup + DMO ancestry
+      else if (
+        this.elementMeta[name] &&
+        !this.elementMeta[name].abstract &&
+        this.elementMeta[name].substitutionGroup &&
+        this.extendsDataManagedObject(name)
+      ) {
+        role = "entity";
+      }
+      // 9. Name ends in Ref and exists in elements
+      else if (name.endsWith("Ref") && this.elements[name]) {
+        role = "reference";
+      }
+
+      if (role) {
+        schema["x-netex-role"] = role;
+      }
+    }
+  }
+
   // ── Output ─────────────────────────────────────────────────────────────────
 
   toJsonSchema(enabledFilter) {
@@ -982,6 +1116,15 @@ function main() {
 
   print(`\nParsing XSD files from: ${xsdRoot}`);
   const converter = new XsdToJsonSchema(xsdRoot);
+
+  // Load frame membership registry (resolve relative to CWD = json-schema/)
+  const frameMembersPath = Paths.get("frame-members.json").toAbsolutePath().normalize().toString();
+  if (Files.exists(Paths.get(frameMembersPath))) {
+    converter.frameRegistry = converter.loadFrameRegistry(frameMembersPath);
+    const entityCount = Object.keys(converter.frameRegistry).length;
+    print(`Frame registry loaded: ${entityCount} entities`);
+  }
+
   converter.loadFile("NeTEx_publication.xsd");
 
   const stats = converter.getStats();

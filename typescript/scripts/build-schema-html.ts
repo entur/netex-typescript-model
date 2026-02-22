@@ -15,52 +15,11 @@
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import ts from "typescript";
-
-const CONFIG_PATH = resolve(import.meta.dirname, "../../assembly-config.json");
-const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-const configDir = dirname(CONFIG_PATH);
-const generatedBase = resolve(configDir, config.paths.generated);
-
-if (!existsSync(generatedBase)) {
-  console.error(`Generated directory not found: ${generatedBase}`);
-  process.exit(1);
-}
-
-let built = 0;
-
-for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
-  const assemblyDir = join(generatedBase, entry.name);
-  const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
-  if (!schemaFile) continue;
-
-  const assembly = entry.name;
-  const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
-  const defs = schema.definitions ?? {};
-  const defNames = Object.keys(defs).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-
-  if (defNames.length === 0) {
-    console.log(`  ${assembly}: no definitions, skipping`);
-    continue;
-  }
-
-  const html = buildHtml(assembly, defs, defNames, config.netex.version);
-  const outPath = join(generatedBase, assembly, "netex-schema.html");
-  writeFileSync(outPath, html);
-  console.log(`  ${assembly}: ${defNames.length} definitions → netex-schema.html`);
-  built++;
-}
-
-if (built === 0) {
-  console.error("No JSON Schema files found. Run 'npm run generate' first.");
-  process.exit(1);
-}
-
-console.log(`\nBuilt ${built} schema HTML page(s).`);
+import { defRole, presentRoles } from "./lib/schema-viewer-fns.js";
 
 // ── HTML builder ──────────────────────────────────────────────────────────────
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
@@ -109,9 +68,20 @@ function highlightJson(obj: unknown, indent = 0): string {
   return escapeHtml(String(obj));
 }
 
-function buildSidebarItems(defNames: string[]): string {
+export function buildRoleFilter(defNames: string[], defs: Record<string, unknown>): string {
+  const chips = presentRoles(defNames, defs as Record<string, Record<string, any>>).map(
+    ({ role, label, count }) =>
+      `<button class="role-chip" data-role="${escapeHtml(role)}">${escapeHtml(label)} (${count})</button>`,
+  );
+  return chips.join("\n      ");
+}
+
+export function buildSidebarItems(defNames: string[], defs: Record<string, unknown>): string {
   return defNames
-    .map((name) => `        <li><a href="#${escapeHtml(name)}" class="sidebar-link" data-name="${escapeHtml(name.toLowerCase())}">${escapeHtml(name)}</a></li>`)
+    .map((name) => {
+      const role = defRole(defs[name] as Record<string, any> | undefined);
+      return `        <li><a href="#${escapeHtml(name)}" class="sidebar-link" data-name="${escapeHtml(name.toLowerCase())}" data-role="${escapeHtml(role)}">${escapeHtml(name)}</a></li>`;
+    })
     .join("\n");
 }
 
@@ -119,14 +89,23 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
   return defNames
     .map((name) => {
       const def = defs[name] as Record<string, unknown>;
+      const role = defRole(def as Record<string, any> | undefined);
       const desc = typeof def.description === "string" ? def.description : "";
       // Show the definition without the top-level description (it's shown separately)
       const displayDef = { ...def };
       delete displayDef.description;
       const jsonHtml = highlightJson(displayDef);
 
-      return `    <section id="${escapeHtml(name)}" class="def-section">
-      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button><button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
+      const isEntity = role === "entity";
+      const suggestBtn = isEntity
+        ? `<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button>`
+        : "";
+      const usedByBtn = !isEntity
+        ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Find uses\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
+        : "";
+
+      return `    <section id="${escapeHtml(name)}" class="def-section" data-role="${escapeHtml(role)}">
+      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}${suggestBtn}${usedByBtn}<button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
       ${desc ? `<p class="def-desc">${escapeHtml(desc)}</p>` : ""}
       <pre><code>${jsonHtml}</code></pre>
     </section>`;
@@ -172,6 +151,8 @@ function buildViewerFnsScript(): string {
         resolvePropertyType: resolvePropertyType,
         resolveValueLeaf: resolveValueLeaf,
         buildReverseIndex: buildReverseIndex,
+        findTransitiveEntityUsers: findTransitiveEntityUsers,
+        defRole: defRole,
         defaultForType: defaultForType
       };
     })();
@@ -186,10 +167,14 @@ function buildViewerFnsScript(): string {
     function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
     function resolveValueLeaf(n) { return _fns.resolveValueLeaf(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
+    function defRole(name) { return _fns.defRole(defs[name]); }
     var _reverseIdx = null;
     function buildReverseIndex() {
       if (!_reverseIdx) _reverseIdx = _fns.buildReverseIndex(defs);
       return _reverseIdx;
+    }
+    function findTransitiveEntityUsers(name) {
+      return _fns.findTransitiveEntityUsers(defs, name, buildReverseIndex());
     }`;
   return bound;
 }
@@ -200,7 +185,8 @@ function buildHtml(
   defNames: string[],
   version: string,
 ): string {
-  const sidebarItems = buildSidebarItems(defNames);
+  const sidebarItems = buildSidebarItems(defNames, defs);
+  const roleFilterHtml = buildRoleFilter(defNames, defs);
   const sections = buildDefinitionSections(defs, defNames);
   const viewerFns = buildViewerFnsScript();
 
@@ -299,6 +285,113 @@ function buildHtml(
       margin-bottom: 0.5rem;
     }
     .search-box:focus { outline: 2px solid var(--accent); border-color: transparent; }
+    .role-box {
+      border: 1px solid var(--card-border);
+      border-radius: 0.35rem;
+      padding: 0.4rem 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .role-box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.3rem;
+    }
+    .role-box-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .role-help-btn {
+      background: none;
+      border: 1px solid var(--card-border);
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      line-height: 1;
+    }
+    .role-help-btn:hover { color: var(--fg); border-color: var(--accent); }
+    .role-filter {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .role-chip {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--search-border);
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font-family: system-ui, sans-serif;
+      line-height: 1.4;
+    }
+    .role-chip.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .role-chip:hover:not(.active) { background: var(--card-border); }
+    .role-help-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0,0,0,0.4);
+      align-items: center;
+      justify-content: center;
+    }
+    .role-help-overlay.open { display: flex; }
+    .role-help-dialog {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      padding: 1.25rem 1.5rem;
+      max-width: 480px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .role-help-dialog h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    .role-help-dialog p, .role-help-dialog li {
+      font-size: 0.82rem;
+      line-height: 1.55;
+      color: var(--fg);
+    }
+    .role-help-dialog p { margin-bottom: 0.5rem; }
+    .role-help-dialog ul { margin: 0.25rem 0 0.5rem 1.2rem; }
+    .role-help-dialog li { margin-bottom: 0.2rem; }
+    .role-help-dialog strong { color: var(--accent); font-weight: 600; }
+    .role-help-dialog .close-row {
+      text-align: right;
+      margin-top: 0.75rem;
+    }
+    .role-help-dialog .close-row button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 0.25rem;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .role-help-dialog .close-row button:hover { background: var(--accent-hover); }
     .sidebar-count {
       font-size: 0.75rem;
       color: var(--muted);
@@ -403,11 +496,11 @@ function buildHtml(
         cursor: pointer;
       }
       main { padding: 1rem; padding-top: 2.5rem; }
-      .explore-btn, .suggest-btn { display: none; }
+      .explore-btn, .suggest-btn, .used-by-wrap { display: none; }
     }
 
     /* Section action buttons */
-    .explore-btn, .suggest-btn {
+    .explore-btn, .suggest-btn, .used-by-btn {
       float: right;
       border-radius: 0.25rem;
       padding: 0.2rem 0.55rem;
@@ -424,15 +517,74 @@ function buildHtml(
     }
     .explore-btn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
     .suggest-btn {
+      background: color-mix(in srgb, #16a34a 12%, transparent);
+      color: #16a34a;
+      border: 1px solid color-mix(in srgb, #16a34a 35%, transparent);
+    }
+    .suggest-btn:hover { background: color-mix(in srgb, #16a34a 22%, transparent); border-color: #16a34a; }
+    @media (prefers-color-scheme: dark) {
+      .suggest-btn { color: #4ade80; border-color: color-mix(in srgb, #4ade80 35%, transparent); background: color-mix(in srgb, #4ade80 12%, transparent); }
+      .suggest-btn:hover { background: color-mix(in srgb, #4ade80 22%, transparent); border-color: #4ade80; }
+    }
+    .used-by-wrap { float: right; position: relative; margin-left: 0.35rem; line-height: 0; }
+    .used-by-btn {
+      float: none;
+      margin-left: 0;
       background: color-mix(in srgb, #d97706 12%, transparent);
       color: #d97706;
       border: 1px solid color-mix(in srgb, #d97706 35%, transparent);
     }
-    .suggest-btn:hover { background: color-mix(in srgb, #d97706 22%, transparent); border-color: #d97706; }
+    .used-by-btn:hover { background: color-mix(in srgb, #d97706 22%, transparent); border-color: #d97706; }
     @media (prefers-color-scheme: dark) {
-      .suggest-btn { color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 35%, transparent); background: color-mix(in srgb, #fbbf24 12%, transparent); }
-      .suggest-btn:hover { background: color-mix(in srgb, #fbbf24 22%, transparent); border-color: #fbbf24; }
+      .used-by-btn { color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 35%, transparent); background: color-mix(in srgb, #fbbf24 12%, transparent); }
+      .used-by-btn:hover { background: color-mix(in srgb, #fbbf24 22%, transparent); border-color: #fbbf24; }
     }
+    .used-by-dropdown {
+      display: none;
+      position: absolute;
+      line-height: 1.5;
+      right: 0;
+      top: 100%;
+      margin-top: 0.25rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.35rem;
+      padding: 0.5rem;
+      min-width: 220px;
+      max-width: 360px;
+      max-height: 280px;
+      overflow-y: auto;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      z-index: 20;
+    }
+    .used-by-dropdown.open { display: block; }
+    .used-by-dropdown .ub-spinner {
+      width: 18px; height: 18px; margin: 0.5rem auto;
+      border: 2px solid var(--card-border); border-top-color: #d97706;
+      border-radius: 50%; animation: spin 0.6s linear infinite;
+    }
+    .used-by-dropdown .ub-empty {
+      font-size: 0.8rem; color: var(--muted); font-style: italic; padding: 0.25rem 0;
+    }
+    .used-by-dropdown .ub-count {
+      font-size: 0.7rem; color: var(--muted); margin-bottom: 0.3rem;
+    }
+    .used-by-dropdown .ub-list {
+      display: flex; flex-wrap: wrap; gap: 0.25rem;
+    }
+    .used-by-dropdown .ub-chip {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      font-size: 0.72rem;
+      font-family: ui-monospace, monospace;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.2rem;
+      color: var(--link-color);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .used-by-dropdown .ub-chip:hover { border-color: var(--accent); background: var(--card-bg); }
 
     /* Mode chip in explorer header */
     .mode-chip {
@@ -449,9 +601,9 @@ function buildHtml(
       line-height: 1.4;
     }
     .mode-chip.explore { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-    .mode-chip.code { background: color-mix(in srgb, #d97706 18%, transparent); color: #d97706; }
+    .mode-chip.code { background: color-mix(in srgb, #16a34a 18%, transparent); color: #16a34a; }
     @media (prefers-color-scheme: dark) {
-      .mode-chip.code { color: #fbbf24; background: color-mix(in srgb, #fbbf24 18%, transparent); }
+      .mode-chip.code { color: #4ade80; background: color-mix(in srgb, #4ade80 18%, transparent); }
     }
 
     /* Explorer panel */
@@ -664,6 +816,15 @@ function buildHtml(
     <h1>NeTEx JSON Schema</h1>
     <p class="subtitle">${escapeHtml(assembly)} · v${escapeHtml(version)}</p>
     <input type="text" class="search-box" id="search" placeholder="Filter definitions…" autocomplete="off">
+    <div class="role-box">
+      <div class="role-box-header">
+        <span class="role-box-title">Roles</span>
+        <button class="role-help-btn" id="roleHelpBtn" title="What are roles?">?</button>
+      </div>
+      <div class="role-filter" id="roleFilter">
+        ${roleFilterHtml}
+      </div>
+    </div>
     <p class="sidebar-count"><span id="visibleCount">${defNames.length}</span> / ${defNames.length} definitions</p>
     <ul class="sidebar-list" id="sidebarList">
 ${sidebarItems}
@@ -696,6 +857,26 @@ ${sections}
     <div class="explorer-tab-content" id="explorerUtils"></div>
   </aside>
 
+  <div class="role-help-overlay" id="roleHelpOverlay">
+    <div class="role-help-dialog">
+      <h3>What are roles?</h3>
+      <p>Every definition in the NeTEx schema has a <em>role</em> that describes its purpose. Filtering by role helps you find the types relevant to your task.</p>
+      <ul>
+        <li><strong>Entity</strong> &mdash; The primary domain objects you create, display, and edit: stops, lines, journeys, vehicles. <em>This is the most useful filter for frontend work.</em></li>
+        <li><strong>Frame member</strong> &mdash; Top-level containers in NeTEx XML. A frame groups related entities for import/export (e.g. a ServiceFrame holds routes and lines). Relevant when working directly with NeTEx XML payloads.</li>
+        <li><strong>Structure</strong> &mdash; Value objects embedded inside entities: addresses, contact details, capacities. You encounter these as properties of entities rather than searching for them directly.</li>
+        <li><strong>Reference</strong> &mdash; Foreign-key wrappers (e.g. StopPlaceRef). Typically a wrapper around a string ID with an optional version.</li>
+        <li><strong>Enum</strong> &mdash; Fixed value sets used for dropdowns and classification (stop place types, vehicle modes, day types).</li>
+        <li><strong>Collection</strong> &mdash; Plural wrapper types for XML serialization structure. In TypeScript/JSON these are just arrays.</li>
+        <li><strong>Abstract</strong> &mdash; Base types in the inheritance chain. Rarely referenced directly in application code.</li>
+        <li><strong>View</strong> &mdash; Projection types that present a subset of an entity&rsquo;s data.</li>
+        <li><strong>Unclassified</strong> &mdash; Definitions without an assigned role, typically low-level schema plumbing.</li>
+      </ul>
+      <p>Click one or more chips to show only matching definitions. When no chips are active, all definitions are shown.</p>
+      <div class="close-row"><button id="roleHelpClose">Got it</button></div>
+    </div>
+  </div>
+
   <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
 
   <script>
@@ -703,15 +884,48 @@ ${sections}
     const search = document.getElementById('search');
     const links = document.querySelectorAll('.sidebar-link');
     const visibleCount = document.getElementById('visibleCount');
-    search.addEventListener('input', () => {
+    const roleChips = document.querySelectorAll('.role-chip');
+    const activeRoles = new Set();
+
+    function applyFilters() {
       const q = search.value.toLowerCase();
       let count = 0;
       links.forEach(a => {
-        const match = !q || a.dataset.name.includes(q);
+        const textMatch = !q || a.dataset.name.includes(q);
+        const roleMatch = activeRoles.size === 0 || activeRoles.has(a.dataset.role);
+        const match = textMatch && roleMatch;
         a.classList.toggle('hidden', !match);
         if (match) count++;
       });
       visibleCount.textContent = count;
+    }
+
+    search.addEventListener('input', applyFilters);
+
+    roleChips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        const role = chip.dataset.role;
+        if (activeRoles.has(role)) {
+          activeRoles.delete(role);
+          chip.classList.remove('active');
+        } else {
+          activeRoles.add(role);
+          chip.classList.add('active');
+        }
+        applyFilters();
+      });
+    });
+
+    // Role help popup
+    const roleHelpOverlay = document.getElementById('roleHelpOverlay');
+    document.getElementById('roleHelpBtn').addEventListener('click', () => {
+      roleHelpOverlay.classList.add('open');
+    });
+    document.getElementById('roleHelpClose').addEventListener('click', () => {
+      roleHelpOverlay.classList.remove('open');
+    });
+    roleHelpOverlay.addEventListener('click', e => {
+      if (e.target === roleHelpOverlay) roleHelpOverlay.classList.remove('open');
     });
 
     // Highlight active on scroll
@@ -1283,7 +1497,69 @@ ${sections}
       drag = null;
     });
 
+    // ── "Used by entities" dropdown ───────────────────────────────────
+    var _openDropdown = null;
+
+    function closeUsedByDropdown() {
+      if (_openDropdown) {
+        _openDropdown.classList.remove('open');
+        _openDropdown = null;
+      }
+    }
+
+    function toggleUsedByDropdown(btn) {
+      var name = btn.dataset.def;
+      var dd = document.getElementById('ub-' + name);
+      if (!dd) return;
+
+      // Close if same dropdown is already open
+      if (_openDropdown === dd) { closeUsedByDropdown(); return; }
+      closeUsedByDropdown();
+
+      // Show spinner
+      dd.innerHTML = '<div class="ub-spinner"></div>';
+      dd.classList.add('open');
+      _openDropdown = dd;
+
+      // Compute async to let spinner render
+      setTimeout(function() {
+        var entities = findTransitiveEntityUsers(name);
+        var html = '';
+        if (entities.length === 0) {
+          html = '<div class="ub-empty">No entities use this type.</div>';
+        } else {
+          html = '<div class="ub-count">' + entities.length + ' entit' + (entities.length === 1 ? 'y' : 'ies') + '</div>';
+          html += '<div class="ub-list">';
+          for (var i = 0; i < entities.length; i++) {
+            html += '<a href="#' + esc(entities[i]) + '" class="ub-chip">' + esc(entities[i]) + '</a>';
+          }
+          html += '</div>';
+        }
+        dd.innerHTML = html;
+      }, 0);
+    }
+
     document.addEventListener('click', e => {
+      // Used-by button click
+      var ubtn = e.target.closest('.used-by-btn');
+      if (ubtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleUsedByDropdown(ubtn);
+        return;
+      }
+      // Chip click inside dropdown — navigate and close
+      var ubchip = e.target.closest('.ub-chip');
+      if (ubchip && _openDropdown && _openDropdown.contains(ubchip)) {
+        closeUsedByDropdown();
+        // Let default anchor navigation proceed
+        return;
+      }
+      // Click outside dropdown — close it
+      if (_openDropdown && !_openDropdown.contains(e.target)) {
+        closeUsedByDropdown();
+      }
+
       // Explore button click
       const btn = e.target.closest('.explore-btn');
       if (btn) {
@@ -1330,4 +1606,57 @@ ${sections}
   </script>
 </body>
 </html>`;
+}
+
+// ── Main script ──────────────────────────────────────────────────────────────
+// Only runs when executed directly (not when imported by tests)
+
+const _isDirectRun =
+  process.argv[1] &&
+  resolve(process.argv[1]) === resolve(import.meta.dirname, "build-schema-html.ts");
+
+if (_isDirectRun) {
+  const CONFIG_PATH = resolve(import.meta.dirname, "../../assembly-config.json");
+  const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+  const configDir = dirname(CONFIG_PATH);
+  const generatedBase = resolve(configDir, config.paths.generated);
+
+  if (!existsSync(generatedBase)) {
+    console.error(`Generated directory not found: ${generatedBase}`);
+    process.exit(1);
+  }
+
+  let built = 0;
+
+  for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const assemblyDir = join(generatedBase, entry.name);
+    const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
+    if (!schemaFile) continue;
+
+    const assembly = entry.name;
+    const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
+    const defs = schema.definitions ?? {};
+    const defNames = Object.keys(defs).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+
+    if (defNames.length === 0) {
+      console.log(`  ${assembly}: no definitions, skipping`);
+      continue;
+    }
+
+    const html = buildHtml(assembly, defs, defNames, config.netex.version);
+    const outPath = join(generatedBase, assembly, "netex-schema.html");
+    writeFileSync(outPath, html);
+    console.log(`  ${assembly}: ${defNames.length} definitions → netex-schema.html`);
+    built++;
+  }
+
+  if (built === 0) {
+    console.error("No JSON Schema files found. Run 'npm run generate' first.");
+    process.exit(1);
+  }
+
+  console.log(`\nBuilt ${built} schema HTML page(s).`);
 }

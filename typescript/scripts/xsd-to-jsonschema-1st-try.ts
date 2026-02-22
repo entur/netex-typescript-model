@@ -1,4 +1,9 @@
 /**
+ * @deprecated Superseded by `json-schema/xsd-to-jsonschema.js` (Java DOM pipeline).
+ * The Java DOM converter is the primary XSD → JSON Schema path, invoked via the
+ * root Makefile. This file is retained for reference and for `verify-parity.sh`
+ * comparisons, but should not be used for new work.
+ *
  * Custom XSD → JSON Schema converter for NeTEx.
  *
  * Uses fast-xml-parser to parse XSD files and converts them to JSON Schema Draft 07.
