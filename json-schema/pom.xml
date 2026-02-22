@@ -1,0 +1,130 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.entur</groupId>
+  <artifactId>netex-json-schema</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <description>
+    GraalJS-hosted JavaScript XSD-to-JSON-Schema converter.
+    No Java source code. Maven resolves GraalJS + Xerces, then
+    exec-maven-plugin launches the built-in JSLauncher with the classpath.
+    Works on any stock JDK 21+.
+  </description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <graaljs.version>24.1.2</graaljs.version>
+    <netex.version>2.0</netex.version>
+    <netex.branch>next</netex.branch>
+    <netex.repoName>NeTEx</netex.repoName>
+    <netex.githubUrl>https://github.com/NeTEx-CEN/NeTEx</netex.githubUrl>
+    <xsd.dest>${project.basedir}/../xsd/${netex.version}</xsd.dest>
+  </properties>
+
+  <dependencies>
+    <!-- GraalJS command-line launcher (provides JSLauncher main class) -->
+    <dependency>
+      <groupId>org.graalvm.js</groupId>
+      <artifactId>js-launcher</artifactId>
+      <version>${graaljs.version}</version>
+    </dependency>
+    <!-- GraalJS engine (community edition, runs on stock JDK) -->
+    <dependency>
+      <groupId>org.graalvm.polyglot</groupId>
+      <artifactId>polyglot</artifactId>
+      <version>${graaljs.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.graalvm.polyglot</groupId>
+      <artifactId>js-community</artifactId>
+      <version>${graaljs.version}</version>
+      <type>pom</type>
+    </dependency>
+
+    <!-- Xerces (accessible from JS via Java.type) -->
+    <dependency>
+      <groupId>xerces</groupId>
+      <artifactId>xercesImpl</artifactId>
+      <version>2.12.2</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Download and extract NeTEx XSD schemas from GitHub -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>download-netex-xsd</id>
+            <phase>initialize</phase>
+            <goals><goal>run</goal></goals>
+            <configuration>
+              <target>
+                <get src="${netex.githubUrl}/archive/refs/heads/${netex.branch}.zip"
+                     dest="${project.build.directory}/${netex.repoName}-${netex.branch}.zip"
+                     skipexisting="true"/>
+                <delete dir="${xsd.dest}" failonerror="false"/>
+                <mkdir dir="${xsd.dest}"/>
+                <unzip src="${project.build.directory}/${netex.repoName}-${netex.branch}.zip"
+                       dest="${xsd.dest}">
+                  <patternset>
+                    <include name="${netex.repoName}-${netex.branch}/xsd/**"/>
+                  </patternset>
+                  <mapper type="glob"
+                          from="${netex.repoName}-${netex.branch}/xsd/*"
+                          to="*"/>
+                </unzip>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Write dependency classpath to target/classpath.txt -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>build-classpath</id>
+            <phase>generate-resources</phase>
+            <goals><goal>build-classpath</goal></goals>
+            <configuration>
+              <outputFile>target/classpath.txt</outputFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        Launch GraalJS shell. Java.type() interop is available by default
+        when JSLauncher runs on JVM (as opposed to native-image mode).
+
+        Full pipeline (download XSDs + resolve JARs + run converter):
+          mvn initialize generate-resources exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../typescript/inputs/config.json"
+
+        If XSDs are already downloaded:
+          mvn generate-resources exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../typescript/inputs/config.json"
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <executable>sh</executable>
+          <arguments>
+            <argument>-c</argument>
+            <argument>java -Dscript.args="${script.args}" -cp "$(cat target/classpath.txt)" com.oracle.truffle.js.shell.JSLauncher --experimental-options --js.ecmascript-version=2022 --engine.WarnInterpreterOnly=false xsd-to-jsonschema.js</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

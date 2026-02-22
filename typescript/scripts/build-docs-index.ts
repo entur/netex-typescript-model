@@ -1,8 +1,8 @@
 /**
  * Assembles a docs-site/ directory for GitHub Pages deployment.
  *
- * 1. Copies each slug's TypeDoc output into docs-site/<slug>/
- * 2. Generates a welcome index.html listing all slugs with descriptions.
+ * 1. Copies each assembly's TypeDoc output into docs-site/<assembly>/
+ * 2. Generates a welcome index.html listing all assemblies with descriptions.
  *
  * Usage: npx tsx scripts/build-docs-index.ts
  */
@@ -15,15 +15,16 @@ import {
   writeFileSync,
   cpSync,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 
-const ROOT = resolve(import.meta.dirname, "..");
-const config = JSON.parse(readFileSync(resolve(ROOT, "inputs/config.json"), "utf-8"));
-const generatedBase = resolve(ROOT, config.paths.generated);
-const siteDir = resolve(ROOT, "docs-site");
+const CONFIG_PATH = resolve(import.meta.dirname, "../../assembly-config.json");
+const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+const configDir = dirname(CONFIG_PATH);
+const generatedBase = resolve(configDir, config.paths.generated);
+const siteDir = resolve(configDir, "docs-site");
 
-// Descriptions for each slug, derived from config parts
-const SLUG_DESCRIPTIONS: Record<string, string> = {
+// Descriptions for each assembly, derived from config parts
+const ASSEMBLY_DESCRIPTIONS: Record<string, string> = {
   base: "Framework types, SIRI, GML, and service definitions — the required foundation for all NeTEx profiles.",
   network:
     "Part 1 — Network topology: routes, lines, stop places, scheduled stop points, timing patterns.",
@@ -33,9 +34,11 @@ const SLUG_DESCRIPTIONS: Record<string, string> = {
     "Part 3 — Fares: fare products, pricing, distribution, sales transactions.",
   "new-modes":
     "Part 5 — New modes: mobility services, vehicle meeting points, shared mobility.",
+  "network+timetable":
+    "Parts 1+2 — Network topology and timetables: routes, lines, stop places, service journeys, passing times.",
 };
 
-interface SlugInfo {
+interface AssemblyInfo {
   name: string;
   description: string;
   moduleCount: number;
@@ -43,8 +46,8 @@ interface SlugInfo {
   hasSchemaHtml: boolean;
 }
 
-// Discover slugs that have docs/ output
-const slugs: SlugInfo[] = [];
+// Discover assemblies that have docs/ output
+const assemblies: AssemblyInfo[] = [];
 
 if (!existsSync(generatedBase)) {
   console.error(`Generated directory not found: ${generatedBase}`);
@@ -67,52 +70,53 @@ for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
 
   // Count definitions from JSON Schema
   let definitionCount = 0;
-  const schemaPath = join(generatedBase, entry.name, "jsonschema", "netex.json");
-  if (existsSync(schemaPath)) {
+  const assemblyDir = join(generatedBase, entry.name);
+  const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
+  if (schemaFile) {
     try {
-      const schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
+      const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
       definitionCount = Object.keys(schema.definitions ?? {}).length;
     } catch {
       // ignore parse errors
     }
   }
 
-  slugs.push({
+  assemblies.push({
     name: entry.name,
-    description: SLUG_DESCRIPTIONS[entry.name] ?? "",
+    description: ASSEMBLY_DESCRIPTIONS[entry.name] ?? "",
     moduleCount,
     definitionCount,
     hasSchemaHtml: false,
   });
 }
 
-if (slugs.length === 0) {
-  console.error("No slug docs found. Run 'npm run docs' first.");
+if (assemblies.length === 0) {
+  console.error("No assembly docs found. Run 'npm run docs' first.");
   process.exit(1);
 }
 
 // Sort: base first, then alphabetically
-slugs.sort((a, b) => {
+assemblies.sort((a, b) => {
   if (a.name === "base") return -1;
   if (b.name === "base") return 1;
   return a.name.localeCompare(b.name);
 });
 
-// Create site directory and copy each slug's docs
+// Create site directory and copy each assembly's docs
 mkdirSync(siteDir, { recursive: true });
 
-for (const slug of slugs) {
-  const src = join(generatedBase, slug.name, "docs");
-  const dest = join(siteDir, slug.name);
+for (const asm of assemblies) {
+  const src = join(generatedBase, asm.name, "docs");
+  const dest = join(siteDir, asm.name);
   cpSync(src, dest, { recursive: true });
-  console.log(`  Copied ${slug.name}/docs → docs-site/${slug.name}/`);
+  console.log(`  Copied ${asm.name}/docs → docs-site/${asm.name}/`);
 
   // Copy schema HTML if it exists
-  const schemaHtml = join(generatedBase, slug.name, "netex-schema.html");
+  const schemaHtml = join(generatedBase, asm.name, "netex-schema.html");
   if (existsSync(schemaHtml)) {
     cpSync(schemaHtml, join(dest, "netex-schema.html"));
-    slug.hasSchemaHtml = true;
-    console.log(`  Copied ${slug.name}/netex-schema.html → docs-site/${slug.name}/`);
+    asm.hasSchemaHtml = true;
+    console.log(`  Copied ${asm.name}/netex-schema.html → docs-site/${asm.name}/`);
   }
 }
 
@@ -120,7 +124,7 @@ for (const slug of slugs) {
 const version = config.netex.version;
 const branch = config.netex.branch;
 
-const slugCards = slugs
+const assemblyCards = assemblies
   .map((s) => {
     const stats = [
       s.definitionCount > 0 ? `${s.definitionCount.toLocaleString()} types` : "",
@@ -271,7 +275,7 @@ const html = `<!DOCTYPE html>
 
   <main>
     <div class="grid">
-${slugCards}
+${assemblyCards}
     </div>
   </main>
 
@@ -283,4 +287,4 @@ ${slugCards}
 `;
 
 writeFileSync(join(siteDir, "index.html"), html);
-console.log(`\nWrote docs-site/index.html with ${slugs.length} slug(s).`);
+console.log(`\nWrote docs-site/index.html with ${assemblies.length} assembly(ies).`);

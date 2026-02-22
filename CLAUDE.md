@@ -4,35 +4,88 @@
 
 netex-typescript-model generates TypeScript interfaces from NeTEx XSD schemas. It is the TypeScript counterpart to `netex-java-model` (which uses JAXB). TypeDoc API documentation is deployed to GitHub Pages via CI.
 
+The project has two sub-directories:
+- **`typescript/`** — Node.js/TypeScript pipeline (npm scripts, json-schema-to-typescript, TypeDoc)
+- **`json-schema/`** — GraalVM JavaScript pipeline (Maven, Java DOM — the primary XSD → JSON Schema converter)
+
+A root `Makefile` orchestrates the full pipeline: XSD download → JSON Schema → schema HTML → TypeScript interfaces → TypeDoc. `make all` runs everything.
+
+Shared artifacts live at the repo root: `xsd/` (downloaded schemas), `generated-src/` (output), `assembly-config.json` (configuration).
+
 ## Build Commands
 
+### Quick start (Makefile)
+
 ```bash
+cd typescript && npm install     # install Node.js dependencies (once)
+make all                         # full pipeline: XSD → JSON Schema → HTML → TypeScript → TypeDoc
+make all ASSEMBLY=network        # generate a variant (parts derived from assembly name)
+```
+
+### TypeScript interface generation (standalone)
+
+```bash
+cd typescript
+npx tsx scripts/generate.ts ../generated-src/base/base.schema.json
+```
+
+Or via Makefile: `make types ASSEMBLY=base`
+
+### json-schema/ (GraalVM pipeline + XSD download)
+
+Requires JDK 21+ (any distribution — GraalVM not required). Maven resolves GraalJS polyglot dependencies.
+
+```bash
+cd json-schema
+mvn initialize                            # download XSDs from GitHub, extract to xsd/
+mvn generate-resources                    # download JARs, write classpath.txt
+mvn exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../assembly-config.json"
+./verify-parity.sh                        # compare output against typescript/ reference
+```
+
+### typescript/ (Node.js pipeline)
+
+```bash
+cd typescript
 npm install                # install dependencies
-npm run download           # download XSDs from GitHub, extract to xsd/
-npm run generate           # generate TypeScript from XSD subset (includes JSON Schema validation)
-npm run build              # compile TypeScript
 npm run test               # run tests (vitest)
-npm run docs               # generate TypeDoc HTML per slug (requires generate first)
+npm run docs               # generate TypeDoc HTML per assembly (requires generated interfaces)
 ```
 
 ## Key Files
 
-- `inputs/config.json` — single source of truth for NeTEx version, GitHub URL, output paths, and XSD subset selection
-- `scripts/download.ts` — downloads ZIP from GitHub, extracts `xsd/` directory. Uses `adm-zip` for extraction (no shell dependencies). Annotations are preserved for JSDoc propagation
-- `scripts/generate.ts` — orchestrates TypeScript generation from the configured XSD subset. Supports `--part <key>` to enable one optional part for a single run without editing config.json. Required parts (`framework`, `gml`, `siri`, `service`, `publication`) are hardwired and enforced at startup — if config.json is tampered with, the script warns and forces them enabled. After monolithic generation, splits output into per-category modules, then type-checks the result. Injects `@see` links into each definition's JSDoc pointing to the published JSON Schema HTML viewer (the persisted JSON stays clean — only the TypeScript output gets the links)
-- `scripts/xsd-to-jsonschema.ts` — custom XSD → JSON Schema converter using fast-xml-parser. Handles xs:include/xs:import by recursive file loading, produces JSON Schema Draft 07 with all NeTEx type definitions. Extracts `xsd:documentation` text into JSON Schema `description` fields, which `json-schema-to-typescript` converts to JSDoc comments
+### Root
+
+- `assembly-config.json` — single source of truth for NeTEx version, GitHub URL, output paths, and XSD subset selection
+- `Makefile` — build orchestrator: XSD download → JSON Schema → schema HTML → TypeScript → TypeDoc → tarball. Parses `NETEX_VERSION`/`NETEX_BRANCH` from config. Key targets: `all`, `schema`, `types`, `docs`, `tarball`, `clean`
+- `tsconfig.generated.json` — type-check configuration for generated output in `generated-src/`
+- `TODO.md` — project roadmap and planned improvements
+
+### typescript/
+
+- `scripts/lib/config.ts` — shared configuration module: `Config` class, `PartConfig`/`RootXsdConfig` interfaces, `REQUIRED_PARTS`, `REQUIRED_ROOT_XSDS`, `NATURAL_NAMES`, and `resolveAssembly()`. `applyCliParts()` accepts both config keys (`part1_network`) and natural names (`network`)
+- `scripts/lib/schema-viewer-fns.ts` — pure functions shared between the schema HTML viewer's inline `<script>` and unit tests. Includes type introspection (`resolveType`, `flattenAllOf`, `resolveLeafType`, `resolvePropertyType`), reverse index (`buildReverseIndex`, `findTransitiveEntityUsers`), role filter logic (`defRole`, `countRoles`, `presentRoles`, `ROLE_DISPLAY_ORDER`, `ROLE_LABELS`), and code-generation helpers (`defaultForType`). Compiled to plain JS at build time and embedded in the HTML page
+- `scripts/generate.ts` — JSON Schema → TypeScript transformer. Takes a positional schema path argument. Builds the type source map from per-definition `x-netex-source` annotations in the schema, then generates monolithic TypeScript, splits into per-category modules, and type-checks. Injects `@see` links into each definition's JSDoc pointing to the published JSON Schema HTML viewer (the persisted JSON stays clean — only the TypeScript output gets the links)
+- `scripts/xsd-to-jsonschema-1st-try.ts` — **DEPRECATED.** Original fast-xml-parser-based XSD → JSON Schema converter. Superseded by `json-schema/xsd-to-jsonschema.js` (Java DOM pipeline) which is the primary conversion path via the Makefile. Retained for `verify-parity.sh` comparisons
 - `scripts/split-output.ts` — post-processes the monolithic TypeScript output into per-category module files with cross-imports. Categories are derived from XSD source directory structure (siri, reusable, responsibility, generic, core; plus network/timetable/fares/new-modes when enabled). Produces a barrel `index.ts` re-exporting all modules
-- `scripts/validate-generated-schemas.ts` — validates all generated JSON Schema files in `src/generated/` against the Draft 07 meta-schema using ajv. Run automatically as part of `npm run generate`
-- `scripts/generate-docs.ts` — generates TypeDoc HTML documentation per slug. Discovers slugs in `src/generated/`, creates a slug-specific README for the landing page, runs TypeDoc on the split module files. Output: `src/generated/<slug>/docs/` (gitignored)
-- `scripts/build-schema-html.ts` — generates a self-contained HTML viewer per slug from `src/generated/<slug>/jsonschema/netex.json`. Features: sidebar with search, per-definition sections with permalink anchors, syntax-highlighted JSON with clickable `$ref` links, dark/light mode, responsive layout. Output: `src/generated/<slug>/netex-schema.html`
-- `scripts/build-docs-index.ts` — assembles a `docs-site/` directory for GitHub Pages deployment. Copies each slug's TypeDoc output and schema HTML into `docs-site/<slug>/` and generates a welcome `index.html` listing all slugs with descriptions, stats, and links to both TypeDoc and JSON Schema viewer
-- `.github/workflows/docs.yml` — CI workflow that generates all parts (base + each optional part individually), builds TypeDoc per slug, assembles the docs site, and deploys to GitHub Pages
+- `scripts/validate-generated-schemas.ts` — validates all generated JSON Schema files in `generated-src/` against the Draft 07 meta-schema using ajv
+- `scripts/generate-docs.ts` — generates TypeDoc HTML documentation per assembly. Discovers assemblies in `generated-src/`, creates an assembly-specific README for the landing page, runs TypeDoc on the split module files. Output: `generated-src/<assembly>/docs/` (gitignored)
+- `scripts/build-schema-html.ts` — generates a self-contained HTML viewer per assembly from `generated-src/<assembly>/<assembly>.schema.json`. Features: sidebar with search and role-based filter chips, per-definition sections with permalink anchors, syntax-highlighted JSON with clickable `$ref` links, explorer panel (properties, graph, interface, mapping, utilities tabs), "Suggest code" button (entities only, green), "Find uses…" button (non-entities, orange — computes transitive entity users via BFS), role help popup, dark/light mode, responsive layout, resizable panes. Pure viewer functions live in `scripts/lib/schema-viewer-fns.ts` and are compiled/embedded at build time. Output: `generated-src/<assembly>/netex-schema.html`
+- `scripts/build-docs-index.ts` — assembles a `docs-site/` directory for GitHub Pages deployment. Copies each assembly's TypeDoc output and schema HTML into `docs-site/<assembly>/` and generates a welcome `index.html` listing all assemblies with descriptions, stats, and links to both TypeDoc and JSON Schema viewer
+- `.github/workflows/docs.yml` — CI workflow that builds `base` and `network+timetable` assemblies via `make all`, then deploys TypeDoc + schema HTML to GitHub Pages
+- `.github/workflows/release.yml` — tag-triggered (`v*`) release workflow: builds assemblies, packages `.tgz` tarballs, creates GitHub Release
+
+### json-schema/
+
+- `pom.xml` — Maven POM with `pom` packaging (no Java source). Downloads NeTEx XSDs via `maven-antrun-plugin` in `initialize` phase (Ant `<get>` + `<unzip>`). Declares GraalJS + Xerces dependencies, uses `maven-dependency-plugin` to write classpath, `exec-maven-plugin` to invoke `JSLauncher` on stock JDK 21+
+- `xsd-to-jsonschema.js` — **primary** XSD → JSON Schema converter (invoked via Makefile). Uses `Java.type()` for DOM parsing (`DocumentBuilderFactory`, `org.w3c.dom.Node`). Plain JavaScript, no modules, no npm. Originally a feature-parity port of the deprecated `typescript/scripts/xsd-to-jsonschema-1st-try.ts`, now the canonical implementation. Stamps `x-netex-source`, `x-netex-assembly`, `x-netex-role`, and `x-netex-leaf` annotations on definitions. Accepts both config keys and natural part names via `--parts`
+- `verify-parity.sh` — runs both pipelines and diffs JSON Schema output (key-order normalized via `jq`)
 
 ## Architecture
 
 ### Configuration-Driven
 
-Everything flows from `inputs/config.json`. Scripts read this file to determine:
+Everything flows from `assembly-config.json` at the repo root. Scripts read this file to determine:
 - Which NeTEx version/branch to download
 - Where to put XSDs and generated code
 - Which NeTEx parts are enabled (`parts.<key>.enabled`)
@@ -41,51 +94,64 @@ Everything flows from `inputs/config.json`. Scripts read this file to determine:
 
 Full NeTEx 2.0 has 458+ XSD files. The `parts` config toggles which parts to include in generation. All files are loaded (cross-references need to resolve), but only enabled parts produce TypeScript output.
 
-Each part has an `enabled` flag. Framework, GML, SIRI, and service are always required. Domain parts (`part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`) are toggled per use case. See `docs/subset-selection-guide.md` for details.
+Each part has an `enabled` flag. Framework, GML, SIRI, and service are always required. Domain parts (`part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`) are toggled per use case. See `typescript/docs/subset-selection-guide.md` for details.
 
-### Output Slugs
+### Output Assemblies
 
-Each `npm run generate` invocation writes to `src/generated/<slug>/` where the slug reflects which optional parts are enabled:
+Generated output is written to `generated-src/<assembly>/` where the assembly name reflects which optional parts are enabled:
 - `base` — only required parts (no optional parts enabled)
 - `network` — base + part1_network
 - `fares+network` — base + part1_network + part3_fares
 - etc.
 
-The CI workflow generates each optional part individually (base, network, timetable, fares, new-modes) to produce separate TypeDoc sites.
+The CI workflow (`docs.yml`) builds `base` and `network+timetable` assemblies. The release workflow (`release.yml`) builds the same assemblies and packages them as tarballs on `v*` tag push.
 
 ### Generation Pipeline
 
+The pipeline is split into two decoupled stages:
+
+**Stage 1: XSD → JSON Schema (Makefile / json-schema/)**
 ```
-XSD (all files) → xsd-to-jsonschema.ts → JSON Schema (with descriptions)
-  → persist clean JSON Schema
-  → inject @see links into clone → json-schema-to-typescript → monolithic .ts (with schema links in JSDoc)
-  → split-output.ts → per-category modules
-  → tsc --noEmit (type-check)
+XSD (all files) → xsd-to-jsonschema.js (Java DOM) → JSON Schema (with descriptions, x-netex-source)
   → validate-generated-schemas.ts (JSON Schema validation)
+  → build-schema-html.ts → netex-schema.html
 ```
 
-1. All 433 XSD files are parsed (cross-references need the full set)
-2. Custom converter (`xsd-to-jsonschema.ts`) builds a global type registry, extracting `xsd:documentation` into JSON Schema `description` fields
-3. JSON Schema is filtered to definitions from enabled parts only and persisted to disk (clean, no links)
-4. A cloned schema gets `@see` links injected into each definition's `description`, pointing to the published JSON Schema HTML viewer
-5. `json-schema-to-typescript` compiles the linked schema to monolithic TypeScript with JSDoc comments (including `@see` links)
-6. `split-output.ts` splits the monolithic output into per-category modules (siri, reusable, responsibility, generic, core, plus domain parts) with cross-imports and a barrel `index.ts`
-7. `tsc --noEmit` validates all split modules compile without errors
-8. `validate-generated-schemas.ts` validates the generated JSON Schema against the Draft 07 meta-schema
+**Stage 2: JSON Schema → TypeScript (typescript/)**
+```
+JSON Schema → generate.ts → inject @see links into clone
+  → json-schema-to-typescript → monolithic .ts
+  → split-output.ts → per-category modules
+  → tsc --noEmit -p tsconfig.generated.json (type-check)
+```
+
+Each definition in the JSON Schema carries an `x-netex-source` annotation identifying the XSD file it came from. `generate.ts` reads these to build the source map for splitting into per-category modules.
+
+### Generation Pipeline (json-schema/)
+
+```
+XSD (all files) → xsd-to-jsonschema.js (Java DOM) → JSON Schema (with descriptions, annotations)
+```
+
+Primary conversion path. Uses Java standard library DOM APIs via GraalVM interop. Stamps per-definition annotations: `x-netex-source` (origin XSD file), `x-netex-role` (entity, structure, reference, enumeration, abstract, collection, view, frameMember), and `x-netex-leaf` (leaf type for simpleContent wrappers). The schema HTML viewer uses these annotations for role filtering and transitive entity usage lookups.
 
 ### Documentation Pipeline
 
 ```
-npm run docs → generate-docs.ts → TypeDoc HTML per slug → src/generated/<slug>/docs/
-npx tsx scripts/build-schema-html.ts → src/generated/<slug>/netex-schema.html (per slug)
-npx tsx scripts/build-docs-index.ts → docs-site/ (welcome page + slug TypeDoc + schema HTML)
+npm run docs → generate-docs.ts → TypeDoc HTML per assembly → generated-src/<assembly>/docs/
+build-schema-html.ts → generated-src/<assembly>/netex-schema.html (per assembly)
+build-docs-index.ts → docs-site/ (welcome page + assembly TypeDoc + schema HTML)
 ```
 
 The CI workflow (`.github/workflows/docs.yml`) runs all three, then deploys `docs-site/` to GitHub Pages. Generated TypeScript JSDoc includes `@see` links to the schema HTML viewer, creating a two-way bridge between TypeDoc and JSON Schema.
 
+### Release Pipeline
+
+Triggered by pushing a `v*` tag. Builds each assembly via `make all tarball`, runs tests, and creates a GitHub Release with `.tgz` tarballs attached. Tarball naming: `netex-<netex_version>-<branch>-<assembly>-v<tag>.tgz`. The `VERSION` variable is extracted from the tag by stripping the `v` prefix.
+
 ### Custom XSD Parser — Known Limitations
 
-`xsd-to-jsonschema.ts` is a purpose-built converter, not a full XSD implementation. Areas that may need revisiting:
+`json-schema/xsd-to-jsonschema.js` (the primary converter; the deprecated `xsd-to-jsonschema-1st-try.ts` shares the same limitations) is a purpose-built converter, not a full XSD implementation. Areas that may need revisiting:
 
 - **Substitution groups** — not modeled. Elements in a substitution group are treated as independent types; the `substitutionGroup` attribute is ignored. This means polymorphic element references (e.g., `<xsd:element ref="Place_"/>` accepting any subtype) won't generate union types. Could be addressed by building a substitution group registry and emitting `oneOf`/`anyOf`.
 - **`xsd:any` / `xsd:anyAttribute`** — ignored. Types using open content models will be missing their wildcard properties.
@@ -103,18 +169,16 @@ If generation quality becomes insufficient, alternatives to consider:
 
 ### Download Pipeline
 
-`scripts/download.ts` does two things in sequence:
-1. `fetch()` the GitHub ZIP (cached as `NeTEx-{branch}.zip`)
-2. Extract `xsd/*` entries via `adm-zip`
+`json-schema/pom.xml` handles XSD download via `maven-antrun-plugin` bound to the `initialize` phase:
+1. Ant `<get skipexisting="true">` downloads the GitHub ZIP (cached in `target/`)
+2. Ant `<unzip>` extracts `xsd/` entries with a glob mapper to strip the archive prefix
 
-Annotations (`xsd:documentation`) are preserved — the converter reads them for JSDoc propagation.
+Run with `cd json-schema && mvn initialize` or `make xsd/2.0/NeTEx_publication.xsd`. Annotations (`xsd:documentation`) are preserved — the converter reads them for JSDoc propagation.
 
 ## Relationship to netex-java-model
 
 This project mirrors the XSD download step of `netex-java-model` but replaces:
-- Maven `exec-maven-plugin` → npm scripts + TypeScript
-- Shell scripts (`netex-download-extract.sh`, `annotation-replacer.sh`) → `scripts/download.ts` (annotations preserved, not stripped)
-- `pom.xml` properties → `inputs/config.json`
+- Shell scripts (`netex-download-extract.sh`, `annotation-replacer.sh`) → `maven-antrun-plugin` in `json-schema/pom.xml` (annotations preserved, not stripped)
 - JAXB/cxf-xjc-plugin → custom XSD parser + json-schema-to-typescript
 
 Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `next`.
@@ -123,6 +187,8 @@ Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `next`.
 
 - `xsd/` — downloaded XSD schemas
 - `NeTEx-*.zip` — cached download
-- `src/generated/` — generated TypeScript output (per-slug directories)
+- `generated-src/` — generated output (per-assembly directories)
+- `typescript/dist/` — compiled TypeScript
 - `docs-site/` — assembled GitHub Pages site
-- `node_modules/`, `dist/`
+- `node_modules/`
+- `json-schema/target/` — Maven build output

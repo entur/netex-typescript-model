@@ -1,4 +1,4 @@
-name: Generate & Deploy TypeDoc
+name: Generate & Deploy Docs
 
 on:
   push:
@@ -20,44 +20,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: typescript/package-lock.json
 
       - run: npm ci
+        working-directory: typescript
 
-      - name: Download XSD schemas
-        run: npm run download
+      # Generate full pipeline per assembly: XSD → JSON Schema → HTML → TS → TypeDoc
+      - name: Build base assembly
+        run: make all ASSEMBLY=base
 
-      # Generate base (required parts only) + each optional part individually.
-      # Each `npm run generate` writes to src/generated/<slug>/.
-      # The `--part` flag enables one optional part for that run only.
-      - name: Generate base
-        run: npm run generate
+      - name: Build network+timetable assembly
+        run: make all ASSEMBLY=network+timetable
 
       - name: Run tests
+        working-directory: typescript
         run: npx vitest run
 
-      - name: Generate network
-        run: npx tsx scripts/generate.ts --part part1_network && npx tsx scripts/validate-generated-schemas.ts
-
-      - name: Generate timetable
-        run: npx tsx scripts/generate.ts --part part2_timetable && npx tsx scripts/validate-generated-schemas.ts
-
-      - name: Generate fares
-        run: npx tsx scripts/generate.ts --part part3_fares && npx tsx scripts/validate-generated-schemas.ts
-
-      - name: Generate new-modes
-        run: npx tsx scripts/generate.ts --part part5_new_modes && npx tsx scripts/validate-generated-schemas.ts
-
-      - name: Generate TypeDoc per slug
-        run: npm run docs
-
-      - name: Build schema HTML pages
-        run: npx tsx scripts/build-schema-html.ts
-
       - name: Build welcome page
+        working-directory: typescript
         run: npx tsx scripts/build-docs-index.ts
 
       - uses: actions/upload-pages-artifact@v3

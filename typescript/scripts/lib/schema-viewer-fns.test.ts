@@ -9,7 +9,13 @@ import {
   resolvePropertyType,
   resolveValueLeaf,
   buildReverseIndex,
+  findTransitiveEntityUsers,
   defaultForType,
+  defRole,
+  countRoles,
+  presentRoles,
+  ROLE_DISPLAY_ORDER,
+  ROLE_LABELS,
   type Defs,
 } from "./schema-viewer-fns.js";
 
@@ -325,6 +331,79 @@ describe("buildReverseIndex", () => {
   });
 });
 
+// ── findTransitiveEntityUsers ─────────────────────────────────────────────────
+
+describe("findTransitiveEntityUsers", () => {
+  it("finds direct entity referrer", () => {
+    const defs: Defs = {
+      Leaf: { type: "string" },
+      MyEntity: { "x-netex-role": "entity", properties: { x: { $ref: "#/definitions/Leaf" } } },
+    };
+    const idx = buildReverseIndex(defs);
+    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["MyEntity"]);
+  });
+
+  it("finds entity through intermediate structure", () => {
+    const defs: Defs = {
+      Leaf: { type: "string" },
+      Middle: { "x-netex-role": "structure", properties: { x: { $ref: "#/definitions/Leaf" } } },
+      MyEntity: { "x-netex-role": "entity", properties: { m: { $ref: "#/definitions/Middle" } } },
+    };
+    const idx = buildReverseIndex(defs);
+    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["MyEntity"]);
+  });
+
+  it("does not traverse beyond entities", () => {
+    const defs: Defs = {
+      Leaf: { type: "string" },
+      EntityA: { "x-netex-role": "entity", properties: { x: { $ref: "#/definitions/Leaf" } } },
+      EntityB: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/EntityA" } } },
+    };
+    const idx = buildReverseIndex(defs);
+    // EntityA uses Leaf directly; EntityB uses EntityA but not Leaf
+    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["EntityA"]);
+  });
+
+  it("excludes the input name from results even if it is an entity", () => {
+    const defs: Defs = {
+      Self: { "x-netex-role": "entity", properties: { x: { type: "string" } } },
+      Other: { "x-netex-role": "entity", properties: { s: { $ref: "#/definitions/Self" } } },
+    };
+    const idx = buildReverseIndex(defs);
+    expect(findTransitiveEntityUsers(defs, "Self", idx)).toEqual(["Other"]);
+  });
+
+  it("handles cycles without infinite loop", () => {
+    const defs: Defs = {
+      A: { "x-netex-role": "structure", properties: { b: { $ref: "#/definitions/B" } } },
+      B: { "x-netex-role": "structure", properties: { a: { $ref: "#/definitions/A" } } },
+      E: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/A" } } },
+    };
+    const idx = buildReverseIndex(defs);
+    expect(findTransitiveEntityUsers(defs, "A", idx)).toEqual(["E"]);
+  });
+
+  it("returns empty array when no entities reachable", () => {
+    const defs: Defs = {
+      Orphan: { type: "string" },
+    };
+    const idx = buildReverseIndex(defs);
+    expect(findTransitiveEntityUsers(defs, "Orphan", idx)).toEqual([]);
+  });
+
+  it("finds multiple entities through branching paths", () => {
+    const defs: Defs = {
+      Leaf: { type: "string" },
+      StructA: { "x-netex-role": "structure", properties: { x: { $ref: "#/definitions/Leaf" } } },
+      StructB: { "x-netex-role": "structure", properties: { x: { $ref: "#/definitions/Leaf" } } },
+      EntityX: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/StructA" } } },
+      EntityY: { "x-netex-role": "entity", properties: { b: { $ref: "#/definitions/StructB" } } },
+    };
+    const idx = buildReverseIndex(defs);
+    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["EntityX", "EntityY"]);
+  });
+});
+
 // ── defaultForType ───────────────────────────────────────────────────────────
 
 describe("defaultForType", () => {
@@ -361,3 +440,117 @@ describe("defaultForType", () => {
   });
 });
 
+// ── defRole ─────────────────────────────────────────────────────────────────
+
+describe("defRole", () => {
+  it("reads x-netex-role from a definition", () => {
+    expect(defRole({ "x-netex-role": "entity" })).toBe("entity");
+  });
+
+  it('returns "unclassified" when x-netex-role is missing', () => {
+    expect(defRole({ type: "object" })).toBe("unclassified");
+  });
+
+  it('returns "unclassified" for undefined input', () => {
+    expect(defRole(undefined)).toBe("unclassified");
+  });
+
+  it('returns "unclassified" when x-netex-role is not a string', () => {
+    expect(defRole({ "x-netex-role": 42 })).toBe("unclassified");
+  });
+});
+
+// ── countRoles ──────────────────────────────────────────────────────────────
+
+describe("countRoles", () => {
+  it("counts definitions per role", () => {
+    const defs: Defs = {
+      A: { "x-netex-role": "entity" },
+      B: { "x-netex-role": "entity" },
+      C: { "x-netex-role": "structure" },
+    };
+    const counts = countRoles(["A", "B", "C"], defs);
+    expect(counts.get("entity")).toBe(2);
+    expect(counts.get("structure")).toBe(1);
+  });
+
+  it("groups missing roles under unclassified", () => {
+    const defs: Defs = { A: { type: "object" }, B: {} };
+    const counts = countRoles(["A", "B"], defs);
+    expect(counts.get("unclassified")).toBe(2);
+  });
+});
+
+// ── presentRoles ────────────────────────────────────────────────────────────
+
+describe("presentRoles", () => {
+  it("returns only roles present in the data", () => {
+    const defs: Defs = {
+      A: { "x-netex-role": "entity" },
+      B: { "x-netex-role": "reference" },
+    };
+    const roles = presentRoles(["A", "B"], defs);
+    const keys = roles.map((r) => r.role);
+    expect(keys).toContain("entity");
+    expect(keys).toContain("reference");
+    expect(keys).not.toContain("abstract");
+  });
+
+  it("includes unclassified when definitions lack x-netex-role", () => {
+    const defs: Defs = { A: { "x-netex-role": "entity" }, B: { type: "object" } };
+    const roles = presentRoles(["A", "B"], defs);
+    expect(roles.map((r) => r.role)).toContain("unclassified");
+  });
+
+  it("respects ROLE_DISPLAY_ORDER", () => {
+    const defs: Defs = {
+      A: { "x-netex-role": "reference" },
+      B: { "x-netex-role": "entity" },
+      C: { "x-netex-role": "abstract" },
+    };
+    const roles = presentRoles(["A", "B", "C"], defs);
+    const keys = roles.map((r) => r.role);
+    // entity < abstract < reference per ROLE_DISPLAY_ORDER
+    expect(keys.indexOf("entity")).toBeLessThan(keys.indexOf("abstract"));
+    expect(keys.indexOf("abstract")).toBeLessThan(keys.indexOf("reference"));
+  });
+
+  it("includes correct counts", () => {
+    const defs: Defs = {
+      A: { "x-netex-role": "entity" },
+      B: { "x-netex-role": "entity" },
+      C: { "x-netex-role": "structure" },
+    };
+    const roles = presentRoles(["A", "B", "C"], defs);
+    expect(roles.find((r) => r.role === "entity")?.count).toBe(2);
+    expect(roles.find((r) => r.role === "structure")?.count).toBe(1);
+  });
+
+  it("uses ROLE_LABELS for display names", () => {
+    const defs: Defs = {
+      A: { "x-netex-role": "frameMember" },
+      B: { "x-netex-role": "enumeration" },
+    };
+    const roles = presentRoles(["A", "B"], defs);
+    expect(roles.find((r) => r.role === "frameMember")?.label).toBe("Frame member");
+    expect(roles.find((r) => r.role === "enumeration")?.label).toBe("Enum");
+  });
+
+  it("returns empty array when no definitions", () => {
+    expect(presentRoles([], {})).toEqual([]);
+  });
+});
+
+// ── ROLE constants ──────────────────────────────────────────────────────────
+
+describe("ROLE_DISPLAY_ORDER", () => {
+  it("includes unclassified as the last entry", () => {
+    expect(ROLE_DISPLAY_ORDER[ROLE_DISPLAY_ORDER.length - 1]).toBe("unclassified");
+  });
+
+  it("has a label for every role", () => {
+    for (const role of ROLE_DISPLAY_ORDER) {
+      expect(ROLE_LABELS[role]).toBeDefined();
+    }
+  });
+});

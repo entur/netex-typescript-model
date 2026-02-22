@@ -1,0 +1,38 @@
+{
+  "_comment": "Frame membership registry. Seeded from netex-validator-java Default*FrameValidationTreeFactory classes.",
+  "ServiceFrame": [
+    "Line",
+    "FlexibleLine",
+    "Route",
+    "Network",
+    "GroupOfLines",
+    "DestinationDisplay",
+    "RoutePoint",
+    "ServiceLink",
+    "JourneyPattern",
+    "StopPointInJourneyPattern",
+    "PassengerStopAssignment"
+  ],
+  "TimetableFrame": [
+    "ServiceJourney",
+    "DatedServiceJourney",
+    "DeadRun",
+    "ServiceJourneyInterchange",
+    "TimetabledPassingTime",
+    "FlexibleServiceProperties"
+  ],
+  "ResourceFrame": [
+    "Operator",
+    "Authority"
+  ],
+  "ServiceCalendarFrame": [
+    "DayType",
+    "ServiceCalendar",
+    "DayTypeAssignment",
+    "OperatingPeriod"
+  ],
+  "VehicleScheduleFrame": [
+    "Block",
+    "TrainBlock"
+  ]
+}

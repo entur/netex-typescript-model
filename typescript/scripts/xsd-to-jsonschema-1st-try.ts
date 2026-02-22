@@ -1,4 +1,9 @@
 /**
+ * @deprecated Superseded by `json-schema/xsd-to-jsonschema.js` (Java DOM pipeline).
+ * The Java DOM converter is the primary XSD → JSON Schema path, invoked via the
+ * root Makefile. This file is retained for reference and for `verify-parity.sh`
+ * comparisons, but should not be used for new work.
+ *
  * Custom XSD → JSON Schema converter for NeTEx.
  *
  * Uses fast-xml-parser to parse XSD files and converts them to JSON Schema Draft 07.
@@ -10,12 +15,14 @@
 
 import type { JSONSchema7 } from "json-schema";
 import { XMLParser } from "fast-xml-parser";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 
 export type JsonSchema = JSONSchema7 & {
   xml?: { attribute?: boolean };
   "x-netex-leaf"?: string;
+  "x-netex-source"?: string;
+  "x-netex-assembly"?: string;
 };
 
 interface TypeEntry {
@@ -743,6 +750,7 @@ export class XsdToJsonSchema {
     for (const [name, entry] of this.types) {
       if (!enabledFilter || enabledFilter(entry.sourceFile)) {
         definitions[name] = entry.schema;
+        entry.schema["x-netex-source"] = entry.sourceFile;
       }
     }
 
@@ -750,6 +758,7 @@ export class XsdToJsonSchema {
       if (!enabledFilter || enabledFilter(entry.sourceFile)) {
         if (!definitions[name]) {
           definitions[name] = entry.schema;
+          entry.schema["x-netex-source"] = entry.sourceFile;
         }
       }
     }
@@ -833,4 +842,76 @@ export class XsdToJsonSchema {
   private warn(msg: string): void {
     this.warnings.push(msg);
   }
+}
+
+// ── Standalone CLI ────────────────────────────────────────────────────────────
+//
+// Usage: npx tsx scripts/xsd-to-jsonschema-1st-try.ts <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]
+//
+// Mirrors json-schema/'s main() interface:
+//   xsdRoot    — path to the XSD directory (e.g. ../xsd/2.0)
+//   outDir     — directory for the output ASSEMBLY.schema.json
+//   configPath — optional; when provided, filters definitions to enabled parts
+//   --parts    — optional; enable additional parts (comma-separated, requires configPath)
+
+if (resolve(process.argv[1]) === import.meta.filename) {
+  const positional: string[] = [];
+  let cliParts: string[] = [];
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--parts" && argv[i + 1]) {
+      cliParts = argv[++i].split(",");
+    } else {
+      positional.push(argv[i]);
+    }
+  }
+
+  const [xsdRoot, outDir, configPath] = positional;
+  if (!xsdRoot || !outDir) {
+    console.error(
+      "Usage: npx tsx scripts/xsd-to-jsonschema-1st-try.ts <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]",
+    );
+    process.exit(1);
+  }
+
+  if (cliParts.length > 0 && !configPath) {
+    console.error("--parts requires a configPath argument");
+    process.exit(1);
+  }
+
+  const absXsdRoot = resolve(xsdRoot);
+  const absOutDir = resolve(outDir);
+
+  if (!existsSync(absXsdRoot)) {
+    console.error(`XSD directory not found: ${absXsdRoot}`);
+    process.exit(1);
+  }
+
+  console.log(`XSD root: ${absXsdRoot}`);
+  const converter = new XsdToJsonSchema(absXsdRoot);
+  converter.loadFile("NeTEx_publication.xsd");
+
+  const stats = converter.stats;
+  console.log(`Parsed ${stats.files} files, ${stats.types} types, ${stats.elements} elements`);
+
+  let enabledFilter: ((sourceFile: string) => boolean) | undefined;
+  let assembly = "base";
+  if (configPath) {
+    const { Config } = await import("./lib/config.js");
+    const config = new Config(resolve(configPath));
+    if (cliParts.length > 0) config.applyCliParts(cliParts);
+    enabledFilter = (sourceFile: string) => config.isEnabledPath(sourceFile);
+    assembly = config.assembly;
+    console.log(`Filtering to assembly: ${assembly}`);
+  }
+
+  const schema = converter.toJsonSchema(enabledFilter);
+  schema["x-netex-assembly"] = assembly;
+  const defCount = Object.keys(schema.definitions || {}).length;
+  console.log(`${defCount} definitions in output schema`);
+
+  if (!existsSync(absOutDir)) mkdirSync(absOutDir, { recursive: true });
+  const outPath = join(absOutDir, `${assembly}.schema.json`);
+  writeFileSync(outPath, JSON.stringify(schema, null, 2));
+  console.log(`Written to ${outPath}`);
 }
