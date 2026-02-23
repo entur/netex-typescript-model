@@ -11,6 +11,7 @@ import {
   buildReverseIndex,
   findTransitiveEntityUsers,
   defaultForType,
+  lcFirst,
   defRole,
   countRoles,
   presentRoles,
@@ -102,7 +103,7 @@ describe("flattenAllOf", () => {
     };
     const result = flattenAllOf(defs, "A");
     expect(result).toHaveLength(1);
-    expect(result[0].prop).toBe("x");
+    expect(result[0].prop).toEqual(["x", "x"]);
     expect(result[0].origin).toBe("A");
   });
 
@@ -118,8 +119,8 @@ describe("flattenAllOf", () => {
     };
     const result = flattenAllOf(defs, "Child");
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ prop: "x", origin: "Parent" });
-    expect(result[1]).toMatchObject({ prop: "y", origin: "Child" });
+    expect(result[0]).toMatchObject({ prop: ["x", "x"], origin: "Parent" });
+    expect(result[1]).toMatchObject({ prop: ["y", "y"], origin: "Child" });
   });
 
   it("follows $ref aliases", () => {
@@ -129,7 +130,7 @@ describe("flattenAllOf", () => {
     };
     const result = flattenAllOf(defs, "Alias");
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ prop: "z", origin: "Real" });
+    expect(result[0]).toMatchObject({ prop: ["z", "z"], origin: "Real" });
   });
 
   it("handles circular references without infinite loop", () => {
@@ -447,6 +448,26 @@ describe("defaultForType", () => {
 
   it("returns cast for complex types", () => {
     expect(defaultForType("MyType")).toBe("{} as MyType");
+  });
+});
+
+// ── lcFirst ──────────────────────────────────────────────────────────────────
+
+describe("lcFirst", () => {
+  it("lowercases PascalCase property name", () => {
+    expect(lcFirst("BrandingRef")).toBe("brandingRef");
+  });
+
+  it("keeps already-lowercase name unchanged", () => {
+    expect(lcFirst("version")).toBe("version");
+  });
+
+  it("handles single character", () => {
+    expect(lcFirst("X")).toBe("x");
+  });
+
+  it("handles empty string", () => {
+    expect(lcFirst("")).toBe("");
   });
 });
 

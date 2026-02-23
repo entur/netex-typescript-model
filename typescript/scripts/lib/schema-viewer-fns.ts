@@ -39,7 +39,8 @@ export interface ResolvedType {
 }
 
 export interface FlatProperty {
-  prop: string;
+  /** `[xsdName, tsName]` — original XSD property name and its camelCase TypeScript equivalent. */
+  prop: [string, string];
   type: string;
   desc: string;
   origin: string;
@@ -142,15 +143,15 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
           walk(deref(entry.$ref));
         } else if (entry.properties) {
           for (const [pn, pv] of Object.entries(entry.properties) as [string, Def][]) {
-            results.push({ prop: pn, type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
+            results.push({ prop: [pn, lcFirst(pn)], type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
           }
         }
       }
     }
     if (def.properties) {
       for (const [pn, pv] of Object.entries(def.properties) as [string, Def][]) {
-        if (!results.some((r) => r.prop === pn && r.origin === n)) {
-          results.push({ prop: pn, type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
+        if (!results.some((r) => r.prop[0] === pn && r.origin === n)) {
+          results.push({ prop: [pn, lcFirst(pn)], type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
         }
       }
     }
@@ -432,4 +433,9 @@ export function defaultForType(ts: string): string {
     return '""';
   }
   return "{} as " + ts;
+}
+
+/** Lowercase the first character of a property name (NeTEx props are PascalCase, TS conventions use camelCase). */
+export function lcFirst(s: string): string {
+  return s.charAt(0).toLowerCase() + s.slice(1);
 }

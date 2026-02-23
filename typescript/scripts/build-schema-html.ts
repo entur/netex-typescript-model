@@ -97,9 +97,7 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
       const jsonHtml = highlightJson(displayDef);
 
       const isEntity = role === "entity";
-      const suggestBtn = isEntity
-        ? `<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button>`
-        : "";
+      const suggestBtn = `<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button>`;
       const usedByBtn = !isEntity
         ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Find uses\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
         : "";
@@ -153,7 +151,8 @@ function buildViewerFnsScript(): string {
         buildReverseIndex: buildReverseIndex,
         findTransitiveEntityUsers: findTransitiveEntityUsers,
         defRole: defRole,
-        defaultForType: defaultForType
+        defaultForType: defaultForType,
+        lcFirst: lcFirst
       };
     })();
 
@@ -167,6 +166,7 @@ function buildViewerFnsScript(): string {
     function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
     function resolveValueLeaf(n) { return _fns.resolveValueLeaf(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
+
     function defRole(name) { return _fns.defRole(defs[name]); }
     var _reverseIdx = null;
     function buildReverseIndex() {
@@ -1022,7 +1022,7 @@ ${sections}
         const typeHtml = isRefType(p.schema)
           ? '<a href="#' + esc(refTarget(p.schema)) + '" class="explorer-type-link">' + esc(p.type) + '</a>'
           : esc(p.type);
-        html += '<div class="prop-row"><div class="prop-name">' + esc(p.prop) + ' <span class="prop-type">' + typeHtml + '</span></div>';
+        html += '<div class="prop-row"><div class="prop-name">' + esc(p.prop[0]) + ' <span class="prop-type">' + typeHtml + '</span></div>';
         if (p.desc) html += '<div class="prop-pdesc">' + esc(p.desc) + '</div>';
         html += '</div>';
       }
@@ -1214,7 +1214,7 @@ ${sections}
         } else {
           typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
         }
-        lines.push('  <span class="if-prop">' + esc(p.prop) + '</span>?: ' + typeHtml + ';');
+        lines.push('  <span class="if-prop">' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
       }
 
       lines.push('}');
@@ -1281,9 +1281,9 @@ ${sections}
           leaf = resolveValueLeaf(typeName);
         }
         if (leaf) {
-          fromLines.push('    ' + esc(p.prop) + ': src.' + esc(p.prop) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(leaf) + '</span>');
+          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(leaf) + '</span>');
         } else {
-          fromLines.push('    ' + esc(p.prop) + ': src.' + esc(p.prop) + ',');
+          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + ',');
         }
       }
       fromLines.push('  };');
@@ -1331,9 +1331,9 @@ ${sections}
         var resolved = resolvePropertyType(p.schema);
         var check = '';
         if (resolved.ts.endsWith('[]')) {
-          check = '!Array.isArray(obj.' + p.prop + ')';
+          check = '!Array.isArray(obj.' + p.prop[1] + ')';
         } else if (resolved.complex) {
-          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"object"</span>';
+          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"object"</span>';
         } else {
           var base = resolved.ts;
           if (base.indexOf('/*') !== -1) base = base.slice(0, base.indexOf(' /*')).trim();
@@ -1341,17 +1341,17 @@ ${sections}
             // union — check for the base primitive (string for enums, etc.)
             var firstPart = base.split('|')[0].trim();
             if (firstPart.startsWith('"') || firstPart.startsWith("'")) {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"string"</span>';
+              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
             } else {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
+              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
             }
           } else if (base === 'integer') {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"number"</span>';
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
           } else {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
           }
         }
-        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
+        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop[1]) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
       }
       lines.push('  <span class="if-kw">return true</span>;');
       lines.push('}');
@@ -1369,10 +1369,10 @@ ${sections}
         flines.push('  <span class="if-kw">return</span> {');
         for (var i = 0; i < props.length; i++) {
           var p = props[i];
-          if (!required.has(p.prop)) continue;
+          if (!required.has(p.prop[0])) continue;
           var resolved = resolvePropertyType(p.schema);
           var defVal = defaultForType(resolved.ts);
-          flines.push('    ' + esc(p.prop) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
+          flines.push('    ' + esc(p.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
         }
         flines.push('    ...init,');
         flines.push('  };');

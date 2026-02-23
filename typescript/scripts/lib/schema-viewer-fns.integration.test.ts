@@ -59,7 +59,7 @@ describe("integration with real schema", () => {
   it("flattenAllOf produces properties for a real type", () => {
     const props = flattenAllOf(defs, "VersionOfObjectRefStructure");
     expect(props.length).toBeGreaterThan(0);
-    expect(props.some((p) => p.prop === "value")).toBe(true);
+    expect(props.some((p) => p.prop[0] === "value")).toBe(true);
   });
 });
 
@@ -127,19 +127,19 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     const props = flattenAllOf(defs, "VehicleType");
     expect(props.length).toBeGreaterThan(20);
     // Own properties from VehicleType_VersionStructure
-    expect(props.some((p) => p.prop === "LowFloor")).toBe(true);
-    expect(props.some((p) => p.prop === "Length")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "lowFloor")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "length")).toBe(true);
     // Inherited from TransportType_VersionStructure
-    expect(props.some((p) => p.prop === "Name" && p.origin === "TransportType_VersionStructure")).toBe(true);
-    expect(props.some((p) => p.prop === "TransportMode")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "name" && p.origin === "TransportType_VersionStructure")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "transportMode")).toBe(true);
     // Deep inherited from EntityInVersionStructure
-    expect(props.some((p) => p.prop === "created")).toBe(true);
-    expect(props.some((p) => p.prop === "version")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "created")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "version")).toBe(true);
   });
 
   it("resolvePropertyType handles booleans from VehicleType", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const lowFloor = props.find((p) => p.prop === "LowFloor");
+    const lowFloor = props.find((p) => p.prop[1] === "lowFloor");
     expect(lowFloor).toBeDefined();
     expect(resolvePropertyType(defs, lowFloor!.schema)).toEqual({ ts: "boolean", complex: false });
   });
@@ -147,7 +147,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
   it("resolvePropertyType resolves allOf-wrapped measurement types", () => {
     // Length → allOf[$ref LengthType] → should resolve to a leaf
     const props = flattenAllOf(defs, "VehicleType");
-    const length = props.find((p) => p.prop === "Length");
+    const length = props.find((p) => p.prop[1] === "length");
     expect(length).toBeDefined();
     const result = resolvePropertyType(defs, length!.schema);
     expect(result.ts).toBeTruthy();
@@ -158,7 +158,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType resolves enum from inherited TransportMode", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const mode = props.find((p) => p.prop === "TransportMode");
+    const mode = props.find((p) => p.prop[1] === "transportMode");
     expect(mode).toBeDefined();
     const result = resolvePropertyType(defs, mode!.schema);
     // AllPublicTransportModesEnumeration is an enum — should contain pipe-separated literals
@@ -168,7 +168,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType resolves array from deep-inherited ValidBetween", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const vb = props.find((p) => p.prop === "ValidBetween");
+    const vb = props.find((p) => p.prop[1] === "validBetween");
     expect(vb).toBeDefined();
     const result = resolvePropertyType(defs, vb!.schema);
     expect(result.ts).toMatch(/\[\]$/);
@@ -176,7 +176,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType resolves BrandingRef as string via x-netex-leaf", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const branding = props.find((p) => p.prop === "BrandingRef");
+    const branding = props.find((p) => p.prop[1] === "brandingRef");
     expect(branding).toBeDefined();
     const result = resolvePropertyType(defs, branding!.schema);
     expect(result).toEqual({ ts: "string", complex: false });
@@ -185,7 +185,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
   it("resolvePropertyType resolves complex ref types", () => {
     // capacities → allOf[$ref passengerCapacities_RelStructure] — a complex structure
     const props = flattenAllOf(defs, "VehicleType");
-    const cap = props.find((p) => p.prop === "capacities");
+    const cap = props.find((p) => p.prop[1] === "capacities");
     expect(cap).toBeDefined();
     const result = resolvePropertyType(defs, cap!.schema);
     expect(result.complex).toBe(true);
