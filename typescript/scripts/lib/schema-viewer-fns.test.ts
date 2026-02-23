@@ -334,13 +334,16 @@ describe("buildReverseIndex", () => {
 // ── findTransitiveEntityUsers ─────────────────────────────────────────────────
 
 describe("findTransitiveEntityUsers", () => {
+  /** Helper: build the isEntity predicate from defs (the common call-site pattern). */
+  const isEntity = (defs: Defs) => (name: string) => defRole(defs[name]) === "entity";
+
   it("finds direct entity referrer", () => {
     const defs: Defs = {
       Leaf: { type: "string" },
       MyEntity: { "x-netex-role": "entity", properties: { x: { $ref: "#/definitions/Leaf" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["MyEntity"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["MyEntity"]);
   });
 
   it("finds entity through intermediate structure", () => {
@@ -350,7 +353,7 @@ describe("findTransitiveEntityUsers", () => {
       MyEntity: { "x-netex-role": "entity", properties: { m: { $ref: "#/definitions/Middle" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["MyEntity"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["MyEntity"]);
   });
 
   it("does not traverse beyond entities", () => {
@@ -361,7 +364,7 @@ describe("findTransitiveEntityUsers", () => {
     };
     const idx = buildReverseIndex(defs);
     // EntityA uses Leaf directly; EntityB uses EntityA but not Leaf
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["EntityA"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityA"]);
   });
 
   it("excludes the input name from results even if it is an entity", () => {
@@ -370,7 +373,7 @@ describe("findTransitiveEntityUsers", () => {
       Other: { "x-netex-role": "entity", properties: { s: { $ref: "#/definitions/Self" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Self", idx)).toEqual(["Other"]);
+    expect(findTransitiveEntityUsers("Self", idx, isEntity(defs))).toEqual(["Other"]);
   });
 
   it("handles cycles without infinite loop", () => {
@@ -380,7 +383,7 @@ describe("findTransitiveEntityUsers", () => {
       E: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/A" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "A", idx)).toEqual(["E"]);
+    expect(findTransitiveEntityUsers("A", idx, isEntity(defs))).toEqual(["E"]);
   });
 
   it("returns empty array when no entities reachable", () => {
@@ -388,7 +391,7 @@ describe("findTransitiveEntityUsers", () => {
       Orphan: { type: "string" },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Orphan", idx)).toEqual([]);
+    expect(findTransitiveEntityUsers("Orphan", idx, isEntity(defs))).toEqual([]);
   });
 
   it("finds multiple entities through branching paths", () => {
@@ -400,7 +403,7 @@ describe("findTransitiveEntityUsers", () => {
       EntityY: { "x-netex-role": "entity", properties: { b: { $ref: "#/definitions/StructB" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["EntityX", "EntityY"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityX", "EntityY"]);
   });
 });
 

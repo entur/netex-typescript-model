@@ -25,45 +25,77 @@ export interface FlatProperty {
   schema: Def;
 }
 
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+/** Strip the JSON Schema `#/definitions/` prefix from a `$ref` string. */
+function deref(ref: string): string {
+  return ref.replace("#/definitions/", "");
+}
+
+/** Find the first `$ref` target in an `allOf` array, or `null`. */
+function allOfRef(allOf: Def[]): string | null {
+  for (const e of allOf) {
+    if (e.$ref) return deref(e.$ref);
+  }
+  return null;
+}
+
+/** Discriminated shape of a JSON Schema property node. */
+type SchemaShape =
+  | { kind: "ref"; target: string }
+  | { kind: "enum"; values: unknown[] }
+  | { kind: "refArray"; target: string }
+  | { kind: "array"; itemType: string }
+  | { kind: "primitive"; type: string; format?: string }
+  | { kind: "object" }
+  | { kind: "unknown" };
+
+/** Classify a property schema into a discriminated shape (single pass). */
+function classifySchema(prop: Def): SchemaShape {
+  if (!prop || typeof prop !== "object") return { kind: "unknown" };
+  if (prop.$ref) return { kind: "ref", target: deref(prop.$ref) };
+  if (prop.allOf) {
+    const target = allOfRef(prop.allOf);
+    if (target) return { kind: "ref", target };
+  }
+  if (prop.enum) return { kind: "enum", values: prop.enum };
+  if (prop.type === "array" && prop.items) {
+    if (prop.items.$ref) return { kind: "refArray", target: deref(prop.items.$ref) };
+    return { kind: "array", itemType: prop.items.type || "any" };
+  }
+  if (prop.type) {
+    const type = Array.isArray(prop.type) ? prop.type.join(" | ") : prop.type;
+    if (type !== "object") return { kind: "primitive", type, format: prop.format };
+  }
+  return { kind: "object" };
+}
+
 // ── Property introspection ───────────────────────────────────────────────────
 
 /** Resolve a property schema to a human-readable type string. */
 export function resolveType(prop: Def): string {
-  if (!prop || typeof prop !== "object") return "unknown";
-  if (prop.$ref) return prop.$ref.replace("#/definitions/", "");
-  if (prop.allOf) {
-    for (const entry of prop.allOf) {
-      if (entry.$ref) return entry.$ref.replace("#/definitions/", "");
-    }
+  const shape = classifySchema(prop);
+  switch (shape.kind) {
+    case "ref":       return shape.target;
+    case "enum":      return shape.values.join(" | ");
+    case "refArray":  return shape.target + "[]";
+    case "array":     return shape.itemType + "[]";
+    case "primitive": return shape.type;
+    case "object":    return "object";
+    case "unknown":   return "unknown";
   }
-  if (prop.enum) return prop.enum.join(" | ");
-  if (prop.type === "array" && prop.items) {
-    if (prop.items.$ref) return prop.items.$ref.replace("#/definitions/", "") + "[]";
-    return (prop.items.type || "any") + "[]";
-  }
-  if (prop.type) return Array.isArray(prop.type) ? prop.type.join(" | ") : prop.type;
-  return "object";
 }
 
 /** Does this property schema reference another definition? */
 export function isRefType(prop: Def): boolean {
-  if (!prop || typeof prop !== "object") return false;
-  if (prop.$ref) return true;
-  if (prop.allOf) return prop.allOf.some((e: Def) => e.$ref);
-  if (prop.type === "array" && prop.items && prop.items.$ref) return true;
-  return false;
+  const kind = classifySchema(prop).kind;
+  return kind === "ref" || kind === "refArray";
 }
 
 /** Extract the target definition name from a reference property, or null. */
 export function refTarget(prop: Def): string | null {
-  if (prop.$ref) return prop.$ref.replace("#/definitions/", "");
-  if (prop.allOf) {
-    for (const e of prop.allOf) {
-      if (e.$ref) return e.$ref.replace("#/definitions/", "");
-    }
-  }
-  if (prop.type === "array" && prop.items && prop.items.$ref)
-    return prop.items.$ref.replace("#/definitions/", "");
+  const shape = classifySchema(prop);
+  if (shape.kind === "ref" || shape.kind === "refArray") return shape.target;
   return null;
 }
 
@@ -80,13 +112,13 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
     const def = defs[n];
     if (!def) return;
     if (def.$ref) {
-      walk(def.$ref.replace("#/definitions/", ""));
+      walk(deref(def.$ref));
       return;
     }
     if (def.allOf) {
       for (const entry of def.allOf) {
         if (entry.$ref) {
-          walk(entry.$ref.replace("#/definitions/", ""));
+          walk(deref(entry.$ref));
         } else if (entry.properties) {
           for (const [pn, pv] of Object.entries(entry.properties) as [string, Def][]) {
             results.push({ prop: pn, type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
@@ -117,12 +149,12 @@ export function collectRequired(defs: Defs, name: string): Set<string> {
     const def = defs[n];
     if (!def) return;
     if (def.$ref) {
-      walk(def.$ref.replace("#/definitions/", ""));
+      walk(deref(def.$ref));
       return;
     }
     if (def.allOf) {
       for (const entry of def.allOf) {
-        if (entry.$ref) walk(entry.$ref.replace("#/definitions/", ""));
+        if (entry.$ref) walk(deref(entry.$ref));
         if (entry.required) entry.required.forEach((r: string) => req.add(r));
       }
     }
@@ -149,20 +181,21 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
   if (!def) return { ts: name, complex: true };
 
   // Pure $ref alias
-  if (def.$ref) return resolveLeafType(defs, def.$ref.replace("#/definitions/", ""), visited);
+  if (def.$ref) return resolveLeafType(defs, deref(def.$ref), visited);
 
   // allOf with single $ref (wrapper or inheritance)
   if (def.allOf) {
     const refs = def.allOf.filter((e: Def) => e.$ref);
     if (refs.length === 1) {
+      const target = deref(refs[0].$ref);
       const hasOwnProps =
         (def.properties && Object.keys(def.properties).length > 0) ||
         def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
       if (!hasOwnProps) {
-        return resolveLeafType(defs, refs[0].$ref.replace("#/definitions/", ""), visited);
+        return resolveLeafType(defs, target, visited);
       }
       // Speculatively follow parent — use result if primitive
-      const parentResult = resolveLeafType(defs, refs[0].$ref.replace("#/definitions/", ""), new Set(visited));
+      const parentResult = resolveLeafType(defs, target, new Set(visited));
       if (!parentResult.complex) return parentResult;
     }
   }
@@ -173,7 +206,7 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
   // anyOf union
   if (def.anyOf) {
     const parts = def.anyOf.map((branch: Def) => {
-      if (branch.$ref) return resolveLeafType(defs, branch.$ref.replace("#/definitions/", ""), new Set(visited));
+      if (branch.$ref) return resolveLeafType(defs, deref(branch.$ref), new Set(visited));
       if (branch.enum) return { ts: branch.enum.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
       if (branch.type) return { ts: branch.type, complex: false };
       return { ts: "unknown", complex: false };
@@ -198,36 +231,22 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
  * and inline primitives directly.
  */
 export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
-  if (!schema || typeof schema !== "object") return { ts: "unknown", complex: false };
-
-  // Direct $ref
-  if (schema.$ref) {
-    return resolveLeafType(defs, schema.$ref.replace("#/definitions/", ""));
-  }
-  // allOf wrapper
-  if (schema.allOf) {
-    for (const entry of schema.allOf) {
-      if (entry.$ref) {
-        return resolveLeafType(defs, entry.$ref.replace("#/definitions/", ""));
-      }
-    }
-  }
-  // Array
-  if (schema.type === "array" && schema.items) {
-    if (schema.items.$ref) {
-      const inner = resolveLeafType(defs, schema.items.$ref.replace("#/definitions/", ""));
+  const shape = classifySchema(schema);
+  switch (shape.kind) {
+    case "ref": return resolveLeafType(defs, shape.target);
+    case "refArray": {
+      const inner = resolveLeafType(defs, shape.target);
       return { ts: inner.ts + "[]", complex: inner.complex };
     }
-    return { ts: (schema.items.type || "any") + "[]", complex: false };
+    case "array":     return { ts: shape.itemType + "[]", complex: false };
+    case "enum":      return { ts: shape.values.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
+    case "primitive": {
+      const fmt = shape.format ? " /* " + shape.format + " */" : "";
+      return { ts: shape.type + fmt, complex: false };
+    }
+    case "unknown":   return { ts: "unknown", complex: false };
+    case "object":    return { ts: "object", complex: false };
   }
-  // Enum
-  if (schema.enum) return { ts: schema.enum.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
-  // Primitive
-  if (schema.type && schema.type !== "object") {
-    const fmt = schema.format ? " /* " + schema.format + " */" : "";
-    return { ts: schema.type + fmt, complex: false };
-  }
-  return { ts: "object", complex: false };
 }
 
 /**
@@ -240,7 +259,7 @@ export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
 export function resolveValueLeaf(defs: Defs, name: string): string | null {
   const def = defs[name];
   if (!def) return null;
-  if (def.$ref) return resolveValueLeaf(defs, def.$ref.replace("#/definitions/", ""));
+  if (def.$ref) return resolveValueLeaf(defs, deref(def.$ref));
   return def["x-netex-leaf"] || null;
 }
 
@@ -272,19 +291,19 @@ export function buildReverseIndex(defs: Defs): Record<string, string[]> {
 }
 
 /**
- * Find entities that transitively use a given definition.
+ * Find definitions that transitively use a given definition.
  *
- * Walks the reverse-index upward (BFS) through non-entity definitions,
- * collecting every entity reached. Stops traversal at entities — does not
- * follow entity→entity chains, since that would surface containment
- * relationships rather than structural "uses".
+ * Walks the reverse-index upward (BFS) through definitions where
+ * `isTarget` returns false, collecting every definition where it returns true.
+ * Stops traversal at target nodes — does not follow target→target chains,
+ * since that would surface containment relationships rather than structural "uses".
  *
- * The input name itself is excluded from the result even if it is an entity.
+ * The input name itself is excluded from the result even if it matches `isTarget`.
  */
 export function findTransitiveEntityUsers(
-  defs: Defs,
   name: string,
   reverseIndex: Record<string, string[]>,
+  isTarget: (name: string) => boolean,
 ): string[] {
   const entities: string[] = [];
   const visited = new Set<string>();
@@ -295,8 +314,8 @@ export function findTransitiveEntityUsers(
     if (visited.has(current)) continue;
     visited.add(current);
 
-    // If we reached an entity (that isn't the starting point), record it and stop traversing
-    if (current !== name && defRole(defs[current]) === "entity") {
+    // If we reached a target (that isn't the starting point), record it and stop traversing
+    if (current !== name && isTarget(current)) {
       entities.push(current);
       continue;
     }

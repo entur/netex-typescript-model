@@ -64,6 +64,7 @@ describe("integration with real schema", () => {
 
 describe("findTransitiveEntityUsers — real schema", () => {
   let reverseIdx: Record<string, string[]>;
+  const isEntity = (name: string) => defRole(defs[name]) === "entity";
 
   beforeAll(() => {
     reverseIdx = buildReverseIndex(defs);
@@ -71,7 +72,7 @@ describe("findTransitiveEntityUsers — real schema", () => {
 
   it("PostalAddress reaches entities through AddressablePlace chain", () => {
     // PostalAddress → AddressablePlace_VersionStructure → ... → entity
-    const entities = findTransitiveEntityUsers(defs, "PostalAddress", reverseIdx);
+    const entities = findTransitiveEntityUsers("PostalAddress", reverseIdx, isEntity);
     expect(entities.length).toBeGreaterThan(0);
     // Every result must actually be an entity
     for (const e of entities) {
@@ -81,7 +82,7 @@ describe("findTransitiveEntityUsers — real schema", () => {
 
   it("MultilingualString is used by many entities (multi-hop, ubiquitous)", () => {
     // 0 direct entity referrers but 97 total referrers — should find many entities transitively
-    const entities = findTransitiveEntityUsers(defs, "MultilingualString", reverseIdx);
+    const entities = findTransitiveEntityUsers("MultilingualString", reverseIdx, isEntity);
     expect(entities.length).toBeGreaterThan(20);
     for (const e of entities) {
       expect(defRole(defs[e])).toBe("entity");
@@ -90,7 +91,7 @@ describe("findTransitiveEntityUsers — real schema", () => {
 
   it("PrivateCodeStructure reaches entities through wrappers", () => {
     // PrivateCodeStructure → PrivateCode/Country_VersionStructure → ... → entities
-    const entities = findTransitiveEntityUsers(defs, "PrivateCodeStructure", reverseIdx);
+    const entities = findTransitiveEntityUsers("PrivateCodeStructure", reverseIdx, isEntity);
     expect(entities.length).toBeGreaterThan(0);
     for (const e of entities) {
       expect(defRole(defs[e])).toBe("entity");
@@ -100,9 +101,9 @@ describe("findTransitiveEntityUsers — real schema", () => {
   it("GroupOfEntities_VersionStructure reaches entities (deep inheritance)", () => {
     // Sits deep in the inheritance chain, no direct entity refs
     const entities = findTransitiveEntityUsers(
-      defs,
       "GroupOfEntities_VersionStructure",
       reverseIdx,
+      isEntity,
     );
     expect(entities.length).toBeGreaterThan(0);
     for (const e of entities) {
@@ -113,7 +114,7 @@ describe("findTransitiveEntityUsers — real schema", () => {
   it("an entity returns other entities that reference it (not itself)", () => {
     // Pick an entity that other entities likely reference (e.g. via Ref types)
     if (!defs["TopographicPlace"]) return; // skip if not in base
-    const entities = findTransitiveEntityUsers(defs, "TopographicPlace", reverseIdx);
+    const entities = findTransitiveEntityUsers("TopographicPlace", reverseIdx, isEntity);
     expect(entities).not.toContain("TopographicPlace");
     for (const e of entities) {
       expect(defRole(defs[e])).toBe("entity");
@@ -123,7 +124,7 @@ describe("findTransitiveEntityUsers — real schema", () => {
   it("an enumeration finds entities that use it", () => {
     // StopPlaceTypeEnumeration should be used by StopPlace (through _VersionStructure)
     if (!defs["StopPlaceTypeEnumeration"]) return; // skip if not in base
-    const entities = findTransitiveEntityUsers(defs, "StopPlaceTypeEnumeration", reverseIdx);
+    const entities = findTransitiveEntityUsers("StopPlaceTypeEnumeration", reverseIdx, isEntity);
     expect(entities.length).toBeGreaterThan(0);
     for (const e of entities) {
       expect(defRole(defs[e])).toBe("entity");
@@ -132,7 +133,7 @@ describe("findTransitiveEntityUsers — real schema", () => {
 
   it("completes in reasonable time for a heavily-referenced type", () => {
     const start = performance.now();
-    findTransitiveEntityUsers(defs, "MultilingualString", reverseIdx);
+    findTransitiveEntityUsers("MultilingualString", reverseIdx, isEntity);
     const elapsed = performance.now() - start;
     // Should complete well under 1 second even for 3000+ defs
     expect(elapsed).toBeLessThan(1000);

@@ -174,7 +174,7 @@ function buildViewerFnsScript(): string {
       return _reverseIdx;
     }
     function findTransitiveEntityUsers(name) {
-      return _fns.findTransitiveEntityUsers(defs, name, buildReverseIndex());
+      return _fns.findTransitiveEntityUsers(name, buildReverseIndex(), (n) => _fns.defRole(defs[n]) === "entity");
     }`;
   return bound;
 }
