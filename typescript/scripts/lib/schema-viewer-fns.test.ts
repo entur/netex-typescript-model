@@ -5,7 +5,7 @@ import {
   refTarget,
   flattenAllOf,
   collectRequired,
-  resolveLeafType,
+  resolveDefType,
   resolvePropertyType,
   resolveAtom,
   buildReverseIndex,
@@ -174,12 +174,12 @@ describe("collectRequired", () => {
   });
 });
 
-// ── resolveLeafType ──────────────────────────────────────────────────────────
+// ── resolveDefType ──────────────────────────────────────────────────────────
 
-describe("resolveLeafType", () => {
+describe("resolveDefType", () => {
   it("resolves primitive type", () => {
     const defs: Defs = { StringType: { type: "string" } };
-    expect(resolveLeafType(defs, "StringType")).toEqual({ ts: "string", complex: false });
+    expect(resolveDefType(defs, "StringType")).toEqual({ ts: "string", complex: false });
   });
 
   it("follows $ref alias to primitive", () => {
@@ -187,7 +187,7 @@ describe("resolveLeafType", () => {
       Alias: { $ref: "#/definitions/Target" },
       Target: { type: "string" },
     };
-    expect(resolveLeafType(defs, "Alias")).toEqual({ ts: "string", complex: false });
+    expect(resolveDefType(defs, "Alias")).toEqual({ ts: "string", complex: false });
   });
 
   it("follows allOf wrapper to primitive", () => {
@@ -195,26 +195,26 @@ describe("resolveLeafType", () => {
       Wrapper: { allOf: [{ $ref: "#/definitions/Inner" }] },
       Inner: { type: "integer" },
     };
-    expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "integer", complex: false });
+    expect(resolveDefType(defs, "Wrapper")).toEqual({ ts: "integer", complex: false });
   });
 
   it("resolves enum to union", () => {
     const defs: Defs = { E: { enum: ["a", "b", "c"] } };
-    const result = resolveLeafType(defs, "E");
+    const result = resolveDefType(defs, "E");
     expect(result.complex).toBe(false);
     expect(result.ts).toBe('"a" | "b" | "c"');
   });
 
   it("returns complex for object with properties", () => {
     const defs: Defs = { Obj: { type: "object", properties: { x: { type: "string" } } } };
-    expect(resolveLeafType(defs, "Obj")).toEqual({ ts: "Obj", complex: true });
+    expect(resolveDefType(defs, "Obj")).toEqual({ ts: "Obj", complex: true });
   });
 
   it("resolves x-netex-atom as primitive instead of complex", () => {
     const defs: Defs = {
       Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
     };
-    expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "string", complex: false });
+    expect(resolveDefType(defs, "Wrapper")).toEqual({ ts: "string", complex: false });
   });
 
   it("returns complex for x-netex-atom: simpleObj", () => {
@@ -225,7 +225,7 @@ describe("resolveLeafType", () => {
         "x-netex-atom": "simpleObj",
       },
     };
-    expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "Wrapper", complex: true });
+    expect(resolveDefType(defs, "Wrapper")).toEqual({ ts: "Wrapper", complex: true });
   });
 
   it("speculatively follows allOf parent when own properties exist", () => {
@@ -238,7 +238,7 @@ describe("resolveLeafType", () => {
       },
       Base: { type: "string" },
     };
-    const result = resolveLeafType(defs, "RefStruct");
+    const result = resolveDefType(defs, "RefStruct");
     expect(result).toEqual({ ts: "string", complex: false });
   });
 
@@ -252,12 +252,12 @@ describe("resolveLeafType", () => {
       },
       Parent: { type: "object", properties: { x: { type: "string" } } },
     };
-    expect(resolveLeafType(defs, "Child").complex).toBe(true);
+    expect(resolveDefType(defs, "Child").complex).toBe(true);
   });
 
   it("includes format comment for formatted primitives", () => {
     const defs: Defs = { DT: { type: "string", format: "date-time" } };
-    expect(resolveLeafType(defs, "DT")).toEqual({ ts: "string /* date-time */", complex: false });
+    expect(resolveDefType(defs, "DT")).toEqual({ ts: "string /* date-time */", complex: false });
   });
 
   it("handles circular references", () => {
@@ -265,7 +265,7 @@ describe("resolveLeafType", () => {
       A: { $ref: "#/definitions/B" },
       B: { $ref: "#/definitions/A" },
     };
-    const result = resolveLeafType(defs, "A");
+    const result = resolveDefType(defs, "A");
     expect(result.complex).toBe(true);
   });
 });
@@ -273,7 +273,7 @@ describe("resolveLeafType", () => {
 // ── resolvePropertyType ──────────────────────────────────────────────────────
 
 describe("resolvePropertyType", () => {
-  it("resolves $ref through resolveLeafType", () => {
+  it("resolves $ref through resolveDefType", () => {
     const defs: Defs = { T: { type: "string" } };
     expect(resolvePropertyType(defs, { $ref: "#/definitions/T" })).toEqual({
       ts: "string",
@@ -536,7 +536,7 @@ describe("unwrapMixed", () => {
     expect(unwrapMixed({}, "Missing")).toBeNull();
   });
 
-  it("resolveLeafType uses unwrapMixed to resolve as inner type array", () => {
+  it("resolveDefType uses unwrapMixed to resolve as inner type array", () => {
     const defs: Defs = {
       Mixed: {
         type: "object",
@@ -549,7 +549,7 @@ describe("unwrapMixed", () => {
       },
       ItemType: { type: "object", properties: { value: { type: "string" } } },
     };
-    expect(resolveLeafType(defs, "Mixed")).toEqual({ ts: "ItemType[]", complex: true });
+    expect(resolveDefType(defs, "Mixed")).toEqual({ ts: "ItemType[]", complex: true });
   });
 });
 

@@ -110,7 +110,7 @@ loadFrameRegistry(jsonPath) {
 
 ### 4. Add `extendsDataManagedObject()` method
 
-Same chain-following pattern as `resolveValueLeaf()` (lines 674-732): follow `$ref` and `allOf` chains through converted definitions, check for `DataManagedObjectStructure`.
+Same chain-following pattern as `resolveValueAtom()` (lines 674-732): follow `$ref` and `allOf` chains through converted definitions, check for `DataManagedObjectStructure`.
 
 ### 5. Add `classifyDefinitions(frameRegistry)` method
 

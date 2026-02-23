@@ -19,7 +19,7 @@ The Java-based `xsd-to-jsonschema.js` (GraalJS + `javax.xml.parsers`) has full D
 
 ## Make x-netex-role comprehensive — eliminate unclassified types
 
-968 of 3055 definitions (base assembly) have no `x-netex-role`. The viewer groups these under "Unclassified", and `x-netex-atom` acts as a classification fallback in `resolveLeafType` — a design smell where two annotations compensate for each other's gaps.
+968 of 3055 definitions (base assembly) have no `x-netex-role`. The viewer groups these under "Unclassified", and `x-netex-atom` acts as a classification fallback in `resolveDefType` — a design smell where two annotations compensate for each other's gaps.
 
 Fix by extending `classifyDefinitions()` in `xsd-to-jsonschema.js` with catch-all rules after the existing suffix/ancestry cascade:
 
@@ -49,6 +49,26 @@ Also evaluate [openapi-sampler](https://github.com/Redocly/openapi-sampler) (or 
 ## Implement NeTEx XML parser
 
 Build a TypeScript parser that can read NeTEx XML documents into the generated interfaces. See [docs/PARSER.md](docs/PARSER.md) for the design plan.
+
+## Quality-improve build-docs-index.ts
+
+`build-docs-index.ts` generates the GitHub Pages welcome page. It has hardcoded assembly descriptions and no connection to releases. Improve:
+
+- **Derive assembly descriptions from config** — `assembly-config.json` already has part metadata; generate descriptions from part keys and their enabled state instead of the hardcoded `ASSEMBLY_DESCRIPTIONS` map
+- **Link to GitHub Releases** — the welcome page should link to the latest release tarball for each assembly (the release workflow already produces `netex-<version>-<assembly>-v<tag>.tgz` artifacts). Use the GitHub API or a static convention to construct download links
+- **Show NeTEx version** — read `netex.version` from config and display it prominently on the landing page
+- **Reduce template hardcoding** — the inline HTML/CSS is a long string literal; extract into a template file (same pattern as the `build-schema-html.ts` TODO)
+
+## Quality-improve build-schema-html.ts
+
+`build-schema-html.ts` is a single 1400+ line file that mixes CSS, HTML template strings, and JS logic. Refactor for maintainability:
+
+- **Extract CSS** into a `.templ` file (or `.css` that gets inlined at build time) — the style block is ~300 lines of string literals
+- **Extract text/HTML templates** into `.templ` files — tab renderers (Interface, Mapping, Utilities, Graph, Properties) are long template-string blocks that would be clearer as separate files with placeholder substitution
+- **More functional style** — the tab render functions use imperative loops building HTML strings; refactor toward composable helpers (e.g. `renderPropRow`, `renderTypeLink`, `renderCodeBlock`) that return fragments
+- **Split by concern** — consider separating the IIFE/runtime JS (embedded in the page) from the build-time template assembly
+
+Goal: the main file becomes a build orchestrator that reads templates and composes the final HTML, rather than a monolith that does everything inline.
 
 ## Sync GitHub Actions with Entur conventions
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import {
-  resolveLeafType,
+  resolveDefType,
   resolveAtom,
   resolvePropertyType,
   flattenAllOf,
@@ -53,8 +53,8 @@ describe("integration with real schema", () => {
   it("PrivateCodeStructure is simpleObj (value + type attr)", () => {
     // PrivateCodeStructure has { value, type } — two props → simpleObj
     expect(resolveAtom(defs, "PrivateCodeStructure")).toBe("simpleObj");
-    // resolveLeafType treats simpleObj as complex
-    const result = resolveLeafType(defs, "PrivateCodeStructure");
+    // resolveDefType treats simpleObj as complex
+    const result = resolveDefType(defs, "PrivateCodeStructure");
     expect(result.complex).toBe(true);
   });
 
@@ -66,7 +66,7 @@ describe("integration with real schema", () => {
 });
 
 describe("resolvePropertyType — real schema (Interface tab)", () => {
-  it("resolves a $ref property to its leaf primitive", () => {
+  it("resolves a $ref property to its primitive", () => {
     // VersionOfObjectRefStructure.value → $ref ObjectIdType → string
     const schema = defs["VersionOfObjectRefStructure"]?.properties?.["value"];
     expect(schema).toBeDefined();
@@ -149,15 +149,15 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
   });
 
   it("resolvePropertyType resolves allOf-wrapped measurement types", () => {
-    // Length → allOf[$ref LengthType] → should resolve to a leaf
+    // Length → allOf[$ref LengthType] → should resolve to an atom
     const props = flattenAllOf(defs, "VehicleType");
     const length = props.find((p) => p.prop[1] === "length");
     expect(length).toBeDefined();
     const result = resolvePropertyType(defs, length!.schema);
     expect(result.ts).toBeTruthy();
     // LengthType is a simpleContent wrapper — resolveAtom exposes the primitive
-    const leaf = resolveAtom(defs, "LengthType");
-    if (leaf) expect(typeof leaf).toBe("string");
+    const atom = resolveAtom(defs, "LengthType");
+    if (atom) expect(typeof atom).toBe("string");
   });
 
   it("resolvePropertyType resolves enum from inherited TransportMode", () => {
@@ -194,6 +194,17 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(cap).toBeDefined();
     const result = resolvePropertyType(defs, cap!.schema);
     expect(result.complex).toBe(true);
+  });
+
+  it("resolvePropertyType resolves keyList to KeyListStructure, KeyValueStructure is simpleObj atom", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const kl = props.find((p) => p.prop[1] === "keyList");
+    expect(kl).toBeDefined();
+    const result = resolvePropertyType(defs, kl!.schema);
+    // keyList → allOf[$ref keyList] → allOf[$ref KeyListStructure] → complex
+    expect(result).toEqual({ ts: "KeyListStructure", complex: true });
+    // KeyValueStructure (the array item type inside KeyListStructure) is a pass-2 simpleObj atom
+    expect(resolveAtom(defs, "KeyValueStructure")).toBe("simpleObj");
   });
 });
 
@@ -291,8 +302,8 @@ describe("x-netex-mixed annotation", () => {
     expect(unwrapMixed(defs, "MultilingualString")).toBe("TextType");
   });
 
-  it("resolveLeafType resolves MultilingualString as TextType[]", () => {
-    expect(resolveLeafType(defs, "MultilingualString")).toEqual({
+  it("resolveDefType resolves MultilingualString as TextType[]", () => {
+    expect(resolveDefType(defs, "MultilingualString")).toEqual({
       ts: "TextType[]",
       complex: true,
     });

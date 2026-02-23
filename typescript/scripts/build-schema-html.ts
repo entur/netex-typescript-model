@@ -145,7 +145,7 @@ function buildViewerFnsScript(): string {
         refTarget: refTarget,
         flattenAllOf: flattenAllOf,
         collectRequired: collectRequired,
-        resolveLeafType: resolveLeafType,
+        resolveDefType: resolveDefType,
         resolvePropertyType: resolvePropertyType,
         resolveAtom: resolveAtom,
         buildReverseIndex: buildReverseIndex,
@@ -162,7 +162,7 @@ function buildViewerFnsScript(): string {
     function refTarget(p) { return _fns.refTarget(p); }
     function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
     function collectRequired(d, n) { return _fns.collectRequired(d, n); }
-    function resolveLeafType(n, v) { return _fns.resolveLeafType(defs, n, v); }
+    function resolveDefType(n, v) { return _fns.resolveDefType(defs, n, v); }
     function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
     function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
@@ -1275,13 +1275,13 @@ ${sections}
       for (var i = 0; i < props.length; i++) {
         var p = props[i];
         var resolved = resolvePropertyType(p.schema);
-        var leaf = null;
+        var atom = null;
         if (resolved.complex) {
           var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          leaf = resolveAtom(typeName);
+          atom = resolveAtom(typeName);
         }
-        if (leaf && leaf !== 'simpleObj') {
-          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(leaf) + '</span>');
+        if (atom && atom !== 'simpleObj') {
+          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(atom) + '</span>');
         } else {
           fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + ',');
         }

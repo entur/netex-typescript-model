@@ -676,19 +676,40 @@ class XsdToJsonSchema {
       if (!allDefs[name]) allDefs[name] = entry.schema;
     }
 
+    // Pass 1: simpleContent wrappers (types with a lowercase "value" property)
     for (const [name, schema] of Object.entries(allDefs)) {
       const vprops = this.getValueProperties(schema);
       if (vprops?.value) {
-        const leaf = this.resolveValueLeaf(name, allDefs, {});
-        if (leaf) {
+        const atom = this.resolveValueAtom(name, allDefs, {});
+        if (atom) {
           const propCount = Object.keys(vprops).length;
-          schema["x-netex-atom"] = propCount === 1 ? leaf : "simpleObj";
+          schema["x-netex-atom"] = propCount === 1 ? atom : "simpleObj";
         }
+      }
+    }
+
+    // Pass 2: all-primitive structs not caught by pass 1.
+    // If every own property is an inline primitive (string/number/integer/boolean/enum),
+    // the type is a simple flat object: 1 prop → collapse to that primitive, 2+ → simpleObj.
+    for (const [name, schema] of Object.entries(allDefs)) {
+      if (schema["x-netex-atom"]) continue;
+      const props = this.getValueProperties(schema);
+      if (!props) continue;
+      const entries = Object.entries(props);
+      if (entries.length === 0) continue;
+      const allPrimitive = entries.every(([, p]) =>
+        (p.type && p.type !== "object" && p.type !== "array") || p.enum
+      );
+      if (!allPrimitive) continue;
+      if (entries.length === 1) {
+        schema["x-netex-atom"] = entries[0][1].type || "string";
+      } else {
+        schema["x-netex-atom"] = "simpleObj";
       }
     }
   }
 
-  resolveValueLeaf(name, allDefs, visited) {
+  resolveValueAtom(name, allDefs, visited) {
     if (visited[name]) return null;
     visited[name] = true;
 
@@ -697,7 +718,7 @@ class XsdToJsonSchema {
 
     // $ref alias
     if (def.$ref) {
-      return this.resolveValueLeaf(
+      return this.resolveValueAtom(
         def.$ref.replace("#/definitions/", ""),
         allDefs,
         visited
@@ -708,7 +729,7 @@ class XsdToJsonSchema {
     if (def.allOf) {
       for (const entry of def.allOf) {
         if (entry.$ref) {
-          const result = this.resolveValueLeaf(
+          const result = this.resolveValueAtom(
             entry.$ref.replace("#/definitions/", ""),
             allDefs,
             visited
@@ -731,7 +752,7 @@ class XsdToJsonSchema {
     // value → $ref
     if (vp.$ref) {
       const target = vp.$ref.replace("#/definitions/", "");
-      const inner = this.resolveValueLeaf(target, allDefs, visited);
+      const inner = this.resolveValueAtom(target, allDefs, visited);
       if (inner) return inner;
       const targetDef = allDefs[target];
       if (targetDef?.type && typeof targetDef.type === "string" && targetDef.type !== "object") {

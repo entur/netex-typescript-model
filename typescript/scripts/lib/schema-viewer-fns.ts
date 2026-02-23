@@ -14,7 +14,7 @@
  * inheritance-chain diagram with composition edges for ref-typed properties.
  *
  * **Interface** — `flattenAllOf` to collect all properties, then
- * `resolvePropertyType` to resolve each to its leaf TypeScript type and
+ * `resolvePropertyType` to resolve each to its TypeScript type and
  * `resolveAtom` to annotate simpleContent wrappers (e.g. `→ string`).
  *
  * **Mapping** — `flattenAllOf`, `resolvePropertyType`, and `resolveAtom`
@@ -237,13 +237,13 @@ export function collectRequired(defs: Defs, name: string): Set<string> {
 // ── Type resolution ──────────────────────────────────────────────────────────
 
 /**
- * Resolve a definition name to its leaf TypeScript type.
+ * Resolve a definition name to its TypeScript type.
  *
  * Follows $ref aliases, allOf wrappers, enums, and anyOf unions.
  * Returns `{ complex: true }` for types with own properties that can't
  * be reduced to a primitive.
  */
-export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>): ResolvedType {
+export function resolveDefType(defs: Defs, name: string, visited?: Set<string>): ResolvedType {
   if (!visited) visited = new Set();
   if (visited.has(name)) return { ts: name, complex: true };
   visited.add(name);
@@ -251,7 +251,7 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
   if (!def) return { ts: name, complex: true };
 
   // Pure $ref alias
-  if (def.$ref) return resolveLeafType(defs, deref(def.$ref), visited);
+  if (def.$ref) return resolveDefType(defs, deref(def.$ref), visited);
 
   // allOf with single $ref (wrapper or inheritance)
   if (def.allOf) {
@@ -262,10 +262,10 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
         (def.properties && Object.keys(def.properties).length > 0) ||
         def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
       if (!hasOwnProps) {
-        return resolveLeafType(defs, target, visited);
+        return resolveDefType(defs, target, visited);
       }
       // Speculatively follow parent — use result if primitive
-      const parentResult = resolveLeafType(defs, target, new Set(visited));
+      const parentResult = resolveDefType(defs, target, new Set(visited));
       if (!parentResult.complex) return parentResult;
     }
   }
@@ -277,7 +277,7 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
   // anyOf union
   if (def.anyOf) {
     const parts = def.anyOf.map((branch: Def) => {
-      if (branch.$ref) return resolveLeafType(defs, deref(branch.$ref), new Set(visited));
+      if (branch.$ref) return resolveDefType(defs, deref(branch.$ref), new Set(visited));
       if (branch.enum)
         return {
           ts: branch.enum.map((v: unknown) => JSON.stringify(v)).join(" | "),
@@ -313,16 +313,16 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
 /**
  * Resolve a property schema to its TypeScript type representation.
  *
- * Delegates to resolveLeafType for $ref targets. Handles arrays, enums,
+ * Delegates to resolveDefType for $ref targets. Handles arrays, enums,
  * and inline primitives directly.
  */
 export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
   const shape = classifySchema(schema);
   switch (shape.kind) {
     case "ref":
-      return resolveLeafType(defs, shape.target);
+      return resolveDefType(defs, shape.target);
     case "refArray": {
-      const inner = resolveLeafType(defs, shape.target);
+      const inner = resolveDefType(defs, shape.target);
       return { ts: inner.ts + "[]", complex: inner.complex };
     }
     case "array":
