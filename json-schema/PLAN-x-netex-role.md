@@ -2,7 +2,7 @@
 
 ## Context
 
-The `real-data-containers.md` skill reference defines heuristics for classifying NeTEx definitions into "real entities" vs "structural scaffolding". Currently the converter stamps `x-netex-source`, `x-netex-leaf`, and `x-netex-assembly` but has no type classification. Adding `x-netex-role` enables downstream consumers (schema HTML viewer, split-output, future parser) to organize and filter types meaningfully.
+The `real-data-containers.md` skill reference defines heuristics for classifying NeTEx definitions into "real entities" vs "structural scaffolding". Currently the converter stamps `x-netex-source`, `x-netex-atom`, and `x-netex-assembly` but has no type classification. Adding `x-netex-role` enables downstream consumers (schema HTML viewer, split-output, future parser) to organize and filter types meaningfully.
 
 **Only `json-schema/xsd-to-jsonschema.js` is modified** — the TypeScript converter is deprecated.
 

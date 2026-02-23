@@ -17,6 +17,20 @@ The Java-based `xsd-to-jsonschema.js` (GraalJS + `javax.xml.parsers`) has full D
 - **Mixed content** — `mixed="true"` is a DOM attribute; could add a `_text` or `$value` string property
 - **Namespace-qualified names** — Java DOM preserves namespace URIs; could disambiguate collisions if needed
 
+## Make x-netex-role comprehensive — eliminate unclassified types
+
+968 of 3055 definitions (base assembly) have no `x-netex-role`. The viewer groups these under "Unclassified", and `x-netex-atom` acts as a classification fallback in `resolveLeafType` — a design smell where two annotations compensate for each other's gaps.
+
+Fix by extending `classifyDefinitions()` in `xsd-to-jsonschema.js` with catch-all rules after the existing suffix/ancestry cascade:
+
+- **Naked primitive aliases** (136 types: `ObjectIdType→string`, `LengthType→number`, etc.) — `type` is not `object`, no properties → role `"primitive"`
+- **Atomic structs** (32 types: `PrivateCodeStructure`, `TextType`, `ClosedTimeRangeStructure`, etc.) — object with only inline-primitive props, no `$ref` → role `"structure"`
+- **$ref aliases** (372 types) — inherit role from target, or default `"structure"`
+- **allOf types** (324 types) — they extend something, classify as `"structure"`
+- **Remaining with-ref objects** (87 types) — object with `$ref` in properties → `"structure"`
+
+Goal: near-zero unclassified. Then `x-netex-atom` stays purely as rendering metadata ("what's the underlying primitive"), not a classification crutch.
+
 ## Consider limiting TypeScript interface generation to key roles
 
 Currently `generate.ts` emits interfaces for every JSON Schema definition. Most consumers only need entities and frame members — not every internal structure, abstract base, or collection wrapper. Plan whether to filter by `x-netex-role`:

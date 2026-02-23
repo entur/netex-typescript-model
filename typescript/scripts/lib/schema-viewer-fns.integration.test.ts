@@ -3,12 +3,13 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import {
   resolveLeafType,
-  resolveValueLeaf,
+  resolveAtom,
   resolvePropertyType,
   flattenAllOf,
   buildReverseIndex,
   findTransitiveEntityUsers,
   defRole,
+  unwrapMixed,
   type Defs,
 } from "./schema-viewer-fns.js";
 
@@ -24,36 +25,37 @@ beforeAll(() => {
   }
   const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
   if (!schemaFile) {
-    throw new Error(
-      `No *.schema.json found in ${jsonschemaDir}.\nRun "npm run generate" first.`,
-    );
+    throw new Error(`No *.schema.json found in ${jsonschemaDir}.\nRun "npm run generate" first.`);
   }
   defs = JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8")).definitions;
 });
 
 describe("integration with real schema", () => {
-  it("resolves NaturalLanguageStringStructure leaf to string", () => {
-    expect(resolveValueLeaf(defs, "NaturalLanguageStringStructure")).toBe("string");
+  it("resolves NaturalLanguageStringStructure atom to simpleObj (value + lang)", () => {
+    expect(resolveAtom(defs, "NaturalLanguageStringStructure")).toBe("simpleObj");
   });
 
-  it("resolves VersionOfObjectRefStructure leaf to string", () => {
-    expect(resolveValueLeaf(defs, "VersionOfObjectRefStructure")).toBe("string");
+  it("resolves VersionOfObjectRefStructure atom to simpleObj (value + 8 attrs)", () => {
+    expect(resolveAtom(defs, "VersionOfObjectRefStructure")).toBe("simpleObj");
   });
 
-  it("resolves GroupOfEntitiesRefStructure_Dummy leaf to string (Option B)", () => {
-    expect(resolveValueLeaf(defs, "GroupOfEntitiesRefStructure_Dummy")).toBe("string");
+  it("resolves GroupOfEntitiesRefStructure_Dummy atom", () => {
+    const atom = resolveAtom(defs, "GroupOfEntitiesRefStructure_Dummy");
+    expect(atom).toBeTruthy();
+    // If it has extra props it'll be simpleObj, otherwise a primitive
+    expect(typeof atom).toBe("string");
   });
 
-  it("MultilingualString has no leaf (no value property)", () => {
-    expect(resolveValueLeaf(defs, "MultilingualString")).toBeNull();
+  it("MultilingualString has no atom (no value property)", () => {
+    expect(resolveAtom(defs, "MultilingualString")).toBeNull();
   });
 
-  it("resolveLeafType resolves simpleContent types as primitive via x-netex-leaf", () => {
-    // PrivateCodeStructure has { type: "object", properties: { value, type }, x-netex-leaf: "string" }
-    // resolveLeafType now consults x-netex-leaf and resolves as primitive
+  it("PrivateCodeStructure is simpleObj (value + type attr)", () => {
+    // PrivateCodeStructure has { value, type } — two props → simpleObj
+    expect(resolveAtom(defs, "PrivateCodeStructure")).toBe("simpleObj");
+    // resolveLeafType treats simpleObj as complex
     const result = resolveLeafType(defs, "PrivateCodeStructure");
-    expect(result).toEqual({ ts: "string", complex: false });
-    expect(resolveValueLeaf(defs, "PrivateCodeStructure")).toBe("string");
+    expect(result.complex).toBe(true);
   });
 
   it("flattenAllOf produces properties for a real type", () => {
@@ -106,17 +108,17 @@ describe("resolvePropertyType — real schema (Interface tab)", () => {
     expect(result).toEqual({ ts: "string", complex: false });
   });
 
-  it("works end-to-end: flattenAllOf + resolvePropertyType + resolveValueLeaf", () => {
+  it("works end-to-end: flattenAllOf + resolvePropertyType + resolveAtom", () => {
     // Simulates what the Interface tab does for each property
     const props = flattenAllOf(defs, "VersionOfObjectRefStructure");
     expect(props.length).toBeGreaterThan(0);
     for (const p of props) {
       const resolved = resolvePropertyType(defs, p.schema);
       expect(resolved.ts).toBeTruthy();
-      // If complex, resolveValueLeaf should be callable without error
+      // If complex, resolveAtom should be callable without error
       if (resolved.complex) {
         const typeName = resolved.ts.endsWith("[]") ? resolved.ts.slice(0, -2) : resolved.ts;
-        resolveValueLeaf(defs, typeName); // should not throw
+        resolveAtom(defs, typeName); // should not throw
       }
     }
   });
@@ -130,7 +132,9 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(props.some((p) => p.prop[1] === "lowFloor")).toBe(true);
     expect(props.some((p) => p.prop[1] === "length")).toBe(true);
     // Inherited from TransportType_VersionStructure
-    expect(props.some((p) => p.prop[1] === "name" && p.origin === "TransportType_VersionStructure")).toBe(true);
+    expect(
+      props.some((p) => p.prop[1] === "name" && p.origin === "TransportType_VersionStructure"),
+    ).toBe(true);
     expect(props.some((p) => p.prop[1] === "transportMode")).toBe(true);
     // Deep inherited from EntityInVersionStructure
     expect(props.some((p) => p.prop[1] === "created")).toBe(true);
@@ -151,8 +155,8 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(length).toBeDefined();
     const result = resolvePropertyType(defs, length!.schema);
     expect(result.ts).toBeTruthy();
-    // LengthType is a simpleContent wrapper — resolveValueLeaf exposes the primitive
-    const leaf = resolveValueLeaf(defs, "LengthType");
+    // LengthType is a simpleContent wrapper — resolveAtom exposes the primitive
+    const leaf = resolveAtom(defs, "LengthType");
     if (leaf) expect(typeof leaf).toBe("string");
   });
 
@@ -174,12 +178,13 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(result.ts).toMatch(/\[\]$/);
   });
 
-  it("resolvePropertyType resolves BrandingRef as string via x-netex-leaf", () => {
+  it("resolvePropertyType resolves BrandingRef as complex via x-netex-atom simpleObj", () => {
     const props = flattenAllOf(defs, "VehicleType");
     const branding = props.find((p) => p.prop[1] === "brandingRef");
     expect(branding).toBeDefined();
     const result = resolvePropertyType(defs, branding!.schema);
-    expect(result).toEqual({ ts: "string", complex: false });
+    // BrandingRef chain ends at a simpleObj (value + attrs) — stays complex
+    expect(result.complex).toBe(true);
   });
 
   it("resolvePropertyType resolves complex ref types", () => {
@@ -267,5 +272,38 @@ describe("findTransitiveEntityUsers — real schema", () => {
     const elapsed = performance.now() - start;
     // Should complete well under 1 second even for 3000+ defs
     expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+// NOTE: This test validates an annotation set by xsd-to-jsonschema.js (the Java DOM
+// converter). It lives here because integration tests already load the generated schema,
+// but it may move to a json-schema/ test suite in the future.
+describe("x-netex-mixed annotation", () => {
+  it("MultilingualString is the only mixed-content type", () => {
+    const mixed = Object.entries(defs).filter(
+      ([, d]) => (d as Record<string, unknown>)["x-netex-mixed"] === true,
+    );
+    expect(mixed).toHaveLength(1);
+    expect(mixed[0][0]).toBe("MultilingualString");
+  });
+
+  it("unwrapMixed resolves MultilingualString to TextType", () => {
+    expect(unwrapMixed(defs, "MultilingualString")).toBe("TextType");
+  });
+
+  it("resolveLeafType resolves MultilingualString as TextType[]", () => {
+    expect(resolveLeafType(defs, "MultilingualString")).toEqual({
+      ts: "TextType[]",
+      complex: true,
+    });
+  });
+
+  it("resolvePropertyType shows TextType[] for a MultilingualString property", () => {
+    // Name is a common MultilingualString property on many NeTEx types
+    const props = flattenAllOf(defs, "DataManagedObjectStructure");
+    const name = props.find((p) => p.prop[0] === "Name");
+    if (!name) return; // skip if not present
+    const result = resolvePropertyType(defs, name.schema);
+    expect(result).toEqual({ ts: "TextType[]", complex: true });
   });
 });

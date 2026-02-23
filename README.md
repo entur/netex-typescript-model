@@ -72,7 +72,7 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 
 1. Maven Ant plugin downloads the NeTEx ZIP from GitHub (`next` branch)
 2. GraalJS runs `json-schema/xsd-to-jsonschema.js` on stock JDK via Java DOM APIs
-3. Each definition is stamped with `x-netex-source` (provenance) and `x-netex-leaf` annotations
+3. Each definition is stamped with `x-netex-source` (provenance) and `x-netex-atom` annotations
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
 

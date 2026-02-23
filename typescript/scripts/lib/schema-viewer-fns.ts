@@ -15,9 +15,9 @@
  *
  * **Interface** — `flattenAllOf` to collect all properties, then
  * `resolvePropertyType` to resolve each to its leaf TypeScript type and
- * `resolveValueLeaf` to annotate simpleContent wrappers (e.g. `→ string`).
+ * `resolveAtom` to annotate simpleContent wrappers (e.g. `→ string`).
  *
- * **Mapping** — `flattenAllOf`, `resolvePropertyType`, and `resolveValueLeaf`
+ * **Mapping** — `flattenAllOf`, `resolvePropertyType`, and `resolveAtom`
  * to generate `toGenerated` / `fromGenerated` converter functions between the
  * flat interface and the generated intersection type.
  *
@@ -52,6 +52,35 @@ export interface FlatProperty {
 /** Strip the JSON Schema `#/definitions/` prefix from a `$ref` string. */
 function deref(ref: string): string {
   return ref.replace("#/definitions/", "");
+}
+
+/**
+ * Detect a backward-compat mixed-content wrapper and return the "new way" element type.
+ *
+ * NeTEx has exactly one mixed-content type: MultilingualString. It exists for
+ * backward compatibility — pre-v2.0 code puts text + lang directly on the element,
+ * while v2.0+ uses Text child elements. The XSD documentation signals this with
+ * "*Either*" in the description and `mixed="true"` (stamped as `x-netex-mixed`).
+ *
+ * When detected, the wrapper is treated as opaque: consumers should present the
+ * inner array element type (e.g. TextType[]) instead of the wrapper's own shape.
+ *
+ * Returns the element type name (e.g. "TextType") or null if not a mixed wrapper.
+ */
+export function unwrapMixed(defs: Defs, name: string): string | null {
+  const def = defs[name];
+  if (!def) return null;
+  if (def["x-netex-mixed"] !== true) return null;
+  if (typeof def.description !== "string" || def.description.indexOf("*Either*") === -1)
+    return null;
+  if (!def.properties) return null;
+  for (const pv of Object.values(def.properties) as Def[]) {
+    if (pv.xml && pv.xml.attribute) continue;
+    if (pv.type === "array" && pv.items && pv.items.$ref) {
+      return deref(pv.items.$ref);
+    }
+  }
+  return null;
 }
 
 /** Find the first `$ref` target in an `allOf` array, or `null`. */
@@ -98,13 +127,20 @@ function classifySchema(prop: Def): SchemaShape {
 export function resolveType(prop: Def): string {
   const shape = classifySchema(prop);
   switch (shape.kind) {
-    case "ref":       return shape.target;
-    case "enum":      return shape.values.join(" | ");
-    case "refArray":  return shape.target + "[]";
-    case "array":     return shape.itemType + "[]";
-    case "primitive": return shape.type;
-    case "object":    return "object";
-    case "unknown":   return "unknown";
+    case "ref":
+      return shape.target;
+    case "enum":
+      return shape.values.join(" | ");
+    case "refArray":
+      return shape.target + "[]";
+    case "array":
+      return shape.itemType + "[]";
+    case "primitive":
+      return shape.type;
+    case "object":
+      return "object";
+    case "unknown":
+      return "unknown";
   }
 }
 
@@ -143,7 +179,13 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
           walk(deref(entry.$ref));
         } else if (entry.properties) {
           for (const [pn, pv] of Object.entries(entry.properties) as [string, Def][]) {
-            results.push({ prop: [pn, lcFirst(pn)], type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
+            results.push({
+              prop: [pn, lcFirst(pn)],
+              type: resolveType(pv),
+              desc: pv.description || "",
+              origin: n,
+              schema: pv,
+            });
           }
         }
       }
@@ -151,7 +193,13 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
     if (def.properties) {
       for (const [pn, pv] of Object.entries(def.properties) as [string, Def][]) {
         if (!results.some((r) => r.prop[0] === pn && r.origin === n)) {
-          results.push({ prop: [pn, lcFirst(pn)], type: resolveType(pv), desc: pv.description || "", origin: n, schema: pv });
+          results.push({
+            prop: [pn, lcFirst(pn)],
+            type: resolveType(pv),
+            desc: pv.description || "",
+            origin: n,
+            schema: pv,
+          });
         }
       }
     }
@@ -223,17 +271,25 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
   }
 
   // Enum
-  if (def.enum) return { ts: def.enum.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
+  if (def.enum)
+    return { ts: def.enum.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
 
   // anyOf union
   if (def.anyOf) {
     const parts = def.anyOf.map((branch: Def) => {
       if (branch.$ref) return resolveLeafType(defs, deref(branch.$ref), new Set(visited));
-      if (branch.enum) return { ts: branch.enum.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
+      if (branch.enum)
+        return {
+          ts: branch.enum.map((v: unknown) => JSON.stringify(v)).join(" | "),
+          complex: false,
+        };
       if (branch.type) return { ts: branch.type, complex: false };
       return { ts: "unknown", complex: false };
     });
-    return { ts: parts.map((p: ResolvedType) => p.ts).join(" | "), complex: parts.some((p: ResolvedType) => p.complex) };
+    return {
+      ts: parts.map((p: ResolvedType) => p.ts).join(" | "),
+      complex: parts.some((p: ResolvedType) => p.complex),
+    };
   }
 
   // Primitive (no properties)
@@ -242,9 +298,13 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
     return { ts: def.type + fmt, complex: false };
   }
 
-  // Check x-netex-leaf annotation — simpleContent wrappers are semantically primitive
-  const leaf = def["x-netex-leaf"];
-  if (typeof leaf === "string") return { ts: leaf, complex: false };
+  // Check x-netex-atom annotation — single-prop simpleContent wrappers collapse to primitive
+  const atom = def["x-netex-atom"];
+  if (typeof atom === "string" && atom !== "simpleObj") return { ts: atom, complex: false };
+
+  // Mixed-content wrapper — resolve as the inner element type array
+  const mixedTarget = unwrapMixed(defs, name);
+  if (mixedTarget) return { ts: mixedTarget + "[]", complex: true };
 
   // Complex
   return { ts: name, complex: true };
@@ -259,34 +319,42 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
 export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
   const shape = classifySchema(schema);
   switch (shape.kind) {
-    case "ref": return resolveLeafType(defs, shape.target);
+    case "ref":
+      return resolveLeafType(defs, shape.target);
     case "refArray": {
       const inner = resolveLeafType(defs, shape.target);
       return { ts: inner.ts + "[]", complex: inner.complex };
     }
-    case "array":     return { ts: shape.itemType + "[]", complex: false };
-    case "enum":      return { ts: shape.values.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
+    case "array":
+      return { ts: shape.itemType + "[]", complex: false };
+    case "enum":
+      return {
+        ts: shape.values.map((v: unknown) => JSON.stringify(v)).join(" | "),
+        complex: false,
+      };
     case "primitive": {
       const fmt = shape.format ? " /* " + shape.format + " */" : "";
       return { ts: shape.type + fmt, complex: false };
     }
-    case "unknown":   return { ts: "unknown", complex: false };
-    case "object":    return { ts: "object", complex: false };
+    case "unknown":
+      return { ts: "unknown", complex: false };
+    case "object":
+      return { ts: "object", complex: false };
   }
 }
 
 /**
- * Read the x-netex-leaf annotation for a definition.
+ * Read the x-netex-atom annotation for a definition.
  *
- * The converter (xsd-to-jsonschema-1st-try.ts) stamps `x-netex-leaf` on simpleContent-
- * derived types at build time (Option B: propagated through the full value chain).
- * This function is a simple property read — no chain-walking needed.
+ * The converter (xsd-to-jsonschema.js) stamps `x-netex-atom` on simpleContent-derived
+ * types at build time. Single-prop types get the primitive (e.g. `"string"`), multi-prop
+ * types get `"simpleObj"`. Returns the annotation value or null if absent.
  */
-export function resolveValueLeaf(defs: Defs, name: string): string | null {
+export function resolveAtom(defs: Defs, name: string): string | null {
   const def = defs[name];
   if (!def) return null;
-  if (def.$ref) return resolveValueLeaf(defs, deref(def.$ref));
-  return def["x-netex-leaf"] || null;
+  if (def.$ref) return resolveAtom(defs, deref(def.$ref));
+  return def["x-netex-atom"] || null;
 }
 
 // ── Reverse index ────────────────────────────────────────────────────────────

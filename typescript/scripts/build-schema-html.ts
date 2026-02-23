@@ -147,7 +147,7 @@ function buildViewerFnsScript(): string {
         collectRequired: collectRequired,
         resolveLeafType: resolveLeafType,
         resolvePropertyType: resolvePropertyType,
-        resolveValueLeaf: resolveValueLeaf,
+        resolveAtom: resolveAtom,
         buildReverseIndex: buildReverseIndex,
         findTransitiveEntityUsers: findTransitiveEntityUsers,
         defRole: defRole,
@@ -164,7 +164,7 @@ function buildViewerFnsScript(): string {
     function collectRequired(d, n) { return _fns.collectRequired(d, n); }
     function resolveLeafType(n, v) { return _fns.resolveLeafType(defs, n, v); }
     function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
-    function resolveValueLeaf(n) { return _fns.resolveValueLeaf(defs, n); }
+    function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
 
     function defRole(name) { return _fns.defRole(defs[name]); }
@@ -1196,8 +1196,8 @@ ${sections}
           const typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
           const suffix = resolved.ts.endsWith('[]') ? '[]' : '';
           typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-          var leaf = resolveValueLeaf(typeName);
-          if (leaf) typeHtml += ' <span class="if-cmt">// \\u2192 ' + esc(leaf) + '</span>';
+          var atom = resolveAtom(typeName);
+          if (atom && atom !== 'simpleObj') typeHtml += ' <span class="if-cmt">// \\u2192 ' + esc(atom) + '</span>';
         } else if (resolved.ts.includes('|')) {
           // Literal union or multi-type
           const parts = resolved.ts.split(' | ');
@@ -1278,9 +1278,9 @@ ${sections}
         var leaf = null;
         if (resolved.complex) {
           var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          leaf = resolveValueLeaf(typeName);
+          leaf = resolveAtom(typeName);
         }
-        if (leaf) {
+        if (leaf && leaf !== 'simpleObj') {
           fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(leaf) + '</span>');
         } else {
           fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + ',');

@@ -7,11 +7,12 @@ import {
   collectRequired,
   resolveLeafType,
   resolvePropertyType,
-  resolveValueLeaf,
+  resolveAtom,
   buildReverseIndex,
   findTransitiveEntityUsers,
   defaultForType,
   lcFirst,
+  unwrapMixed,
   defRole,
   countRoles,
   presentRoles,
@@ -209,11 +210,22 @@ describe("resolveLeafType", () => {
     expect(resolveLeafType(defs, "Obj")).toEqual({ ts: "Obj", complex: true });
   });
 
-  it("resolves x-netex-leaf as primitive instead of complex", () => {
+  it("resolves x-netex-atom as primitive instead of complex", () => {
     const defs: Defs = {
-      Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-leaf": "string" },
+      Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
     };
     expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "string", complex: false });
+  });
+
+  it("returns complex for x-netex-atom: simpleObj", () => {
+    const defs: Defs = {
+      Wrapper: {
+        type: "object",
+        properties: { value: { type: "string" }, type: { type: "string" } },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "Wrapper", complex: true });
   });
 
   it("speculatively follows allOf parent when own properties exist", () => {
@@ -292,29 +304,36 @@ describe("resolvePropertyType", () => {
   });
 });
 
-// ── resolveValueLeaf ─────────────────────────────────────────────────────────
+// ── resolveAtom ──────────────────────────────────────────────────────────────
 
-describe("resolveValueLeaf", () => {
-  it("reads x-netex-leaf annotation", () => {
-    const defs: Defs = { T: { type: "object", "x-netex-leaf": "string" } };
-    expect(resolveValueLeaf(defs, "T")).toBe("string");
+describe("resolveAtom", () => {
+  it("reads x-netex-atom annotation", () => {
+    const defs: Defs = { T: { type: "object", "x-netex-atom": "string" } };
+    expect(resolveAtom(defs, "T")).toBe("string");
   });
 
   it("follows $ref alias to find annotation", () => {
     const defs: Defs = {
       Alias: { $ref: "#/definitions/Real" },
-      Real: { type: "object", "x-netex-leaf": "number" },
+      Real: { type: "object", "x-netex-atom": "number" },
     };
-    expect(resolveValueLeaf(defs, "Alias")).toBe("number");
+    expect(resolveAtom(defs, "Alias")).toBe("number");
+  });
+
+  it("returns simpleObj for multi-prop types", () => {
+    const defs: Defs = {
+      T: { type: "object", "x-netex-atom": "simpleObj" },
+    };
+    expect(resolveAtom(defs, "T")).toBe("simpleObj");
   });
 
   it("returns null when no annotation", () => {
     const defs: Defs = { T: { type: "object", properties: { x: { type: "string" } } } };
-    expect(resolveValueLeaf(defs, "T")).toBeNull();
+    expect(resolveAtom(defs, "T")).toBeNull();
   });
 
   it("returns null for missing definition", () => {
-    expect(resolveValueLeaf({}, "Missing")).toBeNull();
+    expect(resolveAtom({}, "Missing")).toBeNull();
   });
 });
 
@@ -468,6 +487,69 @@ describe("lcFirst", () => {
 
   it("handles empty string", () => {
     expect(lcFirst("")).toBe("");
+  });
+});
+
+// ── unwrapMixed ──────────────────────────────────────────────────────────────
+
+describe("unwrapMixed", () => {
+  it("returns inner element type for mixed-content wrapper", () => {
+    const defs: Defs = {
+      Wrapper: {
+        type: "object",
+        "x-netex-mixed": true,
+        description: "*Either* use old way or new way",
+        properties: {
+          Text: { type: "array", items: { $ref: "#/definitions/Inner" } },
+          lang: { type: "string", xml: { attribute: true } },
+        },
+      },
+      Inner: { type: "object" },
+    };
+    expect(unwrapMixed(defs, "Wrapper")).toBe("Inner");
+  });
+
+  it("returns null when x-netex-mixed is absent", () => {
+    const defs: Defs = {
+      Plain: {
+        type: "object",
+        description: "*Either* blah",
+        properties: { Text: { type: "array", items: { $ref: "#/definitions/T" } } },
+      },
+    };
+    expect(unwrapMixed(defs, "Plain")).toBeNull();
+  });
+
+  it("returns null when description lacks *Either*", () => {
+    const defs: Defs = {
+      NoSignal: {
+        type: "object",
+        "x-netex-mixed": true,
+        description: "Some other description",
+        properties: { Text: { type: "array", items: { $ref: "#/definitions/T" } } },
+      },
+    };
+    expect(unwrapMixed(defs, "NoSignal")).toBeNull();
+  });
+
+  it("returns null for missing definition", () => {
+    expect(unwrapMixed({}, "Missing")).toBeNull();
+  });
+
+  it("resolveLeafType uses unwrapMixed to resolve as inner type array", () => {
+    const defs: Defs = {
+      Mixed: {
+        type: "object",
+        "x-netex-mixed": true,
+        description: "*Either* old or new",
+        properties: {
+          Items: { type: "array", items: { $ref: "#/definitions/ItemType" } },
+          attr: { type: "string", xml: { attribute: true } },
+        },
+      },
+      ItemType: { type: "object", properties: { value: { type: "string" } } },
+    };
+    expect(resolveLeafType(defs, "Mixed")).toEqual({ ts: "ItemType[]", complex: true });
   });
 });
 

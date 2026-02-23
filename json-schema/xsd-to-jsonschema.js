@@ -365,6 +365,7 @@ class XsdToJsonSchema {
 
     const result = { type: "object" };
     if (desc) result.description = desc;
+    if (attr(ct, "mixed") === "true") result["x-netex-mixed"] = true;
     const { properties, required } = this.extractProperties(ct);
 
     for (const a of getChildren(ct, XSD_NS, "attribute")) {
@@ -664,7 +665,7 @@ class XsdToJsonSchema {
     return { $ref: `#/definitions/${localName}` };
   }
 
-  // ── Leaf annotation ────────────────────────────────────────────────────────
+  // ── Atom annotation ────────────────────────────────────────────────────────
 
   annotateValueLeaves() {
     const allDefs = {};
@@ -679,7 +680,10 @@ class XsdToJsonSchema {
       const vprops = this.getValueProperties(schema);
       if (vprops?.value) {
         const leaf = this.resolveValueLeaf(name, allDefs, {});
-        if (leaf) schema["x-netex-leaf"] = leaf;
+        if (leaf) {
+          const propCount = Object.keys(vprops).length;
+          schema["x-netex-atom"] = propCount === 1 ? leaf : "simpleObj";
+        }
       }
     }
   }
@@ -867,6 +871,10 @@ class XsdToJsonSchema {
       // 9. Name ends in Ref and exists in elements
       else if (name.endsWith("Ref") && this.elements[name]) {
         role = "reference";
+      }
+      // 10. Abstract prefix (SIRI/GML base types not caught by suffix rules)
+      else if (name.startsWith("Abstract")) {
+        role = "abstract";
       }
 
       if (role) {
