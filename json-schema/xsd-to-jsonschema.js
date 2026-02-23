@@ -35,9 +35,11 @@ function getChildren(parent, ns, localName) {
   // Indexed loop — for-of doesn't work on Java NodeList
   for (let i = 0; i < children.getLength(); i++) {
     const c = children.item(i);
-    if (c.getNodeType() === NodeConst.ELEMENT_NODE &&
-        c.getLocalName() === localName &&
-        (ns === null || c.getNamespaceURI() === ns)) {
+    if (
+      c.getNodeType() === NodeConst.ELEMENT_NODE &&
+      c.getLocalName() === localName &&
+      (ns === null || c.getNamespaceURI() === ns)
+    ) {
       result.push(c);
     }
   }
@@ -50,9 +52,11 @@ function getFirstChild(parent, ns, localName) {
   // Indexed loop — for-of doesn't work on Java NodeList
   for (let i = 0; i < children.getLength(); i++) {
     const c = children.item(i);
-    if (c.getNodeType() === NodeConst.ELEMENT_NODE &&
-        c.getLocalName() === localName &&
-        (ns === null || c.getNamespaceURI() === ns)) {
+    if (
+      c.getNodeType() === NodeConst.ELEMENT_NODE &&
+      c.getLocalName() === localName &&
+      (ns === null || c.getNamespaceURI() === ns)
+    ) {
       return c;
     }
   }
@@ -68,7 +72,7 @@ function getText(el) {
 function attr(el, name) {
   if (!el) return null;
   const a = el.getAttribute(name);
-  return (a !== null && a !== "") ? "" + a : null;
+  return a !== null && a !== "" ? "" + a : null;
 }
 
 /**
@@ -97,41 +101,41 @@ function resolvePath(basePath, relPath) {
 // ── XSD built-in types → JSON Schema ────────────────────────────────────────
 
 const XSD_TYPE_MAP = {
-  "string":            { type: "string" },
-  "normalizedString":  { type: "string" },
-  "token":             { type: "string" },
-  "NCName":            { type: "string" },
-  "NMTOKEN":           { type: "string" },
-  "NMTOKENS":          { type: "string" },
-  "Name":              { type: "string" },
-  "ID":                { type: "string" },
-  "IDREF":             { type: "string" },
-  "language":          { type: "string" },
-  "anyURI":            { type: "string", format: "uri" },
-  "boolean":           { type: "boolean" },
-  "integer":           { type: "integer" },
-  "int":               { type: "integer" },
-  "long":              { type: "integer" },
-  "short":             { type: "integer" },
-  "byte":              { type: "integer" },
-  "positiveInteger":   { type: "integer", minimum: 1 },
-  "nonNegativeInteger":{ type: "integer", minimum: 0 },
-  "decimal":           { type: "number" },
-  "float":             { type: "number" },
-  "double":            { type: "number" },
-  "date":              { type: "string", format: "date" },
-  "dateTime":          { type: "string", format: "date-time" },
-  "time":              { type: "string", format: "time" },
-  "duration":          { type: "string" },
-  "gYear":             { type: "string" },
-  "gYearMonth":        { type: "string" },
-  "gMonth":            { type: "string" },
-  "gMonthDay":         { type: "string" },
-  "gDay":              { type: "string" },
-  "hexBinary":         { type: "string" },
-  "base64Binary":      { type: "string" },
-  "anySimpleType":     {},
-  "anyType":           {},
+  string: { type: "string" },
+  normalizedString: { type: "string" },
+  token: { type: "string" },
+  NCName: { type: "string" },
+  NMTOKEN: { type: "string" },
+  NMTOKENS: { type: "string" },
+  Name: { type: "string" },
+  ID: { type: "string" },
+  IDREF: { type: "string" },
+  language: { type: "string" },
+  anyURI: { type: "string", format: "uri" },
+  boolean: { type: "boolean" },
+  integer: { type: "integer" },
+  int: { type: "integer" },
+  long: { type: "integer" },
+  short: { type: "integer" },
+  byte: { type: "integer" },
+  positiveInteger: { type: "integer", minimum: 1 },
+  nonNegativeInteger: { type: "integer", minimum: 0 },
+  decimal: { type: "number" },
+  float: { type: "number" },
+  double: { type: "number" },
+  date: { type: "string", format: "date" },
+  dateTime: { type: "string", format: "date-time" },
+  time: { type: "string", format: "time" },
+  duration: { type: "string" },
+  gYear: { type: "string" },
+  gYearMonth: { type: "string" },
+  gMonth: { type: "string" },
+  gMonthDay: { type: "string" },
+  gDay: { type: "string" },
+  hexBinary: { type: "string" },
+  base64Binary: { type: "string" },
+  anySimpleType: {},
+  anyType: {},
 };
 
 // ── XsdToJsonSchema ──────────────────────────────────────────────────────────
@@ -141,10 +145,10 @@ class XsdToJsonSchema {
     this.xsdRoot = xsdRoot;
 
     // Registries
-    this.types = {};       // name → { name, schema, sourceFile }
-    this.groups = {};      // name → { schema (DOM node), sourceFile }
-    this.attrGroups = {};  // name → { schema (DOM node), sourceFile }
-    this.elements = {};    // name → { name, schema, sourceFile }
+    this.types = {}; // name → { name, schema, sourceFile }
+    this.groups = {}; // name → { schema (DOM node), sourceFile }
+    this.attrGroups = {}; // name → { schema (DOM node), sourceFile }
+    this.elements = {}; // name → { name, schema, sourceFile }
     this.parsedFiles = {};
 
     // Raw definitions collected in pass 1
@@ -293,11 +297,11 @@ class XsdToJsonSchema {
       }
     }
 
-    // Pass 3: annotate value leaves
-    this.annotateValueLeaves();
-
-    // Pass 4: classify definitions by role
+    // Pass 3: classify definitions by role
     this.classifyDefinitions();
+
+    // Pass 4: annotate atoms (needs roles to gate inherited types)
+    this.annotateAtoms();
   }
 
   // ── Description extraction ─────────────────────────────────────────────────
@@ -373,7 +377,7 @@ class XsdToJsonSchema {
       if (name) {
         const schema = this.withDescription(
           this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-          this.extractDescription(a)
+          this.extractDescription(a),
         );
         schema.xml = { attribute: true };
         properties[name] = schema;
@@ -400,7 +404,7 @@ class XsdToJsonSchema {
         if (name) {
           const schema = this.withDescription(
             this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-            this.extractDescription(a)
+            this.extractDescription(a),
           );
           schema.xml = { attribute: true };
           properties[name] = schema;
@@ -439,7 +443,7 @@ class XsdToJsonSchema {
         if (name) {
           const schema = this.withDescription(
             this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-            this.extractDescription(a)
+            this.extractDescription(a),
           );
           schema.xml = { attribute: true };
           properties[name] = schema;
@@ -508,7 +512,7 @@ class XsdToJsonSchema {
     if (union) {
       const memberTypes = attr(union, "memberTypes");
       if (memberTypes) {
-        const anyOf = memberTypes.split(/\s+/).map(t => this.resolveTypeRef(t));
+        const anyOf = memberTypes.split(/\s+/).map((t) => this.resolveTypeRef(t));
         const result = { anyOf };
         if (desc) result.description = desc;
         return result;
@@ -516,7 +520,7 @@ class XsdToJsonSchema {
       // Inline member types
       const memberSimpleTypes = getChildren(union, XSD_NS, "simpleType");
       if (memberSimpleTypes.length > 0) {
-        const anyOf = memberSimpleTypes.map(m => this.convertSimpleType(m));
+        const anyOf = memberSimpleTypes.map((m) => this.convertSimpleType(m));
         const result = { anyOf };
         if (desc) result.description = desc;
         return result;
@@ -529,7 +533,7 @@ class XsdToJsonSchema {
       const itemType = attr(list, "itemType");
       const result = {
         type: "array",
-        items: itemType ? this.resolveTypeRef(itemType) : { type: "string" }
+        items: itemType ? this.resolveTypeRef(itemType) : { type: "string" },
       };
       if (desc) result.description = desc;
       return result;
@@ -642,7 +646,7 @@ class XsdToJsonSchema {
         if (name) {
           const schema = this.withDescription(
             this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-            this.extractDescription(a)
+            this.extractDescription(a),
           );
           schema.xml = { attribute: true };
           properties[name] = schema;
@@ -667,7 +671,7 @@ class XsdToJsonSchema {
 
   // ── Atom annotation ────────────────────────────────────────────────────────
 
-  annotateValueLeaves() {
+  annotateAtoms() {
     const allDefs = {};
     for (const [name, entry] of Object.entries(this.types)) {
       allDefs[name] = entry.schema;
@@ -693,12 +697,14 @@ class XsdToJsonSchema {
     // the type is a simple flat object: 1 prop → collapse to that primitive, 2+ → simpleObj.
     for (const [name, schema] of Object.entries(allDefs)) {
       if (schema["x-netex-atom"]) continue;
+      if (schema["x-netex-role"]) continue;
+      if (schema.allOf && schema.allOf.some((e) => e.$ref)) continue;
       const props = this.getValueProperties(schema);
       if (!props) continue;
       const entries = Object.entries(props);
       if (entries.length === 0) continue;
-      const allPrimitive = entries.every(([, p]) =>
-        (p.type && p.type !== "object" && p.type !== "array") || p.enum
+      const allPrimitive = entries.every(
+        ([, p]) => (p.type && p.type !== "object" && p.type !== "array") || p.enum,
       );
       if (!allPrimitive) continue;
       if (entries.length === 1) {
@@ -718,11 +724,7 @@ class XsdToJsonSchema {
 
     // $ref alias
     if (def.$ref) {
-      return this.resolveValueAtom(
-        def.$ref.replace("#/definitions/", ""),
-        allDefs,
-        visited
-      );
+      return this.resolveValueAtom(def.$ref.replace("#/definitions/", ""), allDefs, visited);
     }
 
     // allOf: check parent
@@ -732,7 +734,7 @@ class XsdToJsonSchema {
           const result = this.resolveValueAtom(
             entry.$ref.replace("#/definitions/", ""),
             allDefs,
-            visited
+            visited,
           );
           if (result) return result;
         }
@@ -783,7 +785,8 @@ class XsdToJsonSchema {
 
   loadFrameRegistry(jsonPath) {
     const content = new java.lang.String(
-      Files.readAllBytes(Paths.get(jsonPath)), StandardCharsets.UTF_8
+      Files.readAllBytes(Paths.get(jsonPath)),
+      StandardCharsets.UTF_8,
     );
     const raw = JSON.parse("" + content);
     const registry = {}; // entity name → [frame names]
@@ -819,7 +822,10 @@ class XsdToJsonSchema {
     // $ref alias
     if (def.$ref) {
       return this._chainHasAncestor(
-        def.$ref.replace("#/definitions/", ""), allDefs, target, visited
+        def.$ref.replace("#/definitions/", ""),
+        allDefs,
+        target,
+        visited,
       );
     }
 
@@ -827,9 +833,15 @@ class XsdToJsonSchema {
     if (def.allOf) {
       for (const entry of def.allOf) {
         if (entry.$ref) {
-          if (this._chainHasAncestor(
-            entry.$ref.replace("#/definitions/", ""), allDefs, target, visited
-          )) return true;
+          if (
+            this._chainHasAncestor(
+              entry.$ref.replace("#/definitions/", ""),
+              allDefs,
+              target,
+              visited,
+            )
+          )
+            return true;
         }
       }
     }
@@ -931,7 +943,7 @@ class XsdToJsonSchema {
 
     return {
       $schema: "http://json-schema.org/draft-07/schema#",
-      definitions
+      definitions,
     };
   }
 
@@ -967,7 +979,7 @@ class XsdToJsonSchema {
       types: Object.keys(this.types).length,
       elements: Object.keys(this.elements).length,
       groups: Object.keys(this.groups).length,
-      attrGroups: Object.keys(this.attrGroups).length
+      attrGroups: Object.keys(this.attrGroups).length,
     };
   }
 
@@ -1017,7 +1029,7 @@ const NATURAL_NAMES = {
   part1_network: "network",
   part2_timetable: "timetable",
   part3_fares: "fares",
-  part5_new_modes: "new-modes"
+  part5_new_modes: "new-modes",
 };
 
 function resolveAssembly(parts) {
@@ -1029,7 +1041,10 @@ function resolveAssembly(parts) {
 }
 
 function loadConfig(configPath) {
-  const content = new java.lang.String(Files.readAllBytes(Paths.get(configPath)), StandardCharsets.UTF_8);
+  const content = new java.lang.String(
+    Files.readAllBytes(Paths.get(configPath)),
+    StandardCharsets.UTF_8,
+  );
   const raw = JSON.parse("" + content);
   const { parts, rootXsds } = raw;
 
@@ -1064,9 +1079,11 @@ function enabledRootXsdFiles(rootXsds) {
 }
 
 function isEnabledPath(sourceFile, enabledDirList, enabledRootXsdList) {
-  return enabledDirList.some(dir =>
-    sourceFile.startsWith(`${dir}/`) || sourceFile.startsWith(`${dir}\\`)
-  ) || enabledRootXsdList.includes(sourceFile);
+  return (
+    enabledDirList.some(
+      (dir) => sourceFile.startsWith(`${dir}/`) || sourceFile.startsWith(`${dir}\\`),
+    ) || enabledRootXsdList.includes(sourceFile)
+  );
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -1097,7 +1114,9 @@ function main() {
   }
 
   if (positional.length < 2) {
-    print("Usage: js --jvm xsd-to-jsonschema.js <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]");
+    print(
+      "Usage: js --jvm xsd-to-jsonschema.js <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]",
+    );
     print("  xsdRoot    - path to the versioned XSD directory (e.g. ../xsd/2.0)");
     print("  outDir     - output directory for ASSEMBLY.schema.json");
     print("  configPath - optional path to config.json (for part filtering)");
@@ -1129,9 +1148,10 @@ function main() {
       if (reverseNames[part]) part = reverseNames[part]; // resolve natural name
       const p = config.parts[part];
       if (!p || part.startsWith("_")) {
-        const optional = Object.keys(config.parts)
-          .filter(k => !k.startsWith("_") && !config.parts[k].required);
-        const naturalAliases = optional.map(k => NATURAL_NAMES[k] || k);
+        const optional = Object.keys(config.parts).filter(
+          (k) => !k.startsWith("_") && !config.parts[k].required,
+        );
+        const naturalAliases = optional.map((k) => NATURAL_NAMES[k] || k);
         print(`ERROR: Unknown part: ${part}`);
         print(`Available optional parts: ${optional.join(", ")}`);
         print(`  (also accepted as: ${naturalAliases.join(", ")})`);

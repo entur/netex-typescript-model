@@ -51,7 +51,7 @@ All classification logic goes here. Key integration points:
 
 - **Constructor** (line 140): add `this.elementMeta = {}`
 - **`convert()`** (line 246): capture element metadata in pass 2, call `classifyDefinitions()` as pass 4
-- **After `annotateValueLeaves()`** (line 287): wire in the new pass
+- **After `annotateAtoms()`** (line 287): wire in the new pass
 
 ## New file: `json-schema/frame-members.json`
 
@@ -114,7 +114,7 @@ Same chain-following pattern as `resolveValueAtom()` (lines 674-732): follow `$r
 
 ### 5. Add `classifyDefinitions(frameRegistry)` method
 
-Runs after `annotateValueLeaves()`. For each definition in `this.types` + `this.elements`:
+Runs after `annotateAtoms()`. For each definition in `this.types` + `this.elements`:
 
 **Priority order** (first match wins):
 1. Suffix: `_VersionStructure` / `_BaseStructure` → `"structure"`
@@ -131,7 +131,7 @@ Stamps `x-netex-role` and optionally `x-netex-frames` on the definition schema.
 
 ### 6. Wire into `convert()` and `main()`
 
-- In `convert()` after `this.annotateValueLeaves()`: call `this.classifyDefinitions(this.frameRegistry)`
+- In `convert()` after `this.annotateAtoms()`: call `this.classifyDefinitions(this.frameRegistry)`
 - In `main()` after creating the converter: `converter.frameRegistry = converter.loadFrameRegistry(frameMembersPath)` (resolve path relative to script location)
 - Or: pass the frame registry path as an optional CLI arg, or locate it automatically from `__dirname` equivalent
 

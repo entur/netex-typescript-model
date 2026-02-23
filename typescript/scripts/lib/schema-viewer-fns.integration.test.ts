@@ -196,15 +196,31 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(result.complex).toBe(true);
   });
 
-  it("resolvePropertyType resolves keyList to KeyListStructure, KeyValueStructure is simpleObj atom", () => {
+  it("resolvePropertyType unwraps keyList to KeyValueStructure[] (simpleObj atom as [])", () => {
     const props = flattenAllOf(defs, "VehicleType");
     const kl = props.find((p) => p.prop[1] === "keyList");
     expect(kl).toBeDefined();
     const result = resolvePropertyType(defs, kl!.schema);
-    // keyList → allOf[$ref keyList] → allOf[$ref KeyListStructure] → complex
-    expect(result).toEqual({ ts: "KeyListStructure", complex: true });
-    // KeyValueStructure (the array item type inside KeyListStructure) is a pass-2 simpleObj atom
-    expect(resolveAtom(defs, "KeyValueStructure")).toBe("simpleObj");
+    // keyList → KeyListStructure (single-prop, no role) → KeyValue: KeyValueStructure[] (simpleObj)
+    expect(result).toEqual({ ts: "KeyValueStructure[]", complex: true });
+  });
+
+  it("resolvePropertyType unwraps privateCodes to PrivateCodeStructure[] (simpleObj atom as [])", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const pc = props.find((p) => p.prop[1] === "privateCodes");
+    expect(pc).toBeDefined();
+    const result = resolvePropertyType(defs, pc!.schema);
+    // privateCodes → PrivateCodesStructure (single-prop, no role) → PrivateCode → PrivateCodeStructure (simpleObj)
+    expect(result).toEqual({ ts: "PrivateCodeStructure[]", complex: true });
+  });
+
+  it("resolvePropertyType unpacks Extensions as non-complex object", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const ext = props.find((p) => p.prop[1] === "extensions");
+    expect(ext).toBeDefined();
+    const result = resolvePropertyType(defs, ext!.schema);
+    // Extensions → ExtensionsStructure (xsd:any wrapper — no properties, no role)
+    expect(result).toEqual({ ts: "any", complex: false });
   });
 });
 

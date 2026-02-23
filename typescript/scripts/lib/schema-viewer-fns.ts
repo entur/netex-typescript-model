@@ -112,6 +112,10 @@ function classifySchema(prop: Def): SchemaShape {
   if (prop.enum) return { kind: "enum", values: prop.enum };
   if (prop.type === "array" && prop.items) {
     if (prop.items.$ref) return { kind: "refArray", target: deref(prop.items.$ref) };
+    if (prop.items.allOf) {
+      const target = allOfRef(prop.items.allOf);
+      if (target) return { kind: "refArray", target };
+    }
     return { kind: "array", itemType: prop.items.type || "any" };
   }
   if (prop.type) {
@@ -240,6 +244,8 @@ export function collectRequired(defs: Defs, name: string): Set<string> {
  * Resolve a definition name to its TypeScript type.
  *
  * Follows $ref aliases, allOf wrappers, enums, and anyOf unions.
+ * Unwraps single-prop array wrappers whose items have an atom annotation
+ * (e.g. KeyListStructure → KeyValueStructure[]) when the wrapper has no role.
  * Returns `{ complex: true }` for types with own properties that can't
  * be reduced to a primitive.
  */
@@ -306,6 +312,24 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   const mixedTarget = unwrapMixed(defs, name);
   if (mixedTarget) return { ts: mixedTarget + "[]", complex: true };
 
+  // Single-prop array wrapper with atom items → unwrap to item[]
+  // Gate: skip classified types (e.g. _RelStructure role=collection)
+  if (!def["x-netex-role"] && def.properties) {
+    const keys = Object.keys(def.properties);
+    if (keys.length === 1) {
+      const shape = classifySchema(def.properties[keys[0]]);
+      if (shape.kind === "refArray" && resolveAtom(defs, shape.target)) {
+        const inner = resolveDefType(defs, shape.target, new Set(visited));
+        return { ts: inner.ts + "[]", complex: inner.complex };
+      }
+    }
+  }
+
+  // Empty object (no properties, no role) — e.g. ExtensionsStructure (xsd:any wrapper)
+  if (def.type === "object" && !def.properties && !def["x-netex-role"]) {
+    return { ts: "any", complex: false };
+  }
+
   // Complex
   return { ts: name, complex: true };
 }
@@ -348,13 +372,20 @@ export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
  *
  * The converter (xsd-to-jsonschema.js) stamps `x-netex-atom` on simpleContent-derived
  * types at build time. Single-prop types get the primitive (e.g. `"string"`), multi-prop
- * types get `"simpleObj"`. Returns the annotation value or null if absent.
+ * types get `"simpleObj"`. Follows $ref and allOf single-ref chains
+ * (e.g. PrivateCode → PrivateCodeStructure). Returns the annotation value or null.
  */
 export function resolveAtom(defs: Defs, name: string): string | null {
   const def = defs[name];
   if (!def) return null;
   if (def.$ref) return resolveAtom(defs, deref(def.$ref));
-  return def["x-netex-atom"] || null;
+  if (def["x-netex-atom"]) return def["x-netex-atom"];
+  // Walk allOf single-ref wrappers (e.g. PrivateCode → PrivateCodeStructure)
+  if (def.allOf) {
+    const ref = allOfRef(def.allOf);
+    if (ref) return resolveAtom(defs, ref);
+  }
+  return null;
 }
 
 // ── Reverse index ────────────────────────────────────────────────────────────
