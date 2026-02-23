@@ -1,9 +1,30 @@
 /**
- * Pure functions used by the schema HTML viewer's explorer panel.
+ * Pure functions used by the schema HTML viewer's explorer panel (pane 3).
  *
- * These are the canonical implementations — the inline JS in the <script> tag
+ * These are the canonical implementations — the inline JS in the `<script>` tag
  * of build-schema-html.ts mirrors them, closing over a page-level `defs` variable
  * instead of taking `defs` as a parameter. Keep both in sync.
+ *
+ * ## Explorer tabs and their entry functions
+ *
+ * **Properties** — `flattenAllOf` to walk the inheritance chain, then
+ * `isRefType` / `refTarget` to render each property's type as a clickable link.
+ *
+ * **Graph** — `isRefType`, `refTarget`, and `resolveType` to build an SVG
+ * inheritance-chain diagram with composition edges for ref-typed properties.
+ *
+ * **Interface** — `flattenAllOf` to collect all properties, then
+ * `resolvePropertyType` to resolve each to its leaf TypeScript type and
+ * `resolveValueLeaf` to annotate simpleContent wrappers (e.g. `→ string`).
+ *
+ * **Mapping** — `flattenAllOf`, `resolvePropertyType`, and `resolveValueLeaf`
+ * to generate `toGenerated` / `fromGenerated` converter functions between the
+ * flat interface and the generated intersection type.
+ *
+ * **Utilities** — `flattenAllOf` + `collectRequired` for factory defaults,
+ * `resolvePropertyType` for type-guard checks, `refTarget` for outgoing refs,
+ * `buildReverseIndex` for incoming "used by" links, and `defaultForType` for
+ * factory default-value literals.
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
