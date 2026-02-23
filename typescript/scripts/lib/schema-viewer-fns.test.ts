@@ -210,11 +210,14 @@ describe("resolveDefType", () => {
     expect(resolveDefType(defs, "Obj")).toEqual({ ts: "Obj", complex: true });
   });
 
-  it("resolves x-netex-atom as primitive instead of complex", () => {
+  it("resolves x-netex-atom as primitive instead of complex, with via", () => {
     const defs: Defs = {
       Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
     };
-    expect(resolveDefType(defs, "Wrapper")).toEqual({ ts: "string", complex: false });
+    const result = resolveDefType(defs, "Wrapper");
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual(["Wrapper"]);
   });
 
   it("returns complex for x-netex-atom: simpleObj", () => {
@@ -253,6 +256,42 @@ describe("resolveDefType", () => {
       Parent: { type: "object", properties: { x: { type: "string" } } },
     };
     expect(resolveDefType(defs, "Child").complex).toBe(true);
+  });
+
+  it("unwraps single-prop array wrapper with via", () => {
+    const defs: Defs = {
+      ListWrapper: {
+        type: "object",
+        properties: {
+          Item: { type: "array", items: { $ref: "#/definitions/ItemStruct" } },
+        },
+      },
+      ItemStruct: { type: "object", "x-netex-atom": "simpleObj", properties: { value: { type: "string" }, code: { type: "string" } } },
+    };
+    const result = resolveDefType(defs, "ListWrapper");
+    expect(result.ts).toBe("ItemStruct[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual(["ListWrapper"]);
+  });
+
+  it("unwraps empty object with via", () => {
+    const defs: Defs = {
+      EmptyObj: { type: "object" },
+    };
+    const result = resolveDefType(defs, "EmptyObj");
+    expect(result.ts).toBe("any");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual(["EmptyObj"]);
+  });
+
+  it("does not set via for $ref alias or allOf-no-own-props", () => {
+    const defs: Defs = {
+      Alias: { $ref: "#/definitions/Target" },
+      Target: { type: "string" },
+    };
+    const result = resolveDefType(defs, "Alias");
+    expect(result.ts).toBe("string");
+    expect(result.via).toBeUndefined();
   });
 
   it("includes format comment for formatted primitives", () => {
@@ -536,7 +575,7 @@ describe("unwrapMixed", () => {
     expect(unwrapMixed({}, "Missing")).toBeNull();
   });
 
-  it("resolveDefType uses unwrapMixed to resolve as inner type array", () => {
+  it("resolveDefType uses unwrapMixed to resolve as inner type array, with via", () => {
     const defs: Defs = {
       Mixed: {
         type: "object",
@@ -549,7 +588,10 @@ describe("unwrapMixed", () => {
       },
       ItemType: { type: "object", properties: { value: { type: "string" } } },
     };
-    expect(resolveDefType(defs, "Mixed")).toEqual({ ts: "ItemType[]", complex: true });
+    const result = resolveDefType(defs, "Mixed");
+    expect(result.ts).toBe("ItemType[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual(["Mixed"]);
   });
 });
 

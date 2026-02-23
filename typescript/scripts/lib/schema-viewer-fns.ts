@@ -36,6 +36,8 @@ export type Defs = Record<string, Def>;
 export interface ResolvedType {
   ts: string;
   complex: boolean;
+  /** Wrapper type names that were made transparent during resolution. */
+  via?: string[];
 }
 
 export interface FlatProperty {
@@ -256,6 +258,11 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   const def = defs[name];
   if (!def) return { ts: name, complex: true };
 
+  /** Prepend a wrapper name to the via chain of an inner result. */
+  function withVia(result: ResolvedType, wrapper: string): ResolvedType {
+    return { ...result, via: [wrapper, ...(result.via || [])] };
+  }
+
   // Pure $ref alias
   if (def.$ref) return resolveDefType(defs, deref(def.$ref), visited);
 
@@ -306,11 +313,12 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
 
   // Check x-netex-atom annotation — single-prop simpleContent wrappers collapse to primitive
   const atom = def["x-netex-atom"];
-  if (typeof atom === "string" && atom !== "simpleObj") return { ts: atom, complex: false };
+  if (typeof atom === "string" && atom !== "simpleObj")
+    return withVia({ ts: atom, complex: false }, name);
 
   // Mixed-content wrapper — resolve as the inner element type array
   const mixedTarget = unwrapMixed(defs, name);
-  if (mixedTarget) return { ts: mixedTarget + "[]", complex: true };
+  if (mixedTarget) return withVia({ ts: mixedTarget + "[]", complex: true }, name);
 
   // Single-prop array wrapper with atom items → unwrap to item[]
   // Gate: skip classified types (e.g. _RelStructure role=collection)
@@ -320,14 +328,14 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
       const shape = classifySchema(def.properties[keys[0]]);
       if (shape.kind === "refArray" && resolveAtom(defs, shape.target)) {
         const inner = resolveDefType(defs, shape.target, new Set(visited));
-        return { ts: inner.ts + "[]", complex: inner.complex };
+        return withVia({ ts: inner.ts + "[]", complex: inner.complex }, name);
       }
     }
   }
 
   // Empty object (no properties, no role) — e.g. ExtensionsStructure (xsd:any wrapper)
   if (def.type === "object" && !def.properties && !def["x-netex-role"]) {
-    return { ts: "any", complex: false };
+    return withVia({ ts: "any", complex: false }, name);
   }
 
   // Complex

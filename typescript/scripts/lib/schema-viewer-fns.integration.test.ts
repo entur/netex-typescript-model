@@ -202,7 +202,9 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(kl).toBeDefined();
     const result = resolvePropertyType(defs, kl!.schema);
     // keyList → KeyListStructure (single-prop, no role) → KeyValue: KeyValueStructure[] (simpleObj)
-    expect(result).toEqual({ ts: "KeyValueStructure[]", complex: true });
+    expect(result.ts).toBe("KeyValueStructure[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual(["KeyListStructure"]);
   });
 
   it("resolvePropertyType unwraps privateCodes to PrivateCodeStructure[] (simpleObj atom as [])", () => {
@@ -211,7 +213,9 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(pc).toBeDefined();
     const result = resolvePropertyType(defs, pc!.schema);
     // privateCodes → PrivateCodesStructure (single-prop, no role) → PrivateCode → PrivateCodeStructure (simpleObj)
-    expect(result).toEqual({ ts: "PrivateCodeStructure[]", complex: true });
+    expect(result.ts).toBe("PrivateCodeStructure[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual(["PrivateCodesStructure"]);
   });
 
   it("resolvePropertyType unpacks Extensions as non-complex object", () => {
@@ -220,7 +224,9 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(ext).toBeDefined();
     const result = resolvePropertyType(defs, ext!.schema);
     // Extensions → ExtensionsStructure (xsd:any wrapper — no properties, no role)
-    expect(result).toEqual({ ts: "any", complex: false });
+    expect(result.ts).toBe("any");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual(["ExtensionsStructure"]);
   });
 });
 
@@ -318,11 +324,11 @@ describe("x-netex-mixed annotation", () => {
     expect(unwrapMixed(defs, "MultilingualString")).toBe("TextType");
   });
 
-  it("resolveDefType resolves MultilingualString as TextType[]", () => {
-    expect(resolveDefType(defs, "MultilingualString")).toEqual({
-      ts: "TextType[]",
-      complex: true,
-    });
+  it("resolveDefType resolves MultilingualString as TextType[] via wrapper", () => {
+    const result = resolveDefType(defs, "MultilingualString");
+    expect(result.ts).toBe("TextType[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual(["MultilingualString"]);
   });
 
   it("resolvePropertyType shows TextType[] for a MultilingualString property", () => {
