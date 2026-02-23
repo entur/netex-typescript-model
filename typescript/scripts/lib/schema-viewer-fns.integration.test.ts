@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import {
   resolveLeafType,
   resolveValueLeaf,
+  resolvePropertyType,
   flattenAllOf,
   buildReverseIndex,
   findTransitiveEntityUsers,
@@ -59,6 +60,127 @@ describe("integration with real schema", () => {
     const props = flattenAllOf(defs, "VersionOfObjectRefStructure");
     expect(props.length).toBeGreaterThan(0);
     expect(props.some((p) => p.prop === "value")).toBe(true);
+  });
+});
+
+describe("resolvePropertyType — real schema (Interface tab)", () => {
+  it("resolves a $ref property to its leaf primitive", () => {
+    // VersionOfObjectRefStructure.value → $ref ObjectIdType → string
+    const schema = defs["VersionOfObjectRefStructure"]?.properties?.["value"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result).toEqual({ ts: "string", complex: false });
+  });
+
+  it("resolves an allOf-wrapped $ref to an enum", () => {
+    // VersionOfObjectRefStructure.modification → allOf[$ref ModificationEnumeration]
+    const schema = defs["VersionOfObjectRefStructure"]?.properties?.["modification"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result.complex).toBe(false);
+    expect(result.ts).toContain('"new"');
+    expect(result.ts).toContain("|");
+  });
+
+  it("resolves an inline primitive with format", () => {
+    // VersionOfObjectRefStructure.created → { type: "string", format: "date-time" }
+    const schema = defs["VersionOfObjectRefStructure"]?.properties?.["created"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result).toEqual({ ts: "string /* date-time */", complex: false });
+  });
+
+  it("resolves an array of $ref items", () => {
+    // MultilingualString.Text → { type: "array", items: { $ref: TextType } }
+    const schema = defs["MultilingualString"]?.properties?.["Text"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result.ts).toMatch(/\[\]$/);
+  });
+
+  it("resolves an inline string property", () => {
+    // PrivateCodeStructure.value → { type: "string" }
+    const schema = defs["PrivateCodeStructure"]?.properties?.["value"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result).toEqual({ ts: "string", complex: false });
+  });
+
+  it("works end-to-end: flattenAllOf + resolvePropertyType + resolveValueLeaf", () => {
+    // Simulates what the Interface tab does for each property
+    const props = flattenAllOf(defs, "VersionOfObjectRefStructure");
+    expect(props.length).toBeGreaterThan(0);
+    for (const p of props) {
+      const resolved = resolvePropertyType(defs, p.schema);
+      expect(resolved.ts).toBeTruthy();
+      // If complex, resolveValueLeaf should be callable without error
+      if (resolved.complex) {
+        const typeName = resolved.ts.endsWith("[]") ? resolved.ts.slice(0, -2) : resolved.ts;
+        resolveValueLeaf(defs, typeName); // should not throw
+      }
+    }
+  });
+});
+
+describe("VehicleType — deep entity scenario (Interface tab)", () => {
+  it("flattenAllOf collects properties from entire 5-level chain", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    expect(props.length).toBeGreaterThan(20);
+    // Own properties from VehicleType_VersionStructure
+    expect(props.some((p) => p.prop === "LowFloor")).toBe(true);
+    expect(props.some((p) => p.prop === "Length")).toBe(true);
+    // Inherited from TransportType_VersionStructure
+    expect(props.some((p) => p.prop === "Name" && p.origin === "TransportType_VersionStructure")).toBe(true);
+    expect(props.some((p) => p.prop === "TransportMode")).toBe(true);
+    // Deep inherited from EntityInVersionStructure
+    expect(props.some((p) => p.prop === "created")).toBe(true);
+    expect(props.some((p) => p.prop === "version")).toBe(true);
+  });
+
+  it("resolvePropertyType handles booleans from VehicleType", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const lowFloor = props.find((p) => p.prop === "LowFloor");
+    expect(lowFloor).toBeDefined();
+    expect(resolvePropertyType(defs, lowFloor!.schema)).toEqual({ ts: "boolean", complex: false });
+  });
+
+  it("resolvePropertyType resolves allOf-wrapped measurement types", () => {
+    // Length → allOf[$ref LengthType] → should resolve to a leaf
+    const props = flattenAllOf(defs, "VehicleType");
+    const length = props.find((p) => p.prop === "Length");
+    expect(length).toBeDefined();
+    const result = resolvePropertyType(defs, length!.schema);
+    expect(result.ts).toBeTruthy();
+    // LengthType is a simpleContent wrapper — resolveValueLeaf exposes the primitive
+    const leaf = resolveValueLeaf(defs, "LengthType");
+    if (leaf) expect(typeof leaf).toBe("string");
+  });
+
+  it("resolvePropertyType resolves enum from inherited TransportMode", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const mode = props.find((p) => p.prop === "TransportMode");
+    expect(mode).toBeDefined();
+    const result = resolvePropertyType(defs, mode!.schema);
+    // AllPublicTransportModesEnumeration is an enum — should contain pipe-separated literals
+    expect(result.complex).toBe(false);
+    expect(result.ts).toContain("|");
+  });
+
+  it("resolvePropertyType resolves array from deep-inherited ValidBetween", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const vb = props.find((p) => p.prop === "ValidBetween");
+    expect(vb).toBeDefined();
+    const result = resolvePropertyType(defs, vb!.schema);
+    expect(result.ts).toMatch(/\[\]$/);
+  });
+
+  it("resolvePropertyType resolves complex ref types", () => {
+    // capacities → allOf[$ref passengerCapacities_RelStructure] — a complex structure
+    const props = flattenAllOf(defs, "VehicleType");
+    const cap = props.find((p) => p.prop === "capacities");
+    expect(cap).toBeDefined();
+    const result = resolvePropertyType(defs, cap!.schema);
+    expect(result.complex).toBe(true);
   });
 });
 
