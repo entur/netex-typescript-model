@@ -48,11 +48,11 @@ describe("integration with real schema", () => {
     expect(resolveValueLeaf(defs, "MultilingualString")).toBeNull();
   });
 
-  it("resolveLeafType returns complex for simpleContent types (use resolveValueLeaf instead)", () => {
-    // PrivateCodeStructure has { type: "object", properties: { value, type } }
-    // resolveLeafType correctly sees it as complex — the leaf is exposed via x-netex-leaf
+  it("resolveLeafType resolves simpleContent types as primitive via x-netex-leaf", () => {
+    // PrivateCodeStructure has { type: "object", properties: { value, type }, x-netex-leaf: "string" }
+    // resolveLeafType now consults x-netex-leaf and resolves as primitive
     const result = resolveLeafType(defs, "PrivateCodeStructure");
-    expect(result.complex).toBe(true);
+    expect(result).toEqual({ ts: "string", complex: false });
     expect(resolveValueLeaf(defs, "PrivateCodeStructure")).toBe("string");
   });
 
@@ -172,6 +172,14 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     expect(vb).toBeDefined();
     const result = resolvePropertyType(defs, vb!.schema);
     expect(result.ts).toMatch(/\[\]$/);
+  });
+
+  it("resolvePropertyType resolves BrandingRef as string via x-netex-leaf", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const branding = props.find((p) => p.prop === "BrandingRef");
+    expect(branding).toBeDefined();
+    const result = resolvePropertyType(defs, branding!.schema);
+    expect(result).toEqual({ ts: "string", complex: false });
   });
 
   it("resolvePropertyType resolves complex ref types", () => {

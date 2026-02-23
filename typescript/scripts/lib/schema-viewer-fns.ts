@@ -241,6 +241,10 @@ export function resolveLeafType(defs: Defs, name: string, visited?: Set<string>)
     return { ts: def.type + fmt, complex: false };
   }
 
+  // Check x-netex-leaf annotation — simpleContent wrappers are semantically primitive
+  const leaf = def["x-netex-leaf"];
+  if (typeof leaf === "string") return { ts: leaf, complex: false };
+
   // Complex
   return { ts: name, complex: true };
 }

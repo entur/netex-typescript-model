@@ -208,6 +208,13 @@ describe("resolveLeafType", () => {
     expect(resolveLeafType(defs, "Obj")).toEqual({ ts: "Obj", complex: true });
   });
 
+  it("resolves x-netex-leaf as primitive instead of complex", () => {
+    const defs: Defs = {
+      Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-leaf": "string" },
+    };
+    expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "string", complex: false });
+  });
+
   it("speculatively follows allOf parent when own properties exist", () => {
     const defs: Defs = {
       RefStruct: {
