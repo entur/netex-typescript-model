@@ -67,7 +67,11 @@ tarball: $(GEN)/$(TARBALL_NAME)
 
 $(GEN)/$(TARBALL_NAME): $(GEN)/$(ASSEMBLY)/docs/index.html
 	rm -rf $(GEN)/$(TARBALL_PREFIX)
-	cp -r $(GEN)/$(ASSEMBLY) $(GEN)/$(TARBALL_PREFIX)
+	mkdir -p $(GEN)/$(TARBALL_PREFIX)
+	cp -r $(GEN)/$(ASSEMBLY)/interfaces $(GEN)/$(TARBALL_PREFIX)/
+	cp $(GEN)/$(ASSEMBLY)/$(ASSEMBLY).schema.json $(GEN)/$(TARBALL_PREFIX)/
+	cp $(GEN)/$(ASSEMBLY)/netex-schema.html $(GEN)/$(TARBALL_PREFIX)/
+	cp $(GEN)/$(ASSEMBLY)/README.md $(GEN)/$(TARBALL_PREFIX)/ 2>/dev/null || true
 	tar -czf $@ -C $(GEN) $(TARBALL_PREFIX)
 	rm -rf $(GEN)/$(TARBALL_PREFIX)
 
