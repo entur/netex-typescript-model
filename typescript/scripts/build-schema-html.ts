@@ -97,11 +97,9 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
       const jsonHtml = highlightJson(displayDef);
 
       const isEntity = role === "entity";
-      const suggestBtn = isEntity
-        ? `<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button>`
-        : "";
+      const suggestBtn = `<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button>`;
       const usedByBtn = !isEntity
-        ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Find uses\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
+        ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Entities\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
         : "";
 
       return `    <section id="${escapeHtml(name)}" class="def-section" data-role="${escapeHtml(role)}">
@@ -147,13 +145,14 @@ function buildViewerFnsScript(): string {
         refTarget: refTarget,
         flattenAllOf: flattenAllOf,
         collectRequired: collectRequired,
-        resolveLeafType: resolveLeafType,
+        resolveDefType: resolveDefType,
         resolvePropertyType: resolvePropertyType,
-        resolveValueLeaf: resolveValueLeaf,
+        resolveAtom: resolveAtom,
         buildReverseIndex: buildReverseIndex,
         findTransitiveEntityUsers: findTransitiveEntityUsers,
         defRole: defRole,
-        defaultForType: defaultForType
+        defaultForType: defaultForType,
+        lcFirst: lcFirst
       };
     })();
 
@@ -163,10 +162,11 @@ function buildViewerFnsScript(): string {
     function refTarget(p) { return _fns.refTarget(p); }
     function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
     function collectRequired(d, n) { return _fns.collectRequired(d, n); }
-    function resolveLeafType(n, v) { return _fns.resolveLeafType(defs, n, v); }
+    function resolveDefType(n, v) { return _fns.resolveDefType(defs, n, v); }
     function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
-    function resolveValueLeaf(n) { return _fns.resolveValueLeaf(defs, n); }
+    function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
+
     function defRole(name) { return _fns.defRole(defs[name]); }
     var _reverseIdx = null;
     function buildReverseIndex() {
@@ -174,7 +174,7 @@ function buildViewerFnsScript(): string {
       return _reverseIdx;
     }
     function findTransitiveEntityUsers(name) {
-      return _fns.findTransitiveEntityUsers(defs, name, buildReverseIndex());
+      return _fns.findTransitiveEntityUsers(name, buildReverseIndex(), (n) => _fns.defRole(defs[n]) === "entity");
     }`;
   return bound;
 }
@@ -734,11 +734,31 @@ function buildHtml(
     }
     .if-kw { color: var(--bool-color); font-weight: 600; }
     .if-prop { color: var(--fg); }
+    .if-prop[data-via] { text-decoration: underline dotted var(--muted); text-underline-offset: 2px; cursor: help; }
+    .if-prop[data-via]:hover { text-decoration-color: var(--fg); }
     .if-prim { color: var(--num-color); }
     .if-lit { color: var(--str-color); }
     .if-cmt { color: var(--muted); font-style: italic; }
     .if-ref { color: var(--link-color); text-decoration: underline dotted; cursor: pointer; }
     .if-ref:hover { text-decoration-style: solid; }
+    .via-popup {
+      position: fixed;
+      z-index: 1000;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.35rem;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .via-popup .via-arrow { color: var(--muted); margin: 0 0.25em; }
+    .via-popup .via-name { color: var(--fg); }
+    .via-popup .via-rule { color: var(--muted); font-style: italic; font-size: 0.66rem; }
+    .via-popup .via-name.via-link { color: var(--link-color); }
     .copy-btn {
       position: absolute;
       top: 0.4rem;
@@ -1022,7 +1042,7 @@ ${sections}
         const typeHtml = isRefType(p.schema)
           ? '<a href="#' + esc(refTarget(p.schema)) + '" class="explorer-type-link">' + esc(p.type) + '</a>'
           : esc(p.type);
-        html += '<div class="prop-row"><div class="prop-name">' + esc(p.prop) + ' <span class="prop-type">' + typeHtml + '</span></div>';
+        html += '<div class="prop-row"><div class="prop-name">' + esc(p.prop[0]) + ' <span class="prop-type">' + typeHtml + '</span></div>';
         if (p.desc) html += '<div class="prop-pdesc">' + esc(p.desc) + '</div>';
         html += '</div>';
       }
@@ -1196,8 +1216,8 @@ ${sections}
           const typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
           const suffix = resolved.ts.endsWith('[]') ? '[]' : '';
           typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-          var leaf = resolveValueLeaf(typeName);
-          if (leaf) typeHtml += ' <span class="if-cmt">// \\u2192 ' + esc(leaf) + '</span>';
+          var atom = resolveAtom(typeName);
+          if (atom && atom !== 'simpleObj') typeHtml += ' <span class="if-cmt">// \\u2192 ' + esc(atom) + '</span>';
         } else if (resolved.ts.includes('|')) {
           // Literal union or multi-type
           const parts = resolved.ts.split(' | ');
@@ -1214,7 +1234,11 @@ ${sections}
         } else {
           typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
         }
-        lines.push('  <span class="if-prop">' + esc(p.prop) + '</span>?: ' + typeHtml + ';');
+        var viaAttr = '';
+        if (resolved.via && resolved.via.length > 0) {
+          viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
+        }
+        lines.push('  <span class="if-prop"' + viaAttr + '>' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
       }
 
       lines.push('}');
@@ -1237,6 +1261,55 @@ ${sections}
         btn.textContent = 'Copied!';
         setTimeout(() => btn.textContent = 'Copy', 1500);
       });
+    });
+
+    // Via-chain popup on hover
+    var viaPopup = null;
+    var viaTarget = null;
+    function showViaPopup(span) {
+      hideViaPopup();
+      var raw = span.getAttribute('data-via');
+      if (!raw) return;
+      var via;
+      try { via = JSON.parse(decodeURIComponent(raw)); } catch(_) { return; }
+      if (!via || !via.length) return;
+      var popup = document.createElement('div');
+      popup.className = 'via-popup';
+      var inner = '';
+      for (var i = 0; i < via.length; i++) {
+        if (i > 0) inner += '<span class="via-arrow">\u2192</span>';
+        var hop = via[i];
+        var isDefLink = !!defs[hop.name];
+        if (isDefLink) {
+          inner += '<span class="via-name via-link">' + esc(hop.name) + '</span>';
+        } else {
+          inner += '<span class="via-name">' + esc(hop.name) + '</span>';
+        }
+        inner += ' <span class="via-rule">' + esc(hop.rule) + '</span>';
+      }
+      popup.innerHTML = inner;
+      document.body.appendChild(popup);
+      var rect = span.getBoundingClientRect();
+      popup.style.left = rect.left + 'px';
+      popup.style.top = (rect.bottom + 4) + 'px';
+      var pr = popup.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 8) {
+        popup.style.left = Math.max(8, window.innerWidth - pr.width - 8) + 'px';
+      }
+      viaPopup = popup;
+      viaTarget = span;
+    }
+    function hideViaPopup() {
+      if (viaPopup) { viaPopup.remove(); viaPopup = null; }
+      viaTarget = null;
+    }
+    document.addEventListener('mouseover', function(e) {
+      var span = e.target.closest && e.target.closest('.if-prop[data-via]');
+      if (span && explorerIface.contains(span)) {
+        if (span !== viaTarget) showViaPopup(span);
+      } else if (viaPopup) {
+        hideViaPopup();
+      }
     });
 
     // ── Mapping tab ───────────────────────────────────────────────────
@@ -1275,15 +1348,15 @@ ${sections}
       for (var i = 0; i < props.length; i++) {
         var p = props[i];
         var resolved = resolvePropertyType(p.schema);
-        var leaf = null;
+        var atom = null;
         if (resolved.complex) {
           var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          leaf = resolveValueLeaf(typeName);
+          atom = resolveAtom(typeName);
         }
-        if (leaf) {
-          fromLines.push('    ' + esc(p.prop) + ': src.' + esc(p.prop) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(leaf) + '</span>');
+        if (atom && atom !== 'simpleObj') {
+          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(atom) + '</span>');
         } else {
-          fromLines.push('    ' + esc(p.prop) + ': src.' + esc(p.prop) + ',');
+          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + ',');
         }
       }
       fromLines.push('  };');
@@ -1331,9 +1404,9 @@ ${sections}
         var resolved = resolvePropertyType(p.schema);
         var check = '';
         if (resolved.ts.endsWith('[]')) {
-          check = '!Array.isArray(obj.' + p.prop + ')';
+          check = '!Array.isArray(obj.' + p.prop[1] + ')';
         } else if (resolved.complex) {
-          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"object"</span>';
+          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"object"</span>';
         } else {
           var base = resolved.ts;
           if (base.indexOf('/*') !== -1) base = base.slice(0, base.indexOf(' /*')).trim();
@@ -1341,17 +1414,17 @@ ${sections}
             // union — check for the base primitive (string for enums, etc.)
             var firstPart = base.split('|')[0].trim();
             if (firstPart.startsWith('"') || firstPart.startsWith("'")) {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"string"</span>';
+              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
             } else {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
+              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
             }
           } else if (base === 'integer') {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"number"</span>';
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
           } else {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
           }
         }
-        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
+        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop[1]) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
       }
       lines.push('  <span class="if-kw">return true</span>;');
       lines.push('}');
@@ -1369,10 +1442,10 @@ ${sections}
         flines.push('  <span class="if-kw">return</span> {');
         for (var i = 0; i < props.length; i++) {
           var p = props[i];
-          if (!required.has(p.prop)) continue;
+          if (!required.has(p.prop[0])) continue;
           var resolved = resolvePropertyType(p.schema);
           var defVal = defaultForType(resolved.ts);
-          flines.push('    ' + esc(p.prop) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
+          flines.push('    ' + esc(p.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
         }
         flines.push('    ...init,');
         flines.push('  };');

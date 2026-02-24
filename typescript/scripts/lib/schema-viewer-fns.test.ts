@@ -5,18 +5,21 @@ import {
   refTarget,
   flattenAllOf,
   collectRequired,
-  resolveLeafType,
+  resolveDefType,
   resolvePropertyType,
-  resolveValueLeaf,
+  resolveAtom,
   buildReverseIndex,
   findTransitiveEntityUsers,
   defaultForType,
+  lcFirst,
+  unwrapMixed,
   defRole,
   countRoles,
   presentRoles,
   ROLE_DISPLAY_ORDER,
   ROLE_LABELS,
   type Defs,
+  type ViaHop,
 } from "./schema-viewer-fns.js";
 
 // ── resolveType ──────────────────────────────────────────────────────────────
@@ -102,7 +105,7 @@ describe("flattenAllOf", () => {
     };
     const result = flattenAllOf(defs, "A");
     expect(result).toHaveLength(1);
-    expect(result[0].prop).toBe("x");
+    expect(result[0].prop).toEqual(["x", "x"]);
     expect(result[0].origin).toBe("A");
   });
 
@@ -118,8 +121,8 @@ describe("flattenAllOf", () => {
     };
     const result = flattenAllOf(defs, "Child");
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ prop: "x", origin: "Parent" });
-    expect(result[1]).toMatchObject({ prop: "y", origin: "Child" });
+    expect(result[0]).toMatchObject({ prop: ["x", "x"], origin: "Parent" });
+    expect(result[1]).toMatchObject({ prop: ["y", "y"], origin: "Child" });
   });
 
   it("follows $ref aliases", () => {
@@ -129,7 +132,7 @@ describe("flattenAllOf", () => {
     };
     const result = flattenAllOf(defs, "Alias");
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ prop: "z", origin: "Real" });
+    expect(result[0]).toMatchObject({ prop: ["z", "z"], origin: "Real" });
   });
 
   it("handles circular references without infinite loop", () => {
@@ -172,12 +175,16 @@ describe("collectRequired", () => {
   });
 });
 
-// ── resolveLeafType ──────────────────────────────────────────────────────────
+// ── resolveDefType ──────────────────────────────────────────────────────────
 
-describe("resolveLeafType", () => {
+describe("resolveDefType", () => {
   it("resolves primitive type", () => {
     const defs: Defs = { StringType: { type: "string" } };
-    expect(resolveLeafType(defs, "StringType")).toEqual({ ts: "string", complex: false });
+    expect(resolveDefType(defs, "StringType")).toEqual({
+      ts: "string",
+      complex: false,
+      via: [{ name: "StringType", rule: "primitive" }],
+    });
   });
 
   it("follows $ref alias to primitive", () => {
@@ -185,7 +192,14 @@ describe("resolveLeafType", () => {
       Alias: { $ref: "#/definitions/Target" },
       Target: { type: "string" },
     };
-    expect(resolveLeafType(defs, "Alias")).toEqual({ ts: "string", complex: false });
+    expect(resolveDefType(defs, "Alias")).toEqual({
+      ts: "string",
+      complex: false,
+      via: [
+        { name: "Alias", rule: "ref" },
+        { name: "Target", rule: "primitive" },
+      ],
+    });
   });
 
   it("follows allOf wrapper to primitive", () => {
@@ -193,19 +207,56 @@ describe("resolveLeafType", () => {
       Wrapper: { allOf: [{ $ref: "#/definitions/Inner" }] },
       Inner: { type: "integer" },
     };
-    expect(resolveLeafType(defs, "Wrapper")).toEqual({ ts: "integer", complex: false });
+    expect(resolveDefType(defs, "Wrapper")).toEqual({
+      ts: "integer",
+      complex: false,
+      via: [
+        { name: "Wrapper", rule: "allOf-passthrough" },
+        { name: "Inner", rule: "primitive" },
+      ],
+    });
   });
 
   it("resolves enum to union", () => {
     const defs: Defs = { E: { enum: ["a", "b", "c"] } };
-    const result = resolveLeafType(defs, "E");
+    const result = resolveDefType(defs, "E");
     expect(result.complex).toBe(false);
     expect(result.ts).toBe('"a" | "b" | "c"');
+    expect(result.via).toEqual([{ name: "E", rule: "enum" }]);
   });
 
   it("returns complex for object with properties", () => {
     const defs: Defs = { Obj: { type: "object", properties: { x: { type: "string" } } } };
-    expect(resolveLeafType(defs, "Obj")).toEqual({ ts: "Obj", complex: true });
+    expect(resolveDefType(defs, "Obj")).toEqual({
+      ts: "Obj",
+      complex: true,
+      via: [{ name: "Obj", rule: "complex" }],
+    });
+  });
+
+  it("resolves x-netex-atom as primitive instead of complex, with via", () => {
+    const defs: Defs = {
+      Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
+    };
+    const result = resolveDefType(defs, "Wrapper");
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([{ name: "Wrapper", rule: "atom-collapse" }]);
+  });
+
+  it("returns complex for x-netex-atom: simpleObj", () => {
+    const defs: Defs = {
+      Wrapper: {
+        type: "object",
+        properties: { value: { type: "string" }, type: { type: "string" } },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    expect(resolveDefType(defs, "Wrapper")).toEqual({
+      ts: "Wrapper",
+      complex: true,
+      via: [{ name: "Wrapper", rule: "complex" }],
+    });
   });
 
   it("speculatively follows allOf parent when own properties exist", () => {
@@ -218,8 +269,15 @@ describe("resolveLeafType", () => {
       },
       Base: { type: "string" },
     };
-    const result = resolveLeafType(defs, "RefStruct");
-    expect(result).toEqual({ ts: "string", complex: false });
+    const result = resolveDefType(defs, "RefStruct");
+    expect(result).toEqual({
+      ts: "string",
+      complex: false,
+      via: [
+        { name: "RefStruct", rule: "allOf-speculative" },
+        { name: "Base", rule: "primitive" },
+      ],
+    });
   });
 
   it("stays complex when parent is also complex", () => {
@@ -232,12 +290,60 @@ describe("resolveLeafType", () => {
       },
       Parent: { type: "object", properties: { x: { type: "string" } } },
     };
-    expect(resolveLeafType(defs, "Child").complex).toBe(true);
+    const result = resolveDefType(defs, "Child");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual([{ name: "Child", rule: "complex" }]);
+  });
+
+  it("unwraps single-prop array wrapper with via", () => {
+    const defs: Defs = {
+      ListWrapper: {
+        type: "object",
+        properties: {
+          Item: { type: "array", items: { $ref: "#/definitions/ItemStruct" } },
+        },
+      },
+      ItemStruct: { type: "object", "x-netex-atom": "simpleObj", properties: { value: { type: "string" }, code: { type: "string" } } },
+    };
+    const result = resolveDefType(defs, "ListWrapper");
+    expect(result.ts).toBe("ItemStruct[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual([
+      { name: "ListWrapper", rule: "array-unwrap" },
+      { name: "ItemStruct", rule: "complex" },
+    ]);
+  });
+
+  it("unwraps empty object with via", () => {
+    const defs: Defs = {
+      EmptyObj: { type: "object" },
+    };
+    const result = resolveDefType(defs, "EmptyObj");
+    expect(result.ts).toBe("any");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([{ name: "EmptyObj", rule: "empty-object" }]);
+  });
+
+  it("records full via chain for $ref alias", () => {
+    const defs: Defs = {
+      Alias: { $ref: "#/definitions/Target" },
+      Target: { type: "string" },
+    };
+    const result = resolveDefType(defs, "Alias");
+    expect(result.ts).toBe("string");
+    expect(result.via).toEqual([
+      { name: "Alias", rule: "ref" },
+      { name: "Target", rule: "primitive" },
+    ]);
   });
 
   it("includes format comment for formatted primitives", () => {
     const defs: Defs = { DT: { type: "string", format: "date-time" } };
-    expect(resolveLeafType(defs, "DT")).toEqual({ ts: "string /* date-time */", complex: false });
+    expect(resolveDefType(defs, "DT")).toEqual({
+      ts: "string /* date-time */",
+      complex: false,
+      via: [{ name: "DT", rule: "primitive" }],
+    });
   });
 
   it("handles circular references", () => {
@@ -245,26 +351,96 @@ describe("resolveLeafType", () => {
       A: { $ref: "#/definitions/B" },
       B: { $ref: "#/definitions/A" },
     };
-    const result = resolveLeafType(defs, "A");
+    const result = resolveDefType(defs, "A");
     expect(result.complex).toBe(true);
+  });
+
+  it("multi-hop $ref chain produces [ref, ref, primitive]", () => {
+    const defs: Defs = {
+      A: { $ref: "#/definitions/B" },
+      B: { $ref: "#/definitions/C" },
+      C: { type: "string" },
+    };
+    const result = resolveDefType(defs, "A");
+    expect(result.via).toEqual([
+      { name: "A", rule: "ref" },
+      { name: "B", rule: "ref" },
+      { name: "C", rule: "primitive" },
+    ]);
+  });
+
+  it("allOf-passthrough + inner ref chain", () => {
+    const defs: Defs = {
+      Outer: { allOf: [{ $ref: "#/definitions/Inner" }] },
+      Inner: { $ref: "#/definitions/Leaf" },
+      Leaf: { type: "integer" },
+    };
+    const result = resolveDefType(defs, "Outer");
+    expect(result.via).toEqual([
+      { name: "Outer", rule: "allOf-passthrough" },
+      { name: "Inner", rule: "ref" },
+      { name: "Leaf", rule: "primitive" },
+    ]);
+  });
+
+  it("allOf-speculative records hop before inner chain", () => {
+    const defs: Defs = {
+      Outer: {
+        allOf: [
+          { $ref: "#/definitions/Parent" },
+          { properties: { extra: { type: "string" } } },
+        ],
+      },
+      Parent: { $ref: "#/definitions/Prim" },
+      Prim: { type: "string" },
+    };
+    const result = resolveDefType(defs, "Outer");
+    expect(result.via).toEqual([
+      { name: "Outer", rule: "allOf-speculative" },
+      { name: "Parent", rule: "ref" },
+      { name: "Prim", rule: "primitive" },
+    ]);
+  });
+
+  it("array-unwrap + inner atom-collapse chain", () => {
+    const defs: Defs = {
+      ListWrap: {
+        type: "object",
+        properties: {
+          Item: { type: "array", items: { $ref: "#/definitions/AtomItem" } },
+        },
+      },
+      AtomItem: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
+    };
+    const result = resolveDefType(defs, "ListWrap");
+    expect(result.ts).toBe("string[]");
+    expect(result.via).toEqual([
+      { name: "ListWrap", rule: "array-unwrap" },
+      { name: "AtomItem", rule: "atom-collapse" },
+    ]);
   });
 });
 
 // ── resolvePropertyType ──────────────────────────────────────────────────────
 
 describe("resolvePropertyType", () => {
-  it("resolves $ref through resolveLeafType", () => {
+  it("resolves $ref through resolveDefType", () => {
     const defs: Defs = { T: { type: "string" } };
     expect(resolvePropertyType(defs, { $ref: "#/definitions/T" })).toEqual({
       ts: "string",
       complex: false,
+      via: [{ name: "T", rule: "primitive" }],
     });
   });
 
-  it("resolves array of $ref", () => {
+  it("resolves array of $ref and preserves via", () => {
     const defs: Defs = { T: { type: "string" } };
     const result = resolvePropertyType(defs, { type: "array", items: { $ref: "#/definitions/T" } });
-    expect(result).toEqual({ ts: "string[]", complex: false });
+    expect(result).toEqual({
+      ts: "string[]",
+      complex: false,
+      via: [{ name: "T", rule: "primitive" }],
+    });
   });
 
   it("resolves inline enum", () => {
@@ -284,29 +460,36 @@ describe("resolvePropertyType", () => {
   });
 });
 
-// ── resolveValueLeaf ─────────────────────────────────────────────────────────
+// ── resolveAtom ──────────────────────────────────────────────────────────────
 
-describe("resolveValueLeaf", () => {
-  it("reads x-netex-leaf annotation", () => {
-    const defs: Defs = { T: { type: "object", "x-netex-leaf": "string" } };
-    expect(resolveValueLeaf(defs, "T")).toBe("string");
+describe("resolveAtom", () => {
+  it("reads x-netex-atom annotation", () => {
+    const defs: Defs = { T: { type: "object", "x-netex-atom": "string" } };
+    expect(resolveAtom(defs, "T")).toBe("string");
   });
 
   it("follows $ref alias to find annotation", () => {
     const defs: Defs = {
       Alias: { $ref: "#/definitions/Real" },
-      Real: { type: "object", "x-netex-leaf": "number" },
+      Real: { type: "object", "x-netex-atom": "number" },
     };
-    expect(resolveValueLeaf(defs, "Alias")).toBe("number");
+    expect(resolveAtom(defs, "Alias")).toBe("number");
+  });
+
+  it("returns simpleObj for multi-prop types", () => {
+    const defs: Defs = {
+      T: { type: "object", "x-netex-atom": "simpleObj" },
+    };
+    expect(resolveAtom(defs, "T")).toBe("simpleObj");
   });
 
   it("returns null when no annotation", () => {
     const defs: Defs = { T: { type: "object", properties: { x: { type: "string" } } } };
-    expect(resolveValueLeaf(defs, "T")).toBeNull();
+    expect(resolveAtom(defs, "T")).toBeNull();
   });
 
   it("returns null for missing definition", () => {
-    expect(resolveValueLeaf({}, "Missing")).toBeNull();
+    expect(resolveAtom({}, "Missing")).toBeNull();
   });
 });
 
@@ -334,13 +517,16 @@ describe("buildReverseIndex", () => {
 // ── findTransitiveEntityUsers ─────────────────────────────────────────────────
 
 describe("findTransitiveEntityUsers", () => {
+  /** Helper: build the isEntity predicate from defs (the common call-site pattern). */
+  const isEntity = (defs: Defs) => (name: string) => defRole(defs[name]) === "entity";
+
   it("finds direct entity referrer", () => {
     const defs: Defs = {
       Leaf: { type: "string" },
       MyEntity: { "x-netex-role": "entity", properties: { x: { $ref: "#/definitions/Leaf" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["MyEntity"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["MyEntity"]);
   });
 
   it("finds entity through intermediate structure", () => {
@@ -350,7 +536,7 @@ describe("findTransitiveEntityUsers", () => {
       MyEntity: { "x-netex-role": "entity", properties: { m: { $ref: "#/definitions/Middle" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["MyEntity"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["MyEntity"]);
   });
 
   it("does not traverse beyond entities", () => {
@@ -361,7 +547,7 @@ describe("findTransitiveEntityUsers", () => {
     };
     const idx = buildReverseIndex(defs);
     // EntityA uses Leaf directly; EntityB uses EntityA but not Leaf
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["EntityA"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityA"]);
   });
 
   it("excludes the input name from results even if it is an entity", () => {
@@ -370,7 +556,7 @@ describe("findTransitiveEntityUsers", () => {
       Other: { "x-netex-role": "entity", properties: { s: { $ref: "#/definitions/Self" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Self", idx)).toEqual(["Other"]);
+    expect(findTransitiveEntityUsers("Self", idx, isEntity(defs))).toEqual(["Other"]);
   });
 
   it("handles cycles without infinite loop", () => {
@@ -380,7 +566,7 @@ describe("findTransitiveEntityUsers", () => {
       E: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/A" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "A", idx)).toEqual(["E"]);
+    expect(findTransitiveEntityUsers("A", idx, isEntity(defs))).toEqual(["E"]);
   });
 
   it("returns empty array when no entities reachable", () => {
@@ -388,7 +574,7 @@ describe("findTransitiveEntityUsers", () => {
       Orphan: { type: "string" },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Orphan", idx)).toEqual([]);
+    expect(findTransitiveEntityUsers("Orphan", idx, isEntity(defs))).toEqual([]);
   });
 
   it("finds multiple entities through branching paths", () => {
@@ -400,7 +586,7 @@ describe("findTransitiveEntityUsers", () => {
       EntityY: { "x-netex-role": "entity", properties: { b: { $ref: "#/definitions/StructB" } } },
     };
     const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers(defs, "Leaf", idx)).toEqual(["EntityX", "EntityY"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityX", "EntityY"]);
   });
 });
 
@@ -437,6 +623,92 @@ describe("defaultForType", () => {
 
   it("returns cast for complex types", () => {
     expect(defaultForType("MyType")).toBe("{} as MyType");
+  });
+});
+
+// ── lcFirst ──────────────────────────────────────────────────────────────────
+
+describe("lcFirst", () => {
+  it("lowercases PascalCase property name", () => {
+    expect(lcFirst("BrandingRef")).toBe("brandingRef");
+  });
+
+  it("keeps already-lowercase name unchanged", () => {
+    expect(lcFirst("version")).toBe("version");
+  });
+
+  it("handles single character", () => {
+    expect(lcFirst("X")).toBe("x");
+  });
+
+  it("handles empty string", () => {
+    expect(lcFirst("")).toBe("");
+  });
+});
+
+// ── unwrapMixed ──────────────────────────────────────────────────────────────
+
+describe("unwrapMixed", () => {
+  it("returns inner element type for mixed-content wrapper", () => {
+    const defs: Defs = {
+      Wrapper: {
+        type: "object",
+        "x-netex-mixed": true,
+        description: "*Either* use old way or new way",
+        properties: {
+          Text: { type: "array", items: { $ref: "#/definitions/Inner" } },
+          lang: { type: "string", xml: { attribute: true } },
+        },
+      },
+      Inner: { type: "object" },
+    };
+    expect(unwrapMixed(defs, "Wrapper")).toBe("Inner");
+  });
+
+  it("returns null when x-netex-mixed is absent", () => {
+    const defs: Defs = {
+      Plain: {
+        type: "object",
+        description: "*Either* blah",
+        properties: { Text: { type: "array", items: { $ref: "#/definitions/T" } } },
+      },
+    };
+    expect(unwrapMixed(defs, "Plain")).toBeNull();
+  });
+
+  it("returns null when description lacks *Either*", () => {
+    const defs: Defs = {
+      NoSignal: {
+        type: "object",
+        "x-netex-mixed": true,
+        description: "Some other description",
+        properties: { Text: { type: "array", items: { $ref: "#/definitions/T" } } },
+      },
+    };
+    expect(unwrapMixed(defs, "NoSignal")).toBeNull();
+  });
+
+  it("returns null for missing definition", () => {
+    expect(unwrapMixed({}, "Missing")).toBeNull();
+  });
+
+  it("resolveDefType uses unwrapMixed to resolve as inner type array, with via", () => {
+    const defs: Defs = {
+      Mixed: {
+        type: "object",
+        "x-netex-mixed": true,
+        description: "*Either* old or new",
+        properties: {
+          Items: { type: "array", items: { $ref: "#/definitions/ItemType" } },
+          attr: { type: "string", xml: { attribute: true } },
+        },
+      },
+      ItemType: { type: "object", properties: { value: { type: "string" } } },
+    };
+    const result = resolveDefType(defs, "Mixed");
+    expect(result.ts).toBe("ItemType[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual([{ name: "Mixed", rule: "mixed-unwrap" }]);
   });
 });
 

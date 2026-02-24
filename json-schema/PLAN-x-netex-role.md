@@ -2,7 +2,7 @@
 
 ## Context
 
-The `real-data-containers.md` skill reference defines heuristics for classifying NeTEx definitions into "real entities" vs "structural scaffolding". Currently the converter stamps `x-netex-source`, `x-netex-leaf`, and `x-netex-assembly` but has no type classification. Adding `x-netex-role` enables downstream consumers (schema HTML viewer, split-output, future parser) to organize and filter types meaningfully.
+The `real-data-containers.md` skill reference defines heuristics for classifying NeTEx definitions into "real entities" vs "structural scaffolding". Currently the converter stamps `x-netex-source`, `x-netex-atom`, and `x-netex-assembly` but has no type classification. Adding `x-netex-role` enables downstream consumers (schema HTML viewer, split-output, future parser) to organize and filter types meaningfully.
 
 **Only `json-schema/xsd-to-jsonschema.js` is modified** — the TypeScript converter is deprecated.
 
@@ -51,7 +51,7 @@ All classification logic goes here. Key integration points:
 
 - **Constructor** (line 140): add `this.elementMeta = {}`
 - **`convert()`** (line 246): capture element metadata in pass 2, call `classifyDefinitions()` as pass 4
-- **After `annotateValueLeaves()`** (line 287): wire in the new pass
+- **After `annotateAtoms()`** (line 287): wire in the new pass
 
 ## New file: `json-schema/frame-members.json`
 
@@ -110,11 +110,11 @@ loadFrameRegistry(jsonPath) {
 
 ### 4. Add `extendsDataManagedObject()` method
 
-Same chain-following pattern as `resolveValueLeaf()` (lines 674-732): follow `$ref` and `allOf` chains through converted definitions, check for `DataManagedObjectStructure`.
+Same chain-following pattern as `resolveValueAtom()` (lines 674-732): follow `$ref` and `allOf` chains through converted definitions, check for `DataManagedObjectStructure`.
 
 ### 5. Add `classifyDefinitions(frameRegistry)` method
 
-Runs after `annotateValueLeaves()`. For each definition in `this.types` + `this.elements`:
+Runs after `annotateAtoms()`. For each definition in `this.types` + `this.elements`:
 
 **Priority order** (first match wins):
 1. Suffix: `_VersionStructure` / `_BaseStructure` → `"structure"`
@@ -131,7 +131,7 @@ Stamps `x-netex-role` and optionally `x-netex-frames` on the definition schema.
 
 ### 6. Wire into `convert()` and `main()`
 
-- In `convert()` after `this.annotateValueLeaves()`: call `this.classifyDefinitions(this.frameRegistry)`
+- In `convert()` after `this.annotateAtoms()`: call `this.classifyDefinitions(this.frameRegistry)`
 - In `main()` after creating the converter: `converter.frameRegistry = converter.loadFrameRegistry(frameMembersPath)` (resolve path relative to script location)
 - Or: pass the frame registry path as an optional CLI arg, or locate it automatically from `__dirname` equivalent
 
