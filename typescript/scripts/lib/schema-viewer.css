@@ -606,6 +606,12 @@
     .ref-chip:hover { border-color: var(--accent); background: var(--card-bg); }
     .ref-empty { font-size: 0.75rem; color: var(--muted); font-style: italic; }
 
+    /* Empty-state and utility labels */
+    .explorer-empty { color: var(--muted); font-size: 0.85rem; padding: 0.5rem; }
+    .mapping-intro { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem 0; }
+    .utils-section { margin-bottom: 0.5rem; }
+    .utils-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); }
+
     /* Resize handles */
     .resize-handle {
       width: 4px;
