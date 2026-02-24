@@ -33,11 +33,26 @@
 export type Def = Record<string, any>;
 export type Defs = Record<string, Def>;
 
+export interface ViaHop {
+  name: string;
+  rule:
+    | "ref"
+    | "allOf-passthrough"
+    | "allOf-speculative"
+    | "atom-collapse"
+    | "mixed-unwrap"
+    | "array-unwrap"
+    | "empty-object"
+    | "enum"
+    | "primitive"
+    | "complex";
+}
+
 export interface ResolvedType {
   ts: string;
   complex: boolean;
-  /** Wrapper type names that were made transparent during resolution. */
-  via?: string[];
+  /** Resolution chain — each hop records the def name and which resolveDefType branch handled it. */
+  via?: ViaHop[];
 }
 
 export interface FlatProperty {
@@ -258,13 +273,13 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   const def = defs[name];
   if (!def) return { ts: name, complex: true };
 
-  /** Prepend a wrapper name to the via chain of an inner result. */
-  function withVia(result: ResolvedType, wrapper: string): ResolvedType {
-    return { ...result, via: [wrapper, ...(result.via || [])] };
+  /** Prepend a hop to the via chain of an inner result. */
+  function withHop(result: ResolvedType, hopName: string, rule: ViaHop["rule"]): ResolvedType {
+    return { ...result, via: [{ name: hopName, rule }, ...(result.via || [])] };
   }
 
   // Pure $ref alias
-  if (def.$ref) return resolveDefType(defs, deref(def.$ref), visited);
+  if (def.$ref) return withHop(resolveDefType(defs, deref(def.$ref), visited), name, "ref");
 
   // allOf with single $ref (wrapper or inheritance)
   if (def.allOf) {
@@ -275,19 +290,28 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
         (def.properties && Object.keys(def.properties).length > 0) ||
         def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
       if (!hasOwnProps) {
-        return resolveDefType(defs, target, visited);
+        return withHop(
+          resolveDefType(defs, target, visited),
+          name,
+          "allOf-passthrough",
+        );
       }
       // Speculatively follow parent — use result if primitive
       const parentResult = resolveDefType(defs, target, new Set(visited));
-      if (!parentResult.complex) return parentResult;
+      if (!parentResult.complex)
+        return withHop(parentResult, name, "allOf-speculative");
     }
   }
 
   // Enum
   if (def.enum)
-    return { ts: def.enum.map((v: unknown) => JSON.stringify(v)).join(" | "), complex: false };
+    return {
+      ts: def.enum.map((v: unknown) => JSON.stringify(v)).join(" | "),
+      complex: false,
+      via: [{ name, rule: "enum" }],
+    };
 
-  // anyOf union
+  // anyOf union — branches diverge, no single linear chain
   if (def.anyOf) {
     const parts = def.anyOf.map((branch: Def) => {
       if (branch.$ref) return resolveDefType(defs, deref(branch.$ref), new Set(visited));
@@ -308,17 +332,18 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   // Primitive (no properties)
   if (def.type && !def.properties && typeof def.type === "string" && def.type !== "object") {
     const fmt = def.format ? " /* " + def.format + " */" : "";
-    return { ts: def.type + fmt, complex: false };
+    return { ts: def.type + fmt, complex: false, via: [{ name, rule: "primitive" }] };
   }
 
   // Check x-netex-atom annotation — single-prop simpleContent wrappers collapse to primitive
   const atom = def["x-netex-atom"];
   if (typeof atom === "string" && atom !== "simpleObj")
-    return withVia({ ts: atom, complex: false }, name);
+    return { ts: atom, complex: false, via: [{ name, rule: "atom-collapse" }] };
 
   // Mixed-content wrapper — resolve as the inner element type array
   const mixedTarget = unwrapMixed(defs, name);
-  if (mixedTarget) return withVia({ ts: mixedTarget + "[]", complex: true }, name);
+  if (mixedTarget)
+    return { ts: mixedTarget + "[]", complex: true, via: [{ name, rule: "mixed-unwrap" }] };
 
   // Single-prop array wrapper with atom items → unwrap to item[]
   // Gate: skip classified types (e.g. _RelStructure role=collection)
@@ -328,18 +353,22 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
       const shape = classifySchema(def.properties[keys[0]]);
       if (shape.kind === "refArray" && resolveAtom(defs, shape.target)) {
         const inner = resolveDefType(defs, shape.target, new Set(visited));
-        return withVia({ ts: inner.ts + "[]", complex: inner.complex }, name);
+        return withHop(
+          { ts: inner.ts + "[]", complex: inner.complex, via: inner.via },
+          name,
+          "array-unwrap",
+        );
       }
     }
   }
 
   // Empty object (no properties, no role) — e.g. ExtensionsStructure (xsd:any wrapper)
   if (def.type === "object" && !def.properties && !def["x-netex-role"]) {
-    return withVia({ ts: "any", complex: false }, name);
+    return { ts: "any", complex: false, via: [{ name, rule: "empty-object" }] };
   }
 
   // Complex
-  return { ts: name, complex: true };
+  return { ts: name, complex: true, via: [{ name, rule: "complex" }] };
 }
 
 /**
@@ -355,7 +384,7 @@ export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
       return resolveDefType(defs, shape.target);
     case "refArray": {
       const inner = resolveDefType(defs, shape.target);
-      return { ts: inner.ts + "[]", complex: inner.complex };
+      return { ts: inner.ts + "[]", complex: inner.complex, via: inner.via };
     }
     case "array":
       return { ts: shape.itemType + "[]", complex: false };

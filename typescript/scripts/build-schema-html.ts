@@ -99,7 +99,7 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
       const isEntity = role === "entity";
       const suggestBtn = `<button class="suggest-btn" data-def="${escapeHtml(name)}" title="Generate code helpers">Suggest code</button>`;
       const usedByBtn = !isEntity
-        ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Find uses\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
+        ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Entities\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
         : "";
 
       return `    <section id="${escapeHtml(name)}" class="def-section" data-role="${escapeHtml(role)}">
@@ -734,11 +734,31 @@ function buildHtml(
     }
     .if-kw { color: var(--bool-color); font-weight: 600; }
     .if-prop { color: var(--fg); }
+    .if-prop[data-via] { text-decoration: underline dotted var(--muted); text-underline-offset: 2px; cursor: help; }
+    .if-prop[data-via]:hover { text-decoration-color: var(--fg); }
     .if-prim { color: var(--num-color); }
     .if-lit { color: var(--str-color); }
     .if-cmt { color: var(--muted); font-style: italic; }
     .if-ref { color: var(--link-color); text-decoration: underline dotted; cursor: pointer; }
     .if-ref:hover { text-decoration-style: solid; }
+    .via-popup {
+      position: fixed;
+      z-index: 1000;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.35rem;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .via-popup .via-arrow { color: var(--muted); margin: 0 0.25em; }
+    .via-popup .via-name { color: var(--fg); }
+    .via-popup .via-rule { color: var(--muted); font-style: italic; font-size: 0.66rem; }
+    .via-popup .via-name.via-link { color: var(--link-color); }
     .copy-btn {
       position: absolute;
       top: 0.4rem;
@@ -1214,7 +1234,11 @@ ${sections}
         } else {
           typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
         }
-        lines.push('  <span class="if-prop">' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
+        var viaAttr = '';
+        if (resolved.via && resolved.via.length > 0) {
+          viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
+        }
+        lines.push('  <span class="if-prop"' + viaAttr + '>' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
       }
 
       lines.push('}');
@@ -1237,6 +1261,55 @@ ${sections}
         btn.textContent = 'Copied!';
         setTimeout(() => btn.textContent = 'Copy', 1500);
       });
+    });
+
+    // Via-chain popup on hover
+    var viaPopup = null;
+    var viaTarget = null;
+    function showViaPopup(span) {
+      hideViaPopup();
+      var raw = span.getAttribute('data-via');
+      if (!raw) return;
+      var via;
+      try { via = JSON.parse(decodeURIComponent(raw)); } catch(_) { return; }
+      if (!via || !via.length) return;
+      var popup = document.createElement('div');
+      popup.className = 'via-popup';
+      var inner = '';
+      for (var i = 0; i < via.length; i++) {
+        if (i > 0) inner += '<span class="via-arrow">\u2192</span>';
+        var hop = via[i];
+        var isDefLink = !!defs[hop.name];
+        if (isDefLink) {
+          inner += '<span class="via-name via-link">' + esc(hop.name) + '</span>';
+        } else {
+          inner += '<span class="via-name">' + esc(hop.name) + '</span>';
+        }
+        inner += ' <span class="via-rule">' + esc(hop.rule) + '</span>';
+      }
+      popup.innerHTML = inner;
+      document.body.appendChild(popup);
+      var rect = span.getBoundingClientRect();
+      popup.style.left = rect.left + 'px';
+      popup.style.top = (rect.bottom + 4) + 'px';
+      var pr = popup.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 8) {
+        popup.style.left = Math.max(8, window.innerWidth - pr.width - 8) + 'px';
+      }
+      viaPopup = popup;
+      viaTarget = span;
+    }
+    function hideViaPopup() {
+      if (viaPopup) { viaPopup.remove(); viaPopup = null; }
+      viaTarget = null;
+    }
+    document.addEventListener('mouseover', function(e) {
+      var span = e.target.closest && e.target.closest('.if-prop[data-via]');
+      if (span && explorerIface.contains(span)) {
+        if (span !== viaTarget) showViaPopup(span);
+      } else if (viaPopup) {
+        hideViaPopup();
+      }
     });
 
     // ── Mapping tab ───────────────────────────────────────────────────

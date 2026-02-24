@@ -18,7 +18,7 @@ ifneq ($(ASSEMBLY),base)
   PARTS_FLAG := --parts $(subst +,$(comma),$(ASSEMBLY))
 endif
 
-.PHONY: all schema types docs tarball clean
+.PHONY: all schema types docs tarball clean clean_xsd
 
 all: $(GEN)/$(ASSEMBLY)/netex-schema.html \
 	$(GEN)/$(ASSEMBLY)/docs/index.html
@@ -72,4 +72,6 @@ $(GEN)/$(TARBALL_NAME): $(GEN)/$(ASSEMBLY)/docs/index.html
 	rm -rf $(GEN)/$(TARBALL_PREFIX)
 
 clean:
-	rm -rf $(GEN) xsd json-schema/target
+	rm -rf $(GEN) json-schema/target
+clean_xsd:
+	rm -rf xsd

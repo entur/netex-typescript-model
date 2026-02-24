@@ -11,6 +11,7 @@ import {
   defRole,
   unwrapMixed,
   type Defs,
+  type ViaHop,
 } from "./schema-viewer-fns.js";
 
 const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
@@ -56,6 +57,7 @@ describe("integration with real schema", () => {
     // resolveDefType treats simpleObj as complex
     const result = resolveDefType(defs, "PrivateCodeStructure");
     expect(result.complex).toBe(true);
+    expect(result.via).toEqual([{ name: "PrivateCodeStructure", rule: "complex" }]);
   });
 
   it("flattenAllOf produces properties for a real type", () => {
@@ -66,15 +68,18 @@ describe("integration with real schema", () => {
 });
 
 describe("resolvePropertyType — real schema (Interface tab)", () => {
-  it("resolves a $ref property to its primitive", () => {
+  it("resolves a $ref property to its primitive with via chain", () => {
     // VersionOfObjectRefStructure.value → $ref ObjectIdType → string
     const schema = defs["VersionOfObjectRefStructure"]?.properties?.["value"];
     expect(schema).toBeDefined();
     const result = resolvePropertyType(defs, schema);
-    expect(result).toEqual({ ts: "string", complex: false });
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via!.length).toBeGreaterThanOrEqual(1);
+    expect(result.via![result.via!.length - 1].rule).toBe("primitive");
   });
 
-  it("resolves an allOf-wrapped $ref to an enum", () => {
+  it("resolves an allOf-wrapped $ref to an enum with via", () => {
     // VersionOfObjectRefStructure.modification → allOf[$ref ModificationEnumeration]
     const schema = defs["VersionOfObjectRefStructure"]?.properties?.["modification"];
     expect(schema).toBeDefined();
@@ -82,14 +87,18 @@ describe("resolvePropertyType — real schema (Interface tab)", () => {
     expect(result.complex).toBe(false);
     expect(result.ts).toContain('"new"');
     expect(result.ts).toContain("|");
+    expect(result.via![result.via!.length - 1].rule).toBe("enum");
   });
 
-  it("resolves an inline primitive with format", () => {
+  it("resolves an inline primitive with format (no via — inline schema)", () => {
     // VersionOfObjectRefStructure.created → { type: "string", format: "date-time" }
     const schema = defs["VersionOfObjectRefStructure"]?.properties?.["created"];
     expect(schema).toBeDefined();
     const result = resolvePropertyType(defs, schema);
-    expect(result).toEqual({ ts: "string /* date-time */", complex: false });
+    // Inline primitives go through classifySchema → "primitive" branch, no resolveDefType → no via
+    expect(result.ts).toBe("string /* date-time */");
+    expect(result.complex).toBe(false);
+    expect(result.via).toBeUndefined();
   });
 
   it("resolves an array of $ref items", () => {
@@ -100,12 +109,15 @@ describe("resolvePropertyType — real schema (Interface tab)", () => {
     expect(result.ts).toMatch(/\[\]$/);
   });
 
-  it("resolves an inline string property", () => {
+  it("resolves an inline string property (no via — inline schema)", () => {
     // PrivateCodeStructure.value → { type: "string" }
     const schema = defs["PrivateCodeStructure"]?.properties?.["value"];
     expect(schema).toBeDefined();
     const result = resolvePropertyType(defs, schema);
-    expect(result).toEqual({ ts: "string", complex: false });
+    // Inline primitives don't go through resolveDefType → no via
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via).toBeUndefined();
   });
 
   it("works end-to-end: flattenAllOf + resolvePropertyType + resolveAtom", () => {
@@ -204,7 +216,15 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     // keyList → KeyListStructure (single-prop, no role) → KeyValue: KeyValueStructure[] (simpleObj)
     expect(result.ts).toBe("KeyValueStructure[]");
     expect(result.complex).toBe(true);
-    expect(result.via).toEqual(["KeyListStructure"]);
+    // keyList def → allOf-passthrough → KeyListStructure → array-unwrap → KeyValueStructure (complex)
+    expect(result.via!.length).toBeGreaterThanOrEqual(2);
+    expect(result.via!.some((h) => h.name === "KeyListStructure" && h.rule === "array-unwrap")).toBe(
+      true,
+    );
+    expect(result.via![result.via!.length - 1]).toEqual({
+      name: "KeyValueStructure",
+      rule: "complex",
+    });
   });
 
   it("resolvePropertyType unwraps privateCodes to PrivateCodeStructure[] (simpleObj atom as [])", () => {
@@ -215,7 +235,15 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     // privateCodes → PrivateCodesStructure (single-prop, no role) → PrivateCode → PrivateCodeStructure (simpleObj)
     expect(result.ts).toBe("PrivateCodeStructure[]");
     expect(result.complex).toBe(true);
-    expect(result.via).toEqual(["PrivateCodesStructure"]);
+    // privateCodes → allOf-passthrough → PrivateCodesStructure → array-unwrap → PrivateCode → allOf-passthrough → PrivateCodeStructure (complex)
+    expect(result.via!.length).toBeGreaterThanOrEqual(2);
+    expect(
+      result.via!.some((h) => h.name === "PrivateCodesStructure" && h.rule === "array-unwrap"),
+    ).toBe(true);
+    expect(result.via![result.via!.length - 1]).toEqual({
+      name: "PrivateCodeStructure",
+      rule: "complex",
+    });
   });
 
   it("resolvePropertyType unpacks Extensions as non-complex object", () => {
@@ -226,7 +254,61 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     // Extensions → ExtensionsStructure (xsd:any wrapper — no properties, no role)
     expect(result.ts).toBe("any");
     expect(result.complex).toBe(false);
-    expect(result.via).toEqual(["ExtensionsStructure"]);
+    // Extensions → allOf-passthrough → ExtensionsStructure (empty-object)
+    expect(result.via!.length).toBeGreaterThanOrEqual(1);
+    expect(result.via![result.via!.length - 1]).toEqual({
+      name: "ExtensionsStructure",
+      rule: "empty-object",
+    });
+  });
+});
+
+describe("resolvePropertyType — uncovered shape kinds", () => {
+  it("direct $ref (not allOf-wrapped): OrderedVersionOfObjectRefStructure.value", () => {
+    const schema = defs["OrderedVersionOfObjectRefStructure"]?.properties?.["value"];
+    expect(schema).toBeDefined();
+    expect(schema.$ref).toBeDefined(); // confirm direct $ref, not allOf
+    const result = resolvePropertyType(defs, schema);
+    expect(result.complex).toBe(true);
+    expect(result.ts).toBe("VersionOfObjectRefStructure");
+    expect(result.via).toEqual([{ name: "VersionOfObjectRefStructure", rule: "complex" }]);
+  });
+
+  it("integer primitive: OrderedVersionOfObjectRefStructure.order", () => {
+    const schema = defs["OrderedVersionOfObjectRefStructure"]?.properties?.["order"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result).toEqual({ ts: "integer", complex: false });
+  });
+
+  it("number primitive: MeasureType.value", () => {
+    const schema = defs["MeasureType"]?.properties?.["value"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result).toEqual({ ts: "number", complex: false });
+  });
+
+  it("anyOf union def: NilReasonType resolves to union", () => {
+    const result = resolveDefType(defs, "NilReasonType");
+    expect(result.complex).toBe(false);
+    expect(result.ts).toContain("|");
+  });
+
+  it("anyOf union as property: MeasureType.uom → UomIdentifier", () => {
+    const schema = defs["MeasureType"]?.properties?.["uom"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result.complex).toBe(false);
+    expect(result.ts).toContain("|");
+  });
+
+  it("inline array (no $ref items): CapabilityRequestPolicyStructure.NationalLanguage", () => {
+    const schema =
+      defs["CapabilityRequestPolicyStructure"]?.properties?.["NationalLanguage"];
+    expect(schema).toBeDefined();
+    const result = resolvePropertyType(defs, schema);
+    expect(result.ts).toBe("string[]");
+    expect(result.complex).toBe(false);
   });
 });
 
@@ -308,6 +390,119 @@ describe("findTransitiveEntityUsers — real schema", () => {
   });
 });
 
+describe("resolveDefType — $ref alias and allOf chains", () => {
+  // VT prop: id (EntityStructure), also VersionOfObjectRefStructure.value/.ref
+  it("ObjectIdType resolves to string primitive", () => {
+    const result = resolveDefType(defs, "ObjectIdType");
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via!.length).toBeGreaterThanOrEqual(1);
+    expect(result.via![0].name).toBe("ObjectIdType");
+    expect(result.via![result.via!.length - 1].rule).toBe("primitive");
+  });
+
+  // VT prop: version (EntityInVersionStructure), also VersionOfObjectRefStructure.version/.versionRef
+  it("VersionIdType → ObjectIdType → string (multi-hop alias chain)", () => {
+    const result = resolveDefType(defs, "VersionIdType");
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via!.length).toBeGreaterThanOrEqual(2);
+    expect(result.via![0].name).toBe("VersionIdType");
+    expect(result.via![result.via!.length - 1].rule).toBe("primitive");
+  });
+
+  // VT prop: nameOfClass (EntityStructure), also VersionOfObjectRefStructure.nameOfRefClass
+  it("alias to enum: NameOfClass → string enum with pipe-separated literals", () => {
+    const result = resolveDefType(defs, "NameOfClass");
+    expect(result.complex).toBe(false);
+    expect(result.ts).toContain("|");
+    expect(result.ts).toContain('"VehicleType"');
+    // Chain ends at an enum terminal
+    expect(result.via!.length).toBeGreaterThanOrEqual(1);
+    expect(result.via![result.via!.length - 1].rule).toBe("enum");
+  });
+
+  // VT prop: modification (EntityInVersionStructure), also VersionOfObjectRefStructure.modification
+  it("direct enum: ModificationEnumeration → pipe-separated string literals", () => {
+    const result = resolveDefType(defs, "ModificationEnumeration");
+    expect(result.complex).toBe(false);
+    expect(result.ts).toContain('"new"');
+    expect(result.ts).toContain('"delete"');
+    expect(result.ts).toContain("|");
+    expect(result.via).toEqual([{ name: "ModificationEnumeration", rule: "enum" }]);
+  });
+
+  // Standalone schema type — not a VT prop
+  it("1-hop alias to complex simpleObj: DataSourceRefStructure → VersionOfObjectRefStructure", () => {
+    const result = resolveDefType(defs, "DataSourceRefStructure");
+    expect(result.complex).toBe(true);
+    expect(result.ts).toBe("VersionOfObjectRefStructure");
+    // Chain: allOf-passthrough hops until terminal complex
+    expect(result.via!.length).toBeGreaterThanOrEqual(2);
+    expect(result.via![0].name).toBe("DataSourceRefStructure");
+    expect(result.via![result.via!.length - 1]).toEqual({
+      name: "VersionOfObjectRefStructure",
+      rule: "complex",
+    });
+  });
+
+  // Standalone schema type — not a VT prop
+  it("2-hop alias to complex simpleObj: TypeOfFrameRefStructure → VersionOfObjectRefStructure", () => {
+    const result = resolveDefType(defs, "TypeOfFrameRefStructure");
+    expect(result.complex).toBe(true);
+    expect(result.ts).toBe("VersionOfObjectRefStructure");
+    expect(result.via!.length).toBeGreaterThanOrEqual(3);
+    expect(result.via![0].name).toBe("TypeOfFrameRefStructure");
+    expect(result.via![result.via!.length - 1]).toEqual({
+      name: "VersionOfObjectRefStructure",
+      rule: "complex",
+    });
+  });
+
+  // Standalone schema type — not a VT prop (framework ref with own props)
+  it("allOf-extending stays complex: ClassInFrameRefStructure (has own props)", () => {
+    const result = resolveDefType(defs, "ClassInFrameRefStructure");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual([{ name: "ClassInFrameRefStructure", rule: "complex" }]);
+  });
+
+  // VT prop: BrandingRef (DataManagedObjectStructure)
+  it("allOf wrapper follows through: BrandingRef → VersionOfObjectRefStructure", () => {
+    const result = resolveDefType(defs, "BrandingRef");
+    expect(result.complex).toBe(true);
+    expect(result.ts).toBe("VersionOfObjectRefStructure");
+    expect(result.via!.length).toBeGreaterThanOrEqual(2);
+    expect(result.via![0].name).toBe("BrandingRef");
+    expect(result.via![result.via!.length - 1]).toEqual({
+      name: "VersionOfObjectRefStructure",
+      rule: "complex",
+    });
+  });
+
+  // Standalone schema type — not a VT prop (deep ref chain)
+  it("multi-hop via GroupOfEntities chain: GeneralGroupOfEntitiesRefStructure → complex", () => {
+    const result = resolveDefType(defs, "GeneralGroupOfEntitiesRefStructure");
+    expect(result.complex).toBe(true);
+    expect(result.via!.length).toBeGreaterThanOrEqual(2);
+    expect(result.via![0].name).toBe("GeneralGroupOfEntitiesRefStructure");
+    expect(result.via![result.via!.length - 1].rule).toBe("complex");
+  });
+
+  // Standalone SIRI type — not a VT prop (x-netex-atom: "string", collapses via withVia)
+  it("single-prop atom collapses to primitive: ParticipantRefStructure → string", () => {
+    const result = resolveDefType(defs, "ParticipantRefStructure");
+    expect(result.complex).toBe(false);
+    expect(result.ts).toBe("string");
+    expect(result.via).toEqual([{ name: "ParticipantRefStructure", rule: "atom-collapse" }]);
+  });
+});
+
+describe("defRole — edge cases", () => {
+  it("GroupOfEntitiesRefStructure_Dummy is unclassified (no role annotation, no suffix match)", () => {
+    expect(defRole(defs["GroupOfEntitiesRefStructure_Dummy"])).toBe("unclassified");
+  });
+});
+
 // NOTE: This test validates an annotation set by xsd-to-jsonschema.js (the Java DOM
 // converter). It lives here because integration tests already load the generated schema,
 // but it may move to a json-schema/ test suite in the future.
@@ -328,7 +523,7 @@ describe("x-netex-mixed annotation", () => {
     const result = resolveDefType(defs, "MultilingualString");
     expect(result.ts).toBe("TextType[]");
     expect(result.complex).toBe(true);
-    expect(result.via).toEqual(["MultilingualString"]);
+    expect(result.via).toEqual([{ name: "MultilingualString", rule: "mixed-unwrap" }]);
   });
 
   it("resolvePropertyType shows TextType[] for a MultilingualString property", () => {
@@ -337,6 +532,9 @@ describe("x-netex-mixed annotation", () => {
     const name = props.find((p) => p.prop[0] === "Name");
     if (!name) return; // skip if not present
     const result = resolvePropertyType(defs, name.schema);
-    expect(result).toEqual({ ts: "TextType[]", complex: true });
+    expect(result.ts).toBe("TextType[]");
+    expect(result.complex).toBe(true);
+    // via comes from resolveDefType on MultilingualString (mixed-unwrap)
+    expect(result.via).toEqual([{ name: "MultilingualString", rule: "mixed-unwrap" }]);
   });
 });
