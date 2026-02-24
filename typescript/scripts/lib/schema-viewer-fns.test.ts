@@ -218,12 +218,26 @@ describe("resolveDefType", () => {
     });
   });
 
-  it("resolves enum to union", () => {
+  it("resolves unstamped enum to literal union", () => {
     const defs: Defs = { E: { enum: ["a", "b", "c"] } };
     const result = resolveDefType(defs, "E");
     expect(result.complex).toBe(false);
     expect(result.ts).toBe('"a" | "b" | "c"');
     expect(result.via).toEqual([{ name: "E", rule: "enum" }]);
+  });
+
+  it("resolves stamped enumeration to its name", () => {
+    const defs: Defs = {
+      ModeEnumeration: {
+        type: "string",
+        enum: ["bus", "tram", "rail"],
+        "x-netex-role": "enumeration",
+      },
+    };
+    const result = resolveDefType(defs, "ModeEnumeration");
+    expect(result.ts).toBe("ModeEnumeration");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([{ name: "ModeEnumeration", rule: "enum" }]);
   });
 
   it("returns complex for object with properties", () => {
@@ -418,6 +432,65 @@ describe("resolveDefType", () => {
     expect(result.via).toEqual([
       { name: "ListWrap", rule: "array-unwrap" },
       { name: "AtomItem", rule: "atom-collapse" },
+    ]);
+  });
+
+  it("resolves x-netex-atom:array with ref items to EnumName[]", () => {
+    const defs: Defs = {
+      AccessFacilityListOfEnumerations: {
+        type: "array",
+        items: { $ref: "#/definitions/AccessFacilityEnumeration" },
+        "x-netex-atom": "array",
+      },
+      AccessFacilityEnumeration: {
+        type: "string",
+        enum: ["unknown", "lift", "wheelchairLift"],
+        "x-netex-role": "enumeration",
+      },
+    };
+    const result = resolveDefType(defs, "AccessFacilityListOfEnumerations");
+    expect(result.ts).toBe("AccessFacilityEnumeration[]");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([
+      { name: "AccessFacilityListOfEnumerations", rule: "array-of" },
+      { name: "AccessFacilityEnumeration", rule: "enum" },
+    ]);
+  });
+
+  it("resolves x-netex-atom:array with ref items to complex type[]", () => {
+    const defs: Defs = {
+      ThingList: {
+        type: "array",
+        items: { $ref: "#/definitions/ThingStructure" },
+        "x-netex-atom": "array",
+      },
+      ThingStructure: {
+        type: "object",
+        properties: { name: { type: "string" } },
+      },
+    };
+    const result = resolveDefType(defs, "ThingList");
+    expect(result.ts).toBe("ThingStructure[]");
+    expect(result.complex).toBe(true);
+    expect(result.via).toEqual([
+      { name: "ThingList", rule: "array-of" },
+      { name: "ThingStructure", rule: "complex" },
+    ]);
+  });
+
+  it("resolves x-netex-atom:array with inline primitive items", () => {
+    const defs: Defs = {
+      LanguageListOfEnumerations: {
+        type: "array",
+        items: { type: "string" },
+        "x-netex-atom": "array",
+      },
+    };
+    const result = resolveDefType(defs, "LanguageListOfEnumerations");
+    expect(result.ts).toBe("string[]");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([
+      { name: "LanguageListOfEnumerations", rule: "array-of" },
     ]);
   });
 });

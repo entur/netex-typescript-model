@@ -42,6 +42,7 @@ export interface ViaHop {
     | "atom-collapse"
     | "mixed-unwrap"
     | "array-unwrap"
+    | "array-of"
     | "empty-object"
     | "enum"
     | "primitive"
@@ -303,13 +304,16 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
     }
   }
 
-  // Enum
-  if (def.enum)
+  // Enum — stamped enumerations stop at the name; unstamped expand to literal union
+  if (def.enum) {
+    if (def["x-netex-role"] === "enumeration")
+      return { ts: name, complex: false, via: [{ name, rule: "enum" }] };
     return {
       ts: def.enum.map((v: unknown) => JSON.stringify(v)).join(" | "),
       complex: false,
       via: [{ name, rule: "enum" }],
     };
+  }
 
   // anyOf union — branches diverge, no single linear chain
   if (def.anyOf) {
@@ -329,16 +333,30 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
     };
   }
 
+  // Check x-netex-atom annotation — stamps take precedence over structural inference
+  const atom = def["x-netex-atom"];
+  if (atom === "array" && def.type === "array" && def.items) {
+    const itemShape = classifySchema(def.items);
+    if (itemShape.kind === "ref") {
+      const inner = resolveDefType(defs, itemShape.target, new Set(visited));
+      return withHop(
+        { ts: inner.ts + "[]", complex: inner.complex, via: inner.via },
+        name,
+        "array-of",
+      );
+    }
+    const itemType = itemShape.kind === "primitive" ? itemShape.type : "any";
+    return { ts: itemType + "[]", complex: false, via: [{ name, rule: "array-of" }] };
+  }
+  // Single-prop simpleContent wrappers collapse to primitive
+  if (typeof atom === "string" && atom !== "simpleObj" && atom !== "array")
+    return { ts: atom, complex: false, via: [{ name, rule: "atom-collapse" }] };
+
   // Primitive (no properties)
   if (def.type && !def.properties && typeof def.type === "string" && def.type !== "object") {
     const fmt = def.format ? " /* " + def.format + " */" : "";
     return { ts: def.type + fmt, complex: false, via: [{ name, rule: "primitive" }] };
   }
-
-  // Check x-netex-atom annotation — single-prop simpleContent wrappers collapse to primitive
-  const atom = def["x-netex-atom"];
-  if (typeof atom === "string" && atom !== "simpleObj")
-    return { ts: atom, complex: false, via: [{ name, rule: "atom-collapse" }] };
 
   // Mixed-content wrapper — resolve as the inner element type array
   const mixedTarget = unwrapMixed(defs, name);

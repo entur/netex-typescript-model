@@ -79,14 +79,13 @@ describe("resolvePropertyType — real schema (Interface tab)", () => {
     expect(result.via![result.via!.length - 1].rule).toBe("primitive");
   });
 
-  it("resolves an allOf-wrapped $ref to an enum with via", () => {
+  it("resolves an allOf-wrapped $ref to a stamped enum name with via", () => {
     // VersionOfObjectRefStructure.modification → allOf[$ref ModificationEnumeration]
     const schema = defs["VersionOfObjectRefStructure"]?.properties?.["modification"];
     expect(schema).toBeDefined();
     const result = resolvePropertyType(defs, schema);
     expect(result.complex).toBe(false);
-    expect(result.ts).toContain('"new"');
-    expect(result.ts).toContain("|");
+    expect(result.ts).toBe("ModificationEnumeration");
     expect(result.via![result.via!.length - 1].rule).toBe("enum");
   });
 
@@ -172,14 +171,14 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     if (atom) expect(typeof atom).toBe("string");
   });
 
-  it("resolvePropertyType resolves enum from inherited TransportMode", () => {
+  it("resolvePropertyType resolves enum from inherited TransportMode to enum name", () => {
     const props = flattenAllOf(defs, "VehicleType");
     const mode = props.find((p) => p.prop[1] === "transportMode");
     expect(mode).toBeDefined();
     const result = resolvePropertyType(defs, mode!.schema);
-    // AllPublicTransportModesEnumeration is an enum — should contain pipe-separated literals
     expect(result.complex).toBe(false);
-    expect(result.ts).toContain("|");
+    expect(result.ts).toBe("AllPublicTransportModesEnumeration");
+    expect(result.via![result.via!.length - 1].rule).toBe("enum");
   });
 
   it("resolvePropertyType resolves array from deep-inherited ValidBetween", () => {
@@ -244,6 +243,49 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
       name: "PrivateCodeStructure",
       rule: "complex",
     });
+  });
+
+  it("complex props: most resolve to shallow types, few have further complexity", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const complexProps: { name: string; ts: string }[] = [];
+    const furtherComplexity: { name: string; ts: string; deepComplex: string[] }[] = [];
+
+    for (const p of props) {
+      const resolved = resolvePropertyType(defs, p.schema);
+      if (!resolved.complex) continue;
+
+      const typeName = resolved.ts.endsWith("[]") ? resolved.ts.slice(0, -2) : resolved.ts;
+      complexProps.push({ name: p.prop[0], ts: resolved.ts });
+
+      // Resolve one level deeper — are this type's own props all non-complex?
+      const innerProps = flattenAllOf(defs, typeName);
+      const deepComplex: string[] = [];
+      for (const ip of innerProps) {
+        const innerResolved = resolvePropertyType(defs, ip.schema);
+        if (innerResolved.complex) deepComplex.push(ip.prop[0]);
+      }
+      if (deepComplex.length > 0) {
+        furtherComplexity.push({ name: p.prop[0], ts: resolved.ts, deepComplex });
+      }
+    }
+
+    // VehicleType has 19 complex props: 10 shallow, 9 with further complexity.
+    //
+    // Shallow (all inner props resolve to primitives/enums/arrays):
+    //   keyList, privateCodes, BrandingRef, Name, ShortName, Description,
+    //   PrivateCode, DeckPlanRef, IncludedIn, ClassifiedAsRef
+    //
+    // Further complexity (inner props that are themselves complex):
+    //   alternativeTexts, validityConditions, ValidBetween, PassengerCapacity,
+    //   facilities, capacities, canCarry, canManoeuvre, satisfiesFacilityRequirements
+    //
+    // These are _RelStructure collections and deep entity structures whose inner
+    // types reference further entities/structures — inherent domain complexity.
+    expect(complexProps.length).toBeGreaterThan(3);
+    const shallowCount = complexProps.length - furtherComplexity.length;
+    expect(shallowCount).toBeGreaterThan(0);
+    // Pin: resolution improvements should decrease this, regressions increase it
+    expect(furtherComplexity.length).toBe(9);
   });
 
   it("resolvePropertyType unpacks Extensions as non-complex object", () => {
@@ -412,23 +454,18 @@ describe("resolveDefType — $ref alias and allOf chains", () => {
   });
 
   // VT prop: nameOfClass (EntityStructure), also VersionOfObjectRefStructure.nameOfRefClass
-  it("alias to enum: NameOfClass → string enum with pipe-separated literals", () => {
+  it("alias to enum: NameOfClass stops at enum name", () => {
     const result = resolveDefType(defs, "NameOfClass");
     expect(result.complex).toBe(false);
-    expect(result.ts).toContain("|");
-    expect(result.ts).toContain('"VehicleType"');
-    // Chain ends at an enum terminal
-    expect(result.via!.length).toBeGreaterThanOrEqual(1);
-    expect(result.via![result.via!.length - 1].rule).toBe("enum");
+    expect(result.ts).toBe("NameOfClass");
+    expect(result.via).toEqual([{ name: "NameOfClass", rule: "enum" }]);
   });
 
   // VT prop: modification (EntityInVersionStructure), also VersionOfObjectRefStructure.modification
-  it("direct enum: ModificationEnumeration → pipe-separated string literals", () => {
+  it("direct enum: ModificationEnumeration stops at enum name", () => {
     const result = resolveDefType(defs, "ModificationEnumeration");
     expect(result.complex).toBe(false);
-    expect(result.ts).toContain('"new"');
-    expect(result.ts).toContain('"delete"');
-    expect(result.ts).toContain("|");
+    expect(result.ts).toBe("ModificationEnumeration");
     expect(result.via).toEqual([{ name: "ModificationEnumeration", rule: "enum" }]);
   });
 
@@ -494,6 +531,57 @@ describe("resolveDefType — $ref alias and allOf chains", () => {
     expect(result.complex).toBe(false);
     expect(result.ts).toBe("string");
     expect(result.via).toEqual([{ name: "ParticipantRefStructure", rule: "atom-collapse" }]);
+  });
+});
+
+describe("x-netex-atom:array — ListOfEnumerations", () => {
+  it("all xsd:list types carry the x-netex-atom:array stamp", () => {
+    const arrays = Object.entries(defs).filter(
+      ([, d]) => (d as Record<string, unknown>).type === "array",
+    );
+    expect(arrays.length).toBeGreaterThan(0);
+    for (const [name, d] of arrays) {
+      expect((d as Record<string, unknown>)["x-netex-atom"]).toBe("array");
+    }
+  });
+
+  it("resolveDefType: ref-to-enum resolves to EnumName[]", () => {
+    const result = resolveDefType(defs, "PropulsionTypeListOfEnumerations");
+    expect(result.ts).toBe("PropulsionTypeEnumeration[]");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([
+      { name: "PropulsionTypeListOfEnumerations", rule: "array-of" },
+      { name: "PropulsionTypeEnumeration", rule: "enum" },
+    ]);
+  });
+
+  it("resolveDefType: inline primitive items resolve to string[]", () => {
+    const result = resolveDefType(defs, "LanguageListOfEnumerations");
+    expect(result.ts).toBe("string[]");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([
+      { name: "LanguageListOfEnumerations", rule: "array-of" },
+    ]);
+  });
+
+  it("resolvePropertyType: VehicleType.PropulsionTypes → PropulsionTypeEnumeration[]", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const pt = props.find((p) => p.prop[0] === "PropulsionTypes");
+    expect(pt).toBeDefined();
+    const result = resolvePropertyType(defs, pt!.schema);
+    expect(result.ts).toBe("PropulsionTypeEnumeration[]");
+    expect(result.complex).toBe(false);
+    expect(result.via![result.via!.length - 1].rule).toBe("enum");
+  });
+
+  it("resolvePropertyType: VehicleType.FuelTypes → FuelTypeEnumeration[]", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const ft = props.find((p) => p.prop[0] === "FuelTypes");
+    expect(ft).toBeDefined();
+    const result = resolvePropertyType(defs, ft!.schema);
+    expect(result.ts).toBe("FuelTypeEnumeration[]");
+    expect(result.complex).toBe(false);
+    expect(result.via![result.via!.length - 1].rule).toBe("enum");
   });
 });
 
