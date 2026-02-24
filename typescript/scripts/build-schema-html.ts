@@ -152,7 +152,12 @@ function buildViewerFnsScript(): string {
         findTransitiveEntityUsers: findTransitiveEntityUsers,
         defRole: defRole,
         defaultForType: defaultForType,
-        lcFirst: lcFirst
+        lcFirst: lcFirst,
+        buildInheritanceChain: buildInheritanceChain,
+        renderGraphSvg: renderGraphSvg,
+        renderInterfaceHtml: renderInterfaceHtml,
+        renderMappingHtml: renderMappingHtml,
+        renderUtilsHtml: renderUtilsHtml
       };
     })();
 
@@ -168,6 +173,7 @@ function buildViewerFnsScript(): string {
     function defaultForType(t) { return _fns.defaultForType(t); }
 
     function defRole(name) { return _fns.defRole(defs[name]); }
+    function buildInheritanceChain(n) { return _fns.buildInheritanceChain(defs, n); }
     var _reverseIdx = null;
     function buildReverseIndex() {
       if (!_reverseIdx) _reverseIdx = _fns.buildReverseIndex(defs);
@@ -1064,128 +1070,16 @@ ${sections}
 
     // ── Graph tab ────────────────────────────────────────────────────────
 
-    function buildInheritanceChain(defsMap, name) {
-      const chain = [];
-      const visited = new Set();
-      function walk(n) {
-        if (visited.has(n)) return;
-        visited.add(n);
-        const def = defsMap[n];
-        if (!def) return;
-        if (def.$ref) { walk(def.$ref.replace('#/definitions/', '')); return; }
-        let parent = null;
-        const ownProps = [];
-        if (def.allOf) {
-          for (const entry of def.allOf) {
-            if (entry.$ref) parent = entry.$ref.replace('#/definitions/', '');
-            else if (entry.properties) {
-              for (const [k, v] of Object.entries(entry.properties)) ownProps.push({ name: k, schema: v });
-            }
-          }
-        }
-        if (def.properties) {
-          for (const [k, v] of Object.entries(def.properties)) {
-            if (!ownProps.some(p => p.name === k)) ownProps.push({ name: k, schema: v });
-          }
-        }
-        if (parent) walk(parent);
-        chain.push({ name: n, ownProps });
-      }
-      walk(name);
-      return chain;
-    }
-
     function renderGraph(name) {
-      const chain = buildInheritanceChain(defs, name);
-      if (chain.length === 0) {
-        graphContainer.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;padding:0.5rem;">No inheritance chain.</p>';
-        return;
-      }
-
-      const NODE_W = 200, NODE_H = 38, NODE_RX = 6;
-      const GAP_Y = 28;
-      const COMP_W = 130, COMP_H = 24, COMP_GAP_X = 28, COMP_GAP_Y = 4;
-      const PAD = 14;
-      const MAX_COMPS = 6;
-
-      const rows = [];
-      let totalH = PAD;
-      let maxW = PAD + NODE_W + PAD;
-
-      for (const node of chain) {
-        const refs = node.ownProps
-          .filter(p => isRefType(p.schema))
-          .slice(0, MAX_COMPS)
-          .map(p => ({ name: p.name, target: refTarget(p.schema), type: resolveType(p.schema) }));
-        const compBlockH = refs.length > 0 ? refs.length * (COMP_H + COMP_GAP_Y) - COMP_GAP_Y : 0;
-        const rowH = Math.max(NODE_H, compBlockH);
-        rows.push({ ...node, refs, y: totalH + rowH / 2, rowH, compBlockH });
-        totalH += rowH + GAP_Y;
-        if (refs.length > 0) maxW = Math.max(maxW, PAD + NODE_W + COMP_GAP_X + COMP_W + PAD);
-      }
-      totalH = totalH - GAP_Y + PAD;
-
-      const cs = getComputedStyle(document.documentElement);
-      const accent = cs.getPropertyValue('--accent').trim();
-      const fg = cs.getPropertyValue('--fg').trim();
-      const muted = cs.getPropertyValue('--muted').trim();
-      const cardBg = cs.getPropertyValue('--card-bg').trim();
-      const cardBorder = cs.getPropertyValue('--card-border').trim();
-
-      let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + maxW + '" height="' + totalH + '">';
-      svg += '<defs><marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">';
-      svg += '<path d="M0,0 L10,3 L0,6 Z" fill="' + muted + '"/></marker></defs>';
-
-      // Inheritance edges
-      for (let i = 0; i < rows.length - 1; i++) {
-        const x = PAD + NODE_W / 2;
-        svg += '<line x1="' + x + '" y1="' + (rows[i].y + NODE_H / 2) + '" x2="' + x + '" y2="' + (rows[i + 1].y - NODE_H / 2) + '" stroke="' + muted + '" stroke-width="1.5" marker-end="url(#arrow)"/>';
-      }
-
-      // Composition edges
-      for (const row of rows) {
-        if (row.refs.length === 0) continue;
-        const sx = PAD + NODE_W;
-        const compStartY = row.y - row.compBlockH / 2;
-        for (let j = 0; j < row.refs.length; j++) {
-          const cy = compStartY + j * (COMP_H + COMP_GAP_Y) + COMP_H / 2;
-          svg += '<line x1="' + sx + '" y1="' + row.y + '" x2="' + (PAD + NODE_W + COMP_GAP_X) + '" y2="' + cy + '" stroke="' + cardBorder + '" stroke-width="1" stroke-dasharray="4,3"/>';
-        }
-      }
-
-      // Chain nodes
-      for (const row of rows) {
-        const isTarget = row.name === name;
-        const fill = isTarget ? accent : cardBg;
-        const textFill = isTarget ? '#fff' : fg;
-        const stroke = isTarget ? accent : cardBorder;
-        const ny = row.y - NODE_H / 2;
-        const label = row.name.length > 26 ? row.name.slice(0, 24) + '\u2026' : row.name;
-
-        svg += '<g class="graph-node" data-def="' + esc(row.name) + '">';
-        svg += '<title>' + esc(row.name) + ' (' + row.ownProps.length + ' properties)</title>';
-        svg += '<rect x="' + PAD + '" y="' + ny + '" width="' + NODE_W + '" height="' + NODE_H + '" rx="' + NODE_RX + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>';
-        svg += '<text x="' + (PAD + NODE_W / 2) + '" y="' + (row.y + 1) + '" text-anchor="middle" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="600" fill="' + textFill + '">' + esc(label) + '</text>';
-        svg += '<text x="' + (PAD + NODE_W - 8) + '" y="' + (ny + 12) + '" text-anchor="end" font-family="system-ui,sans-serif" font-size="9" fill="' + (isTarget ? 'rgba(255,255,255,0.7)' : muted) + '">' + row.ownProps.length + 'p</text>';
-        svg += '</g>';
-
-        // Composition nodes
-        const compStartY = row.y - row.compBlockH / 2;
-        for (let j = 0; j < row.refs.length; j++) {
-          const ref = row.refs[j];
-          const cy = compStartY + j * (COMP_H + COMP_GAP_Y);
-          const clabel = ref.name.length > 16 ? ref.name.slice(0, 14) + '\u2026' : ref.name;
-          const hasDef = ref.target && defs[ref.target];
-          svg += '<g' + (hasDef ? ' class="graph-node" data-def="' + esc(ref.target) + '"' : '') + '>';
-          svg += '<title>' + esc(ref.name) + ': ' + esc(ref.type) + '</title>';
-          svg += '<rect x="' + (PAD + NODE_W + COMP_GAP_X) + '" y="' + cy + '" width="' + COMP_W + '" height="' + COMP_H + '" rx="4" fill="' + cardBg + '" stroke="' + cardBorder + '" stroke-width="1" stroke-dasharray="3,2"/>';
-          svg += '<text x="' + (PAD + NODE_W + COMP_GAP_X + 6) + '" y="' + (cy + COMP_H / 2 + 1) + '" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="10" fill="' + muted + '">' + esc(clabel) + '</text>';
-          svg += '</g>';
-        }
-      }
-
-      svg += '</svg>';
-      graphContainer.innerHTML = svg;
+      var cs = getComputedStyle(document.documentElement);
+      var colors = {
+        accent: cs.getPropertyValue('--accent').trim(),
+        fg: cs.getPropertyValue('--fg').trim(),
+        muted: cs.getPropertyValue('--muted').trim(),
+        cardBg: cs.getPropertyValue('--card-bg').trim(),
+        cardBorder: cs.getPropertyValue('--card-border').trim()
+      };
+      graphContainer.innerHTML = _fns.renderGraphSvg(defs, name, colors, esc);
     }
 
     // ── Interface tab ─────────────────────────────────────────────────
@@ -1193,60 +1087,7 @@ ${sections}
     const explorerIface = document.getElementById('explorerIface');
 
     function renderInterface(name) {
-      const props = flattenAllOf(defs, name);
-      const origins = [...new Set(props.map(p => p.origin))];
-
-      let lines = [];
-      lines.push('<span class="if-cmt">/**');
-      lines.push(' * Suggested flat interface for ' + esc(name));
-      lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
-      lines.push(' */</span>');
-      lines.push('<span class="if-kw">interface</span> My_' + esc(name) + ' {');
-
-      let lastOrigin = null;
-      for (const p of props) {
-        if (p.origin !== lastOrigin) {
-          if (lastOrigin !== null) lines.push('');
-          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
-          lastOrigin = p.origin;
-        }
-        const resolved = resolvePropertyType(p.schema);
-        let typeHtml;
-        if (resolved.complex) {
-          const typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          const suffix = resolved.ts.endsWith('[]') ? '[]' : '';
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-          var atom = resolveAtom(typeName);
-          if (atom && atom !== 'simpleObj') typeHtml += ' <span class="if-cmt">// \\u2192 ' + esc(atom) + '</span>';
-        } else if (resolved.ts.includes('|')) {
-          // Literal union or multi-type
-          const parts = resolved.ts.split(' | ');
-          typeHtml = parts.map(part => {
-            part = part.trim();
-            if (part.startsWith('"') || part.startsWith("'")) return '<span class="if-lit">' + esc(part) + '</span>';
-            return '<span class="if-prim">' + esc(part) + '</span>';
-          }).join(' | ');
-        } else if (resolved.ts.indexOf('/*') !== -1) {
-          // Primitive with format comment
-          const ci = resolved.ts.indexOf(' /*');
-          if (ci !== -1) typeHtml = '<span class="if-prim">' + esc(resolved.ts.slice(0, ci)) + '</span><span class="if-cmt">' + esc(resolved.ts.slice(ci)) + '</span>';
-          else typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        } else {
-          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        }
-        var viaAttr = '';
-        if (resolved.via && resolved.via.length > 0) {
-          viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
-        }
-        lines.push('  <span class="if-prop"' + viaAttr + '>' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
-      }
-
-      lines.push('}');
-
-      let html = '<div class="interface-block">' + lines.join('\\n');
-      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
-
-      explorerIface.innerHTML = html;
+      explorerIface.innerHTML = _fns.renderInterfaceHtml(defs, name, esc);
     }
 
     // Copy handler
@@ -1317,55 +1158,7 @@ ${sections}
     const explorerMapping = document.getElementById('explorerMapping');
 
     function renderMappingGuide(name) {
-      var props = flattenAllOf(defs, name);
-      var myName = 'My_' + name;
-
-      var html = '';
-      html += '<div class="mapping-section">';
-      html += '<p style="color:var(--muted);font-size:0.85rem;margin:0 0 1rem 0;">';
-      html += 'The generated <code>' + esc(name) + '</code> uses intersection types from the NeTEx inheritance chain. ';
-      html += 'The flat <code>' + esc(myName) + '</code> from the Interface tab is simpler to work with. ';
-      html += 'These functions convert between them.</p>';
-
-      // ── To generated type ──
-      html += '<h3>' + esc(myName) + ' \\u2192 ' + esc(name) + '</h3>';
-      html += '<div class="interface-block">';
-      var toLines = [];
-      toLines.push('<span class="if-kw">function</span> toGenerated(src: <span class="if-ref">' + esc(myName) + '</span>): <span class="if-ref">' + esc(name) + '</span> {');
-      toLines.push('  <span class="if-cmt">// The generated type is an intersection (allOf),</span>');
-      toLines.push('  <span class="if-cmt">// but at runtime it\\u2019s just a plain object with the same keys.</span>');
-      toLines.push('  <span class="if-kw">return</span> src <span class="if-kw">as unknown as</span> <span class="if-ref">' + esc(name) + '</span>;');
-      toLines.push('}');
-      html += toLines.join('\\n');
-      html += '<button class="copy-btn">Copy</button></div>';
-
-      // ── From generated type ──
-      html += '<h3>' + esc(name) + ' \\u2192 ' + esc(myName) + '</h3>';
-      html += '<div class="interface-block">';
-      var fromLines = [];
-      fromLines.push('<span class="if-kw">function</span> fromGenerated(src: <span class="if-ref">' + esc(name) + '</span>): <span class="if-ref">' + esc(myName) + '</span> {');
-      fromLines.push('  <span class="if-kw">return</span> {');
-      for (var i = 0; i < props.length; i++) {
-        var p = props[i];
-        var resolved = resolvePropertyType(p.schema);
-        var atom = null;
-        if (resolved.complex) {
-          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          atom = resolveAtom(typeName);
-        }
-        if (atom && atom !== 'simpleObj') {
-          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \\u2192 ' + esc(atom) + '</span>');
-        } else {
-          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + ',');
-        }
-      }
-      fromLines.push('  };');
-      fromLines.push('}');
-      html += fromLines.join('\\n');
-      html += '<button class="copy-btn">Copy</button></div>';
-
-      html += '</div>';
-      explorerMapping.innerHTML = html;
+      explorerMapping.innerHTML = _fns.renderMappingHtml(defs, name, esc);
     }
 
     // Copy handler for mapping tab
@@ -1386,117 +1179,7 @@ ${sections}
     const explorerUtils = document.getElementById('explorerUtils');
 
     function renderUtils(name) {
-      var props = flattenAllOf(defs, name);
-      var required = collectRequired(defs, name);
-      var rev = buildReverseIndex();
-
-      var html = '';
-
-      // ── Type Guard ──
-      html += '<div class="mapping-section"><h3>Type Guard</h3>';
-      html += '<div class="interface-block">';
-      var lines = [];
-      lines.push('<span class="if-kw">function</span> is' + esc(name) + '(o: <span class="if-prim">unknown</span>): o <span class="if-kw">is</span> <span class="if-ref">' + esc(name) + '</span> {');
-      lines.push('  <span class="if-kw">if</span> (!o || <span class="if-kw">typeof</span> o !== <span class="if-lit">"object"</span>) <span class="if-kw">return false</span>;');
-      lines.push('  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;');
-      for (var i = 0; i < props.length; i++) {
-        var p = props[i];
-        var resolved = resolvePropertyType(p.schema);
-        var check = '';
-        if (resolved.ts.endsWith('[]')) {
-          check = '!Array.isArray(obj.' + p.prop[1] + ')';
-        } else if (resolved.complex) {
-          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"object"</span>';
-        } else {
-          var base = resolved.ts;
-          if (base.indexOf('/*') !== -1) base = base.slice(0, base.indexOf(' /*')).trim();
-          if (base.indexOf('|') !== -1) {
-            // union — check for the base primitive (string for enums, etc.)
-            var firstPart = base.split('|')[0].trim();
-            if (firstPart.startsWith('"') || firstPart.startsWith("'")) {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
-            } else {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
-            }
-          } else if (base === 'integer') {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
-          } else {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
-          }
-        }
-        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop[1]) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
-      }
-      lines.push('  <span class="if-kw">return true</span>;');
-      lines.push('}');
-      html += lines.join('\\n');
-      html += '<button class="copy-btn">Copy</button></div></div>';
-
-      // ── Factory ──
-      html += '<div class="mapping-section"><h3>Factory</h3>';
-      html += '<div class="interface-block">';
-      var flines = [];
-      flines.push('<span class="if-kw">function</span> create' + esc(name) + '(');
-      flines.push('  init?: Partial&lt;<span class="if-ref">' + esc(name) + '</span>&gt;');
-      flines.push('): <span class="if-ref">' + esc(name) + '</span> {');
-      if (required.size > 0) {
-        flines.push('  <span class="if-kw">return</span> {');
-        for (var i = 0; i < props.length; i++) {
-          var p = props[i];
-          if (!required.has(p.prop[0])) continue;
-          var resolved = resolvePropertyType(p.schema);
-          var defVal = defaultForType(resolved.ts);
-          flines.push('    ' + esc(p.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
-        }
-        flines.push('    ...init,');
-        flines.push('  };');
-      } else {
-        flines.push('  <span class="if-kw">return</span> { ...init } <span class="if-kw">as</span> <span class="if-ref">' + esc(name) + '</span>;');
-      }
-      flines.push('}');
-      html += flines.join('\\n');
-      html += '<button class="copy-btn">Copy</button></div></div>';
-
-      // ── References ──
-      html += '<div class="mapping-section"><h3>References</h3>';
-
-      // Uses (outgoing)
-      var uses = [];
-      var seen = {};
-      for (var i = 0; i < props.length; i++) {
-        var t = refTarget(props[i].schema);
-        if (t && !seen[t]) {
-          seen[t] = true;
-          uses.push(t);
-        }
-      }
-      html += '<div style="margin-bottom:0.5rem;"><span style="font-size:0.75rem;font-weight:600;color:var(--fg);">Uses</span>';
-      if (uses.length > 0) {
-        html += '<div class="ref-list">';
-        for (var i = 0; i < uses.length; i++) {
-          html += '<a href="#' + esc(uses[i]) + '" class="ref-chip explorer-type-link">' + esc(uses[i]) + '</a>';
-        }
-        html += '</div>';
-      } else {
-        html += ' <span class="ref-empty">none</span>';
-      }
-      html += '</div>';
-
-      // Used by (incoming)
-      var usedBy = rev[name] || [];
-      usedBy.sort();
-      html += '<div><span style="font-size:0.75rem;font-weight:600;color:var(--fg);">Used by</span>';
-      if (usedBy.length > 0) {
-        html += '<div class="ref-list">';
-        for (var i = 0; i < usedBy.length; i++) {
-          html += '<a href="#' + esc(usedBy[i]) + '" class="ref-chip explorer-type-link">' + esc(usedBy[i]) + '</a>';
-        }
-        html += '</div>';
-      } else {
-        html += ' <span class="ref-empty">none</span>';
-      }
-      html += '</div></div>';
-
-      explorerUtils.innerHTML = html;
+      explorerUtils.innerHTML = _fns.renderUtilsHtml(defs, name, buildReverseIndex(), esc);
     }
 
     // Copy handler for utilities tab

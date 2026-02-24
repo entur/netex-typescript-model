@@ -18,8 +18,14 @@ import {
   presentRoles,
   ROLE_DISPLAY_ORDER,
   ROLE_LABELS,
+  buildInheritanceChain,
+  renderGraphSvg,
+  renderInterfaceHtml,
+  renderMappingHtml,
+  renderUtilsHtml,
   type Defs,
   type ViaHop,
+  type GraphColors,
 } from "./schema-viewer-fns.js";
 
 // ── resolveType ──────────────────────────────────────────────────────────────
@@ -824,5 +830,314 @@ describe("ROLE_DISPLAY_ORDER", () => {
     for (const role of ROLE_DISPLAY_ORDER) {
       expect(ROLE_LABELS[role]).toBeDefined();
     }
+  });
+});
+
+// ── buildInheritanceChain ───────────────────────────────────────────────────
+
+describe("buildInheritanceChain", () => {
+  it("returns single node for type with only properties", () => {
+    const defs: Defs = {
+      Foo: { properties: { x: { type: "string" }, y: { type: "number" } } },
+    };
+    const chain = buildInheritanceChain(defs, "Foo");
+    expect(chain).toHaveLength(1);
+    expect(chain[0].name).toBe("Foo");
+    expect(chain[0].ownProps).toHaveLength(2);
+    expect(chain[0].ownProps[0].name).toBe("x");
+  });
+
+  it("builds chain with allOf inheritance (root first)", () => {
+    const defs: Defs = {
+      Child: {
+        allOf: [
+          { $ref: "#/definitions/Parent" },
+          { properties: { b: { type: "number" } } },
+        ],
+      },
+      Parent: { properties: { a: { type: "string" } } },
+    };
+    const chain = buildInheritanceChain(defs, "Child");
+    expect(chain).toHaveLength(2);
+    expect(chain[0].name).toBe("Parent");
+    expect(chain[1].name).toBe("Child");
+    expect(chain[0].ownProps[0].name).toBe("a");
+    expect(chain[1].ownProps[0].name).toBe("b");
+  });
+
+  it("follows $ref aliases", () => {
+    const defs: Defs = {
+      Alias: { $ref: "#/definitions/Real" },
+      Real: { properties: { x: { type: "string" } } },
+    };
+    const chain = buildInheritanceChain(defs, "Alias");
+    expect(chain).toHaveLength(1);
+    expect(chain[0].name).toBe("Real");
+  });
+
+  it("handles circular references without infinite loop", () => {
+    const defs: Defs = {
+      A: { allOf: [{ $ref: "#/definitions/B" }, { properties: { x: { type: "string" } } }] },
+      B: { allOf: [{ $ref: "#/definitions/A" }, { properties: { y: { type: "string" } } }] },
+    };
+    const chain = buildInheritanceChain(defs, "A");
+    expect(chain.length).toBeGreaterThan(0);
+  });
+
+  it("deduplicates own properties from allOf and direct properties", () => {
+    const defs: Defs = {
+      T: {
+        allOf: [{ properties: { x: { type: "string" } } }],
+        properties: { x: { type: "string" }, y: { type: "number" } },
+      },
+    };
+    const chain = buildInheritanceChain(defs, "T");
+    expect(chain).toHaveLength(1);
+    // x appears in allOf entry, so the direct x should be deduped
+    const propNames = chain[0].ownProps.map(p => p.name);
+    expect(propNames).toEqual(["x", "y"]);
+  });
+
+  it("returns empty chain for missing definition", () => {
+    const chain = buildInheritanceChain({}, "Missing");
+    expect(chain).toHaveLength(0);
+  });
+});
+
+// ── renderGraphSvg ──────────────────────────────────────────────────────────
+
+describe("renderGraphSvg", () => {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const colors: GraphColors = { accent: "#007acc", fg: "#333", muted: "#999", cardBg: "#fff", cardBorder: "#ddd" };
+
+  it("returns no-chain paragraph for missing definition", () => {
+    const result = renderGraphSvg({}, "Missing", colors, esc);
+    expect(result).toContain("No inheritance chain");
+    expect(result).not.toContain("<svg");
+  });
+
+  it("returns SVG for simple type", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const result = renderGraphSvg(defs, "Foo", colors, esc);
+    expect(result).toContain("<svg");
+    expect(result).toContain("Foo");
+    expect(result).toContain("graph-node");
+  });
+
+  it("renders inheritance chain nodes", () => {
+    const defs: Defs = {
+      Child: { allOf: [{ $ref: "#/definitions/Parent" }, { properties: { b: { type: "number" } } }] },
+      Parent: { properties: { a: { type: "string" } } },
+    };
+    const result = renderGraphSvg(defs, "Child", colors, esc);
+    expect(result).toContain("Parent");
+    expect(result).toContain("Child");
+    expect(result).toContain("marker-end");
+  });
+
+  it("renders composition edges for ref-typed properties", () => {
+    const defs: Defs = {
+      Foo: { properties: { bar: { $ref: "#/definitions/Bar" } } },
+      Bar: { properties: { x: { type: "string" } } },
+    };
+    const result = renderGraphSvg(defs, "Foo", colors, esc);
+    expect(result).toContain("stroke-dasharray");
+    expect(result).toContain("bar");
+  });
+
+  it("uses accent color for target node", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const result = renderGraphSvg(defs, "Foo", colors, esc);
+    expect(result).toContain('fill="#007acc"');
+  });
+});
+
+// ── renderInterfaceHtml ─────────────────────────────────────────────────────
+
+describe("renderInterfaceHtml", () => {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  it("renders interface block with type name", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const result = renderInterfaceHtml(defs, "Foo", esc);
+    expect(result).toContain("My_Foo");
+    expect(result).toContain("interface-block");
+    expect(result).toContain("Copy");
+  });
+
+  it("includes property names in camelCase", () => {
+    const defs: Defs = { Foo: { properties: { MyProp: { type: "string" } } } };
+    const result = renderInterfaceHtml(defs, "Foo", esc);
+    expect(result).toContain("myProp");
+  });
+
+  it("renders ref types as clickable links", () => {
+    const defs: Defs = {
+      Foo: { properties: { bar: { $ref: "#/definitions/Bar" } } },
+      Bar: { type: "object", properties: { x: { type: "string" } } },
+    };
+    const result = renderInterfaceHtml(defs, "Foo", esc);
+    expect(result).toContain("explorer-type-link");
+  });
+
+  it("renders primitive types with if-prim class", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "boolean" } } } };
+    const result = renderInterfaceHtml(defs, "Foo", esc);
+    expect(result).toContain("if-prim");
+    expect(result).toContain("boolean");
+  });
+
+  it("renders union types with pipes", () => {
+    const defs: Defs = { Foo: { properties: { x: { enum: ["a", "b"] } } } };
+    const result = renderInterfaceHtml(defs, "Foo", esc);
+    expect(result).toContain("if-lit");
+  });
+
+  it("includes via data attribute for resolved types", () => {
+    const defs: Defs = {
+      Foo: { properties: { bar: { $ref: "#/definitions/Prim" } } },
+      Prim: { type: "string" },
+    };
+    const result = renderInterfaceHtml(defs, "Foo", esc);
+    expect(result).toContain("data-via");
+  });
+
+  it("shows origin headings from inheritance chain", () => {
+    const defs: Defs = {
+      Child: {
+        allOf: [
+          { $ref: "#/definitions/Parent" },
+          { properties: { b: { type: "number" } } },
+        ],
+      },
+      Parent: { properties: { a: { type: "string" } } },
+    };
+    const result = renderInterfaceHtml(defs, "Child", esc);
+    expect(result).toContain("Parent");
+    expect(result).toContain("Child");
+  });
+});
+
+// ── renderMappingHtml ───────────────────────────────────────────────────────
+
+describe("renderMappingHtml", () => {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  it("renders toGenerated and fromGenerated sections", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const result = renderMappingHtml(defs, "Foo", esc);
+    expect(result).toContain("toGenerated");
+    expect(result).toContain("fromGenerated");
+    expect(result).toContain("My_Foo");
+  });
+
+  it("includes atom unwrap comment for simpleContent types", () => {
+    // Atom unwrap triggers when resolveDefType returns complex (multiple allOf refs
+    // bypass single-ref optimization) but resolveAtom still finds the annotation.
+    const defs: Defs = {
+      Foo: { properties: { bar: { $ref: "#/definitions/Outer" } } },
+      Outer: {
+        allOf: [
+          { $ref: "#/definitions/AtomBase" },
+          { $ref: "#/definitions/Mixin" },
+          { properties: { extra: { type: "string" } } },
+        ],
+      },
+      AtomBase: { type: "object", "x-netex-atom": "string", properties: { value: { type: "string" } } },
+      Mixin: { properties: { code: { type: "string" } } },
+    };
+    const result = renderMappingHtml(defs, "Foo", esc);
+    expect(result).toContain("?.value");
+    expect(result).toContain("\u2192");
+  });
+
+  it("renders plain property access for non-atom types", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const result = renderMappingHtml(defs, "Foo", esc);
+    expect(result).toContain("src.x,");
+  });
+
+  it("contains copy buttons", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const result = renderMappingHtml(defs, "Foo", esc);
+    const matches = result.match(/copy-btn/g);
+    expect(matches!.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── renderUtilsHtml ─────────────────────────────────────────────────────────
+
+describe("renderUtilsHtml", () => {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  it("renders type guard, factory, and references sections", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("Type Guard");
+    expect(result).toContain("Factory");
+    expect(result).toContain("References");
+  });
+
+  it("generates type guard with typeof checks", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" }, y: { type: "number" } } } };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("isFoo");
+    expect(result).toContain("typeof");
+  });
+
+  it("generates factory with required defaults", () => {
+    const defs: Defs = {
+      Foo: { properties: { x: { type: "string" }, y: { type: "number" } }, required: ["x"] },
+    };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("createFoo");
+    expect(result).toContain("required");
+  });
+
+  it("generates factory without defaults when no required props", () => {
+    const defs: Defs = { Foo: { properties: { x: { type: "string" } } } };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("createFoo");
+    expect(result).toContain("...init");
+  });
+
+  it("shows outgoing references (Uses)", () => {
+    const defs: Defs = {
+      Foo: { properties: { bar: { $ref: "#/definitions/Bar" } } },
+      Bar: { type: "string" },
+    };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("Uses");
+    expect(result).toContain("Bar");
+  });
+
+  it("shows incoming references (Used by)", () => {
+    const defs: Defs = {
+      Foo: { type: "string" },
+      Bar: { properties: { foo: { $ref: "#/definitions/Foo" } } },
+    };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("Used by");
+    expect(result).toContain("Bar");
+  });
+
+  it("shows 'none' when no references exist", () => {
+    const defs: Defs = { Isolated: { properties: { x: { type: "string" } } } };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Isolated", rev, esc);
+    expect(result).toContain("ref-empty");
+  });
+
+  it("generates Array.isArray check for array properties", () => {
+    const defs: Defs = { Foo: { properties: { items: { type: "array", items: { type: "string" } } } } };
+    const rev = buildReverseIndex(defs);
+    const result = renderUtilsHtml(defs, "Foo", rev, esc);
+    expect(result).toContain("Array.isArray");
   });
 });
