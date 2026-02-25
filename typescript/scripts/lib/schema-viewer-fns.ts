@@ -675,6 +675,7 @@ export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatPropert
     if (!targetDef) continue;
     const role = defRole(targetDef);
     if (role === "collection" || role === "reference") continue;
+    if (targetDef["x-netex-atom"]) continue;
     candidates.push({ idx: i, targetName: resolved.ts });
   }
 

@@ -685,7 +685,7 @@
     graphContainer.addEventListener('click', e => {
       const node = e.target.closest('.graph-node');
       if (node && node.dataset.def && defs[node.dataset.def]) {
-        location.hash = '#' + node.dataset.def;
+        if (decodeURIComponent(location.hash) !== '#' + node.dataset.def) location.hash = '#' + node.dataset.def;
         renderExplorer(node.dataset.def);
       }
     });
@@ -816,14 +816,10 @@
       if (btn) {
         e.preventDefault();
         const name = btn.dataset.def;
-        if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'explore') {
-          closeExplorer();
-        } else {
-          location.hash = '#' + name;
-          renderExplorer(name);
-          setExplorerMode('explore');
-          openExplorer();
-        }
+        if (decodeURIComponent(location.hash) !== '#' + name) location.hash = '#' + name;
+        renderExplorer(name);
+        setExplorerMode('explore');
+        openExplorer();
         return;
       }
       // Suggest code button click
@@ -831,14 +827,10 @@
       if (sbtn) {
         e.preventDefault();
         const name = sbtn.dataset.def;
-        if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'code') {
-          closeExplorer();
-        } else {
-          location.hash = '#' + name;
-          renderExplorer(name);
-          setExplorerMode('code');
-          openExplorer();
-        }
+        if (decodeURIComponent(location.hash) !== '#' + name) location.hash = '#' + name;
+        renderExplorer(name);
+        setExplorerMode('code');
+        openExplorer();
         return;
       }
       // Type link click inside explorer panel

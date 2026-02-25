@@ -994,7 +994,6 @@ describe("inlineSingleRefs", () => {
           value: { type: "string" },
           type: { type: "string" },
         },
-        "x-netex-atom": "simpleObj",
       },
     };
     const props = flattenAllOf(defs, "Root");
@@ -1027,7 +1026,6 @@ describe("inlineSingleRefs", () => {
           value: { type: "string" },
           extra: { type: "number" },
         },
-        "x-netex-atom": "simpleObj",
       },
     };
     const props = flattenAllOf(defs, "Root");
@@ -1093,6 +1091,34 @@ describe("inlineSingleRefs", () => {
     const result = inlineSingleRefs(defs, props);
     expect(result).toHaveLength(1);
     expect(result[0].prop[1]).toBe("items");
+    expect(result[0].inlinedFrom).toBeUndefined();
+  });
+
+  it("skips atom targets", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Code: { allOf: [{ $ref: "#/definitions/CodeStruct" }] },
+            },
+          },
+        ],
+      },
+      CodeStruct: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+          type: { type: "string" },
+        },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    // Should NOT inline — atom types are transparent wrappers
+    expect(result).toHaveLength(1);
+    expect(result[0].prop[1]).toBe("code");
     expect(result[0].inlinedFrom).toBeUndefined();
   });
 

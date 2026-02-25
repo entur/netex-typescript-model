@@ -687,7 +687,7 @@ describe("x-netex-mixed annotation", () => {
 });
 
 describe("inlineSingleRefs — VehicleType real schema", () => {
-  it("replaces 1-to-1 ref candidates with inner props, excluding reference roles", () => {
+  it("replaces 1-to-1 ref candidates with inner props, excluding reference and atom roles", () => {
     const props = flattenAllOf(defs, "VehicleType");
     const result = inlineSingleRefs(defs, props);
 
@@ -695,7 +695,7 @@ describe("inlineSingleRefs — VehicleType real schema", () => {
     //   BrandingRef, PrivateCode, DeckPlanRef, PassengerCapacity, IncludedIn, ClassifiedAsRef
     //
     // BrandingRef, DeckPlanRef, IncludedIn, ClassifiedAsRef → VersionOfObjectRefStructure (role=reference) → SKIPPED
-    // PrivateCode → PrivateCodeStructure (unclassified, simpleObj) → INLINED
+    // PrivateCode → PrivateCodeStructure (x-netex-atom: "simpleObj") → SKIPPED (atom)
     // PassengerCapacity → PassengerCapacityStructure (role=structure) → INLINED
     //
     // The 4 reference-role targets should remain as-is
@@ -704,10 +704,8 @@ describe("inlineSingleRefs — VehicleType real schema", () => {
     expect(result.some((p) => p.prop[1] === "includedIn" && !p.inlinedFrom)).toBe(true);
     expect(result.some((p) => p.prop[1] === "classifiedAsRef" && !p.inlinedFrom)).toBe(true);
 
-    // PrivateCode should be replaced by its inner props
-    expect(result.some((p) => p.prop[1] === "privateCode" && !p.inlinedFrom)).toBe(false);
-    const pcInlined = result.filter((p) => p.inlinedFrom === "privateCode");
-    expect(pcInlined.length).toBeGreaterThan(0);
+    // PrivateCode → atom type, should remain as-is (not inlined)
+    expect(result.some((p) => p.prop[1] === "privateCode" && !p.inlinedFrom)).toBe(true);
 
     // PassengerCapacity should be replaced by its inner props
     expect(result.some((p) => p.prop[1] === "passengerCapacity" && !p.inlinedFrom)).toBe(false);
@@ -738,27 +736,15 @@ describe("inlineSingleRefs — VehicleType real schema", () => {
     }
 
     // All inlined props should have inlinedFrom set
-    for (const ip of [...pcInlined, ...capInlined]) {
+    for (const ip of capInlined) {
       expect(ip.inlinedFrom).toBeTruthy();
     }
   });
 
-  it("inlined PrivateCode props use bare names when free, prefixed when conflict", () => {
+  it("total prop count increases (inlined target expands)", () => {
     const props = flattenAllOf(defs, "VehicleType");
     const result = inlineSingleRefs(defs, props);
-
-    // PrivateCodeStructure has inner props: value, type
-    // Check that they appear (possibly prefixed)
-    const pcProps = result.filter((p) => p.inlinedFrom === "privateCode");
-    const pcNames = pcProps.map((p) => p.prop[1]);
-    // At minimum value and type should be present in some form
-    expect(pcNames.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("total prop count increases (inlined targets expand)", () => {
-    const props = flattenAllOf(defs, "VehicleType");
-    const result = inlineSingleRefs(defs, props);
-    // 2 single-$ref props replaced by their inner props (each has ≥2 inner props)
+    // 1 single-$ref prop (PassengerCapacity) replaced by its inner props (≥2)
     // So result should have more props than original
     expect(result.length).toBeGreaterThan(props.length);
   });
