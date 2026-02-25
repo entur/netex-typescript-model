@@ -265,6 +265,7 @@ ${sections}
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
+    <label class="iface-toggle" id="ifaceToggleLabel" style="display:none"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
     <div class="explorer-tab-content" id="explorerUtils"></div>

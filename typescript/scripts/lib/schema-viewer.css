@@ -528,10 +528,6 @@
       font-size: 0.75rem;
       color: var(--muted);
       cursor: pointer;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: var(--bg);
       padding: 0.35rem 0;
     }
     .iface-toggle input { margin: 0; cursor: pointer; }

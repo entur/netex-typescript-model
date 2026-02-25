@@ -120,6 +120,7 @@
         firstVisible.classList.add('active');
         var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
         document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
+        ifaceToggleLabel.style.display = firstVisible.dataset.tab === 'iface' ? '' : 'none';
       }
     }
 
@@ -132,6 +133,7 @@
       tab.classList.add('active');
       const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
       document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
+      ifaceToggleLabel.style.display = tab.dataset.tab === 'iface' ? '' : 'none';
     });
 
     /** HTML-escape a string using the DOM (createElement + textContent → innerHTML). */
@@ -300,6 +302,8 @@
     // ── Interface tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
+    const ifaceToggleLabel = document.getElementById('ifaceToggleLabel');
+    const inlineRefsCheck = document.getElementById('inlineRefsCheck');
     var inlineRefsEnabled = false;
 
     /**
@@ -375,22 +379,21 @@
 
       lines.push('}');
 
-      var html = '<label class="iface-toggle"><input type="checkbox" id="inlineRefsCheck"' + (inlineRefsEnabled ? ' checked' : '') + '> Inline 1-to-1 refs</label>';
-      html += '<div class="interface-block">' + lines.join('\n');
+      var html = '<div class="interface-block">' + lines.join('\n');
       html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
       return html;
     }
 
+    // Wire inline-refs checkbox once
+    inlineRefsCheck.addEventListener('change', function() {
+      inlineRefsEnabled = inlineRefsCheck.checked;
+      if (currentExplored) renderInterface(currentExplored);
+    });
+
     /** Render the Interface tab into its container element. */
     function renderInterface(name) {
       explorerIface.innerHTML = renderInterfaceHtml(name);
-      var cb = document.getElementById('inlineRefsCheck');
-      if (cb) {
-        cb.addEventListener('change', function() {
-          inlineRefsEnabled = cb.checked;
-          renderInterface(name);
-        });
-      }
+      inlineRefsCheck.checked = inlineRefsEnabled;
     }
 
     // Copy handler
@@ -708,6 +711,7 @@
       explorerPanel.style.width = '';
       currentExplored = null;
       currentMode = null;
+      ifaceToggleLabel.style.display = 'none';
     }
 
     handle1.addEventListener('mousedown', e => {
