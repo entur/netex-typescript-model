@@ -41,7 +41,11 @@
       visibleCount.textContent = count;
     }
 
-    search.addEventListener('input', applyFilters);
+    var _filterTimer = null;
+    search.addEventListener('input', function() {
+      clearTimeout(_filterTimer);
+      _filterTimer = setTimeout(applyFilters, 150);
+    });
 
     roleChips.forEach(chip => {
       chip.addEventListener('click', () => {
@@ -69,17 +73,19 @@
       if (e.target === roleHelpOverlay) roleHelpOverlay.classList.remove('open');
     });
 
-    // Highlight active on scroll
+    // Highlight active on scroll — track only the single active link
+    var _activeLink = null;
     const sections = document.querySelectorAll('.def-section');
     const observer = new IntersectionObserver(entries => {
       for (const e of entries) {
         if (e.isIntersecting) {
-          links.forEach(a => a.classList.remove('active'));
+          if (_activeLink) _activeLink.classList.remove('active');
           const id = e.target.id;
           const link = document.querySelector('.sidebar-link[href="#' + CSS.escape(id) + '"]');
           if (link) {
             link.classList.add('active');
             link.scrollIntoView({ block: 'nearest' });
+            _activeLink = link;
           }
         }
       }
@@ -313,6 +319,7 @@
     // ── Interface tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
+    var inlineRefsEnabled = false;
 
     /**
      * Build the "suggested flat interface" HTML for the Interface tab.
@@ -325,7 +332,8 @@
      * @returns {string} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name) {
-      var props = flattenAllOf(defs, name);
+      var flat = flattenAllOf(defs, name);
+      var props = inlineRefsEnabled ? inlineSingleRefs(flat) : flat;
       var origins = [];
       var originSeen = {};
       for (var oi = 0; oi < props.length; oi++) {
@@ -340,12 +348,20 @@
       lines.push('<span class="if-kw">interface</span> My_' + esc(name) + ' {');
 
       var lastOrigin = null;
+      var lastInlinedFrom = null;
       for (var pi = 0; pi < props.length; pi++) {
         var p = props[pi];
         if (p.origin !== lastOrigin) {
           if (lastOrigin !== null) lines.push('');
           lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
           lastOrigin = p.origin;
+          lastInlinedFrom = null;
+        }
+        if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
+          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.inlinedFrom) + ' (inlined) \u2500\u2500</span>');
+          lastInlinedFrom = p.inlinedFrom;
+        } else if (!p.inlinedFrom && lastInlinedFrom) {
+          lastInlinedFrom = null;
         }
         var resolved = resolvePropertyType(p.schema);
         var typeHtml;
@@ -378,7 +394,8 @@
 
       lines.push('}');
 
-      var html = '<div class="interface-block">' + lines.join('\n');
+      var html = '<label class="iface-toggle"><input type="checkbox" id="inlineRefsCheck"' + (inlineRefsEnabled ? ' checked' : '') + '> Inline 1-to-1 refs</label>';
+      html += '<div class="interface-block">' + lines.join('\n');
       html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
       return html;
     }
@@ -386,6 +403,13 @@
     /** Render the Interface tab into its container element. */
     function renderInterface(name) {
       explorerIface.innerHTML = renderInterfaceHtml(name);
+      var cb = document.getElementById('inlineRefsCheck');
+      if (cb) {
+        cb.addEventListener('change', function() {
+          inlineRefsEnabled = cb.checked;
+          renderInterface(name);
+        });
+      }
     }
 
     // Copy handler
@@ -849,3 +873,7 @@
     });
 
     document.getElementById('explorerClose').addEventListener('click', closeExplorer);
+
+    // Remove loading overlay — all DOM queries and setup are done
+    var _loadingOverlay = document.getElementById('loadingOverlay');
+    if (_loadingOverlay) _loadingOverlay.remove();

@@ -165,7 +165,8 @@ function buildViewerFnsScript(): string {
         defRole: defRole,
         defaultForType: defaultForType,
         lcFirst: lcFirst,
-        buildInheritanceChain: buildInheritanceChain
+        buildInheritanceChain: buildInheritanceChain,
+        inlineSingleRefs: inlineSingleRefs
       };
     })();
 
@@ -180,6 +181,7 @@ function buildViewerFnsScript(): string {
     function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
 
+    function inlineSingleRefs(props) { return _fns.inlineSingleRefs(defs, props); }
     function defRole(name) { return _fns.defRole(defs[name]); }
     function buildInheritanceChain(n) { return _fns.buildInheritanceChain(defs, n); }
     var _reverseIdx = null;
@@ -216,6 +218,11 @@ ${css}
   </style>
 </head>
 <body>
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Loading ${defNames.length} definitions\u2026</div>
+  </div>
+
   <button class="sidebar-toggle" id="sidebarToggle">Definitions</button>
 
   <nav class="sidebar" id="sidebar">

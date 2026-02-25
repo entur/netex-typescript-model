@@ -63,6 +63,8 @@ export interface FlatProperty {
   desc: string;
   origin: string;
   schema: Def;
+  /** When set, this property was inlined from a 1-to-1 $ref member with this tsName. */
+  inlinedFrom?: string;
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -644,5 +646,81 @@ export function defaultForType(ts: string): string {
 /** Lowercase the first character of a property name (NeTEx props are PascalCase, TS conventions use camelCase). */
 export function lcFirst(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+// ── Inline single-$ref expansion ──────────────────────────────────────────────
+
+/**
+ * Replace 1-to-1 `$ref` properties with the target's inner properties.
+ *
+ * A property is a single-$ref candidate when:
+ * - Its schema is `{ $ref }` or `{ allOf: [{ $ref }] }` (one ref, not array)
+ * - `resolvePropertyType` returns complex and not an array
+ * - The resolved target's role is neither `"collection"` nor `"reference"`
+ *
+ * For each candidate, the target's properties (from `flattenAllOf`) replace
+ * the original entry. Inner prop names that collide with existing names get
+ * prefixed with `parentProp_`.
+ */
+export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatProperty[] {
+  // Identify candidate indices
+  const candidates: { idx: number; targetName: string }[] = [];
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i];
+    const shape = classifySchema(p.schema);
+    if (shape.kind !== "ref") continue;
+    const resolved = resolvePropertyType(defs, p.schema);
+    if (!resolved.complex || resolved.ts.endsWith("[]")) continue;
+    const targetDef = defs[resolved.ts];
+    if (!targetDef) continue;
+    const role = defRole(targetDef);
+    if (role === "collection" || role === "reference") continue;
+    candidates.push({ idx: i, targetName: resolved.ts });
+  }
+
+  if (candidates.length === 0) return props;
+
+  // Build set of taken names from non-candidate props
+  const candidateIndices = new Set(candidates.map((c) => c.idx));
+  const takenNames = new Set<string>();
+  for (let i = 0; i < props.length; i++) {
+    if (!candidateIndices.has(i)) takenNames.add(props[i].prop[1]);
+  }
+
+  // Collect parent chain origins (before inlining) — skip props that are
+  // themselves candidates so we only capture the inherited ancestor origins.
+  const parentOrigins = new Set<string>();
+  for (let i = 0; i < props.length; i++) {
+    if (!candidateIndices.has(i) && props[i].origin) parentOrigins.add(props[i].origin);
+  }
+
+  // Build result, replacing candidates with their inner props
+  const result: FlatProperty[] = [];
+  let nextCandidate = 0;
+  for (let i = 0; i < props.length; i++) {
+    if (nextCandidate < candidates.length && candidates[nextCandidate].idx === i) {
+      const cand = candidates[nextCandidate++];
+      const parentTsName = props[i].prop[1];
+      const innerProps = flattenAllOf(defs, cand.targetName);
+      for (const ip of innerProps) {
+        // Skip props whose origin is already in the parent chain (shared ancestor)
+        if (ip.origin && parentOrigins.has(ip.origin)) continue;
+        const baseName = ip.prop[1];
+        const chosenName = takenNames.has(baseName) ? parentTsName + "_" + baseName : baseName;
+        takenNames.add(chosenName);
+        result.push({
+          prop: [chosenName, chosenName],
+          type: ip.type,
+          desc: ip.desc,
+          origin: ip.origin,
+          schema: ip.schema,
+          inlinedFrom: parentTsName,
+        });
+      }
+    } else {
+      result.push(props[i]);
+    }
+  }
+  return result;
 }
 

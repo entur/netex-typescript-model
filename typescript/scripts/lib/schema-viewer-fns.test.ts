@@ -19,6 +19,7 @@ import {
   ROLE_DISPLAY_ORDER,
   ROLE_LABELS,
   buildInheritanceChain,
+  inlineSingleRefs,
   type Defs,
   type ViaHop,
 } from "./schema-viewer-fns.js";
@@ -969,5 +970,241 @@ describe("buildInheritanceChain", () => {
   it("returns empty chain for missing definition", () => {
     const chain = buildInheritanceChain({}, "Missing");
     expect(chain).toHaveLength(0);
+  });
+});
+
+// ── inlineSingleRefs ─────────────────────────────────────────────────────────
+
+describe("inlineSingleRefs", () => {
+  it("inlines a single-$ref target's inner properties", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Name: { type: "string" },
+              Code: { allOf: [{ $ref: "#/definitions/CodeStruct" }] },
+            },
+          },
+        ],
+      },
+      CodeStruct: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+          type: { type: "string" },
+        },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    // Code should be replaced by value and type
+    expect(result.some((p) => p.prop[1] === "code")).toBe(false);
+    expect(result.some((p) => p.prop[1] === "value")).toBe(true);
+    expect(result.some((p) => p.prop[1] === "type")).toBe(true);
+    // inlinedFrom should be set
+    const inlined = result.filter((p) => p.inlinedFrom);
+    expect(inlined).toHaveLength(2);
+    expect(inlined[0].inlinedFrom).toBe("code");
+  });
+
+  it("uses parentProp_innerProp when name conflicts exist", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              value: { type: "string" },
+              Code: { allOf: [{ $ref: "#/definitions/CodeStruct" }] },
+            },
+          },
+        ],
+      },
+      CodeStruct: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+          extra: { type: "number" },
+        },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    // "value" is already taken → should become "code_value"
+    expect(result.some((p) => p.prop[1] === "code_value")).toBe(true);
+    // "extra" is free → should stay as-is
+    expect(result.some((p) => p.prop[1] === "extra")).toBe(true);
+    // Original "value" still present
+    expect(result.some((p) => p.prop[1] === "value" && !p.inlinedFrom)).toBe(true);
+  });
+
+  it("skips reference-role targets", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Ref: { allOf: [{ $ref: "#/definitions/RefStruct" }] },
+            },
+          },
+        ],
+      },
+      RefStruct: {
+        type: "object",
+        "x-netex-role": "reference",
+        properties: {
+          value: { type: "string" },
+          ref: { type: "string" },
+        },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    // Should NOT inline — Ref stays as-is
+    expect(result).toHaveLength(1);
+    expect(result[0].prop[1]).toBe("ref");
+    expect(result[0].inlinedFrom).toBeUndefined();
+  });
+
+  it("skips collection-role targets", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Items: { allOf: [{ $ref: "#/definitions/ItemsRel" }] },
+            },
+          },
+        ],
+      },
+      ItemsRel: {
+        type: "object",
+        "x-netex-role": "collection",
+        properties: {
+          Item: { type: "array", items: { $ref: "#/definitions/Thing" } },
+        },
+      },
+      Thing: { type: "object", properties: { name: { type: "string" } } },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    expect(result).toHaveLength(1);
+    expect(result[0].prop[1]).toBe("items");
+    expect(result[0].inlinedFrom).toBeUndefined();
+  });
+
+  it("returns props unchanged when no candidates exist", () => {
+    const defs: Defs = {
+      Root: { properties: { x: { type: "string" }, y: { type: "number" } } },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    expect(result).toEqual(props);
+  });
+
+  it("handles multiple inlined props with cross-conflict detection", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              A: { allOf: [{ $ref: "#/definitions/AStruct" }] },
+              B: { allOf: [{ $ref: "#/definitions/BStruct" }] },
+            },
+          },
+        ],
+      },
+      AStruct: {
+        type: "object",
+        properties: { shared: { type: "string" } },
+      },
+      BStruct: {
+        type: "object",
+        properties: { shared: { type: "number" } },
+      },
+    };
+    const props = flattenAllOf(defs, "Root");
+    const result = inlineSingleRefs(defs, props);
+    // First "shared" from A is free
+    expect(result.some((p) => p.prop[1] === "shared" && p.inlinedFrom === "a")).toBe(true);
+    // Second "shared" from B conflicts → b_shared
+    expect(result.some((p) => p.prop[1] === "b_shared" && p.inlinedFrom === "b")).toBe(true);
+  });
+
+  it("filters shared-ancestor props when target and parent share a common base", () => {
+    // Simulates: Parent inherits BaseStruct → MiddleStruct, then has a single-$ref
+    // to TargetStruct which also inherits BaseStruct → MiddleStruct.
+    // Only TargetStruct's own props should be inlined.
+    const defs: Defs = {
+      BaseStruct: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          version: { type: "string" },
+        },
+      },
+      MiddleStruct: {
+        allOf: [
+          { $ref: "#/definitions/BaseStruct" },
+          {
+            type: "object",
+            properties: {
+              created: { type: "string" },
+              keyList: { type: "object" },
+            },
+          },
+        ],
+      },
+      Parent: {
+        allOf: [
+          { $ref: "#/definitions/MiddleStruct" },
+          {
+            type: "object",
+            properties: {
+              Name: { type: "string" },
+              Detail: { allOf: [{ $ref: "#/definitions/TargetStruct" }] },
+            },
+          },
+        ],
+      },
+      TargetStruct: {
+        allOf: [
+          { $ref: "#/definitions/MiddleStruct" },
+          {
+            type: "object",
+            properties: {
+              Capacity: { type: "number" },
+              Class: { type: "string" },
+            },
+          },
+        ],
+      },
+    };
+    const props = flattenAllOf(defs, "Parent");
+    const result = inlineSingleRefs(defs, props);
+
+    // Shared-ancestor props should NOT appear as inlined from Detail
+    const detailInlined = result.filter((p) => p.inlinedFrom === "detail");
+    const detailNames = detailInlined.map((p) => p.prop[1]);
+
+    // BaseStruct and MiddleStruct props should be filtered out
+    expect(detailNames).not.toContain("id");
+    expect(detailNames).not.toContain("version");
+    expect(detailNames).not.toContain("created");
+    expect(detailNames).not.toContain("keyList");
+
+    // Only TargetStruct's own props should be inlined (lcFirst-normalised)
+    expect(detailNames).toContain("capacity");
+    expect(detailNames).toContain("class");
+    expect(detailInlined).toHaveLength(2);
+
+    // Parent's own props should still be present (lcFirst-normalised)
+    expect(result.some((p) => p.prop[1] === "name" && !p.inlinedFrom)).toBe(true);
+    // Inherited props from the parent chain should still be present
+    expect(result.some((p) => p.prop[1] === "id" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "version" && !p.inlinedFrom)).toBe(true);
   });
 });

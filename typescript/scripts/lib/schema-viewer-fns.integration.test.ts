@@ -10,6 +10,7 @@ import {
   findTransitiveEntityUsers,
   defRole,
   unwrapMixed,
+  inlineSingleRefs,
   type Defs,
   type ViaHop,
 } from "./schema-viewer-fns.js";
@@ -150,6 +151,64 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     // Deep inherited from EntityInVersionStructure
     expect(props.some((p) => p.prop[1] === "created")).toBe(true);
     expect(props.some((p) => p.prop[1] === "version")).toBe(true);
+  });
+
+  it("flattenAllOf origin chain documents exactly 5 types and why", () => {
+    // VehicleType is a pure $ref alias to VehicleType_VersionStructure — it contributes
+    // no own properties and therefore never appears as an origin.
+    //
+    // The chain terminates at EntityStructure because it is a plain object with
+    // properties but no allOf and no $ref — flattenAllOf has nothing further to walk.
+    //
+    // Full chain (innermost → outermost):
+    //   EntityStructure                  (ROOT — plain object, 2 props: id, nameOfClass)
+    //   EntityInVersionStructure         (allOf → EntityStructure, 12 own props)
+    //   DataManagedObjectStructure       (allOf → EntityInVersionStructure, 5 own props)
+    //   TransportType_VersionStructure   (allOf → DataManagedObjectStructure, 17 own props)
+    //   VehicleType_VersionStructure     (allOf → TransportType_VersionStructure, 19 own props)
+    const props = flattenAllOf(defs, "VehicleType");
+    const origins = [...new Set(props.map((p) => p.origin))];
+
+    expect(origins).toHaveLength(5);
+    expect(origins).toEqual([
+      "EntityStructure",
+      "EntityInVersionStructure",
+      "DataManagedObjectStructure",
+      "TransportType_VersionStructure",
+      "VehicleType_VersionStructure",
+    ]);
+
+    // Single-$ref properties: 1-to-1 relations (not collections or arrays).
+    // Schema is { allOf: [{ $ref }] } or { $ref } — exactly one target type.
+    // _RelStructure types are collection wrappers, not 1-to-1 relations.
+    const singleRefs = props.filter((p) => {
+      const s = p.schema as Record<string, unknown>;
+      const hasSingleRef =
+        !!s.$ref ||
+        (Array.isArray(s.allOf) &&
+          s.allOf.length === 1 &&
+          !!(s.allOf[0] as Record<string, unknown>)?.$ref);
+      if (!hasSingleRef) return false;
+      const result = resolvePropertyType(defs, p.schema);
+      return result.complex && !result.ts.endsWith("[]") && !result.ts.endsWith("_RelStructure");
+    });
+
+    const refsByOrigin: Record<string, string[]> = {};
+    for (const o of origins) {
+      const refs = singleRefs.filter((p) => p.origin === o).map((p) => p.prop[0]);
+      if (refs.length > 0) refsByOrigin[o] = refs;
+    }
+
+    // EntityStructure has no single-$ref properties (only id: string, nameOfClass: enum)
+    expect(refsByOrigin["EntityStructure"]).toBeUndefined();
+    // EntityInVersionStructure: none after excluding _RelStructure collections
+    expect(refsByOrigin["EntityInVersionStructure"]).toBeUndefined();
+
+    expect(refsByOrigin).toEqual({
+      DataManagedObjectStructure: ["BrandingRef"],
+      TransportType_VersionStructure: ["PrivateCode", "DeckPlanRef", "PassengerCapacity"],
+      VehicleType_VersionStructure: ["IncludedIn", "ClassifiedAsRef"],
+    });
   });
 
   it("resolvePropertyType handles booleans from VehicleType", () => {
@@ -624,5 +683,83 @@ describe("x-netex-mixed annotation", () => {
     expect(result.complex).toBe(true);
     // via comes from resolveDefType on MultilingualString (mixed-unwrap)
     expect(result.via).toEqual([{ name: "MultilingualString", rule: "mixed-unwrap" }]);
+  });
+});
+
+describe("inlineSingleRefs — VehicleType real schema", () => {
+  it("replaces 1-to-1 ref candidates with inner props, excluding reference roles", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const result = inlineSingleRefs(defs, props);
+
+    // The 6 single-$ref props from the chain test:
+    //   BrandingRef, PrivateCode, DeckPlanRef, PassengerCapacity, IncludedIn, ClassifiedAsRef
+    //
+    // BrandingRef, DeckPlanRef, IncludedIn, ClassifiedAsRef → VersionOfObjectRefStructure (role=reference) → SKIPPED
+    // PrivateCode → PrivateCodeStructure (unclassified, simpleObj) → INLINED
+    // PassengerCapacity → PassengerCapacityStructure (role=structure) → INLINED
+    //
+    // The 4 reference-role targets should remain as-is
+    expect(result.some((p) => p.prop[1] === "brandingRef" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "deckPlanRef" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "includedIn" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "classifiedAsRef" && !p.inlinedFrom)).toBe(true);
+
+    // PrivateCode should be replaced by its inner props
+    expect(result.some((p) => p.prop[1] === "privateCode" && !p.inlinedFrom)).toBe(false);
+    const pcInlined = result.filter((p) => p.inlinedFrom === "privateCode");
+    expect(pcInlined.length).toBeGreaterThan(0);
+
+    // PassengerCapacity should be replaced by its inner props
+    expect(result.some((p) => p.prop[1] === "passengerCapacity" && !p.inlinedFrom)).toBe(false);
+    const capInlined = result.filter((p) => p.inlinedFrom === "passengerCapacity");
+    expect(capInlined.length).toBeGreaterThan(0);
+
+    // Shared-ancestor props (EntityStructure, EntityInVersionStructure,
+    // DataManagedObjectStructure) should NOT be duplicated from PassengerCapacity —
+    // they already exist in the parent chain.
+    const capNames = capInlined.map((p) => p.prop[1]);
+    const sharedAncestorProps = ["id", "version", "created", "changed", "keyList", "BrandingRef"];
+    for (const name of sharedAncestorProps) {
+      expect(capNames).not.toContain(name);
+    }
+
+    // Only PassengerCapacityStructure's own props should be inlined
+    const expectedCapProps = [
+      "fareClass",
+      "totalCapacity",
+      "seatingCapacity",
+      "standingCapacity",
+      "specialPlaceCapacity",
+      "pushchairCapacity",
+      "wheelchairPlaceCapacity",
+    ];
+    for (const name of expectedCapProps) {
+      expect(capNames).toContain(name);
+    }
+
+    // All inlined props should have inlinedFrom set
+    for (const ip of [...pcInlined, ...capInlined]) {
+      expect(ip.inlinedFrom).toBeTruthy();
+    }
+  });
+
+  it("inlined PrivateCode props use bare names when free, prefixed when conflict", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const result = inlineSingleRefs(defs, props);
+
+    // PrivateCodeStructure has inner props: value, type
+    // Check that they appear (possibly prefixed)
+    const pcProps = result.filter((p) => p.inlinedFrom === "privateCode");
+    const pcNames = pcProps.map((p) => p.prop[1]);
+    // At minimum value and type should be present in some form
+    expect(pcNames.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("total prop count increases (inlined targets expand)", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const result = inlineSingleRefs(defs, props);
+    // 2 single-$ref props replaced by their inner props (each has ≥2 inner props)
+    // So result should have more props than original
+    expect(result.length).toBeGreaterThan(props.length);
   });
 });
