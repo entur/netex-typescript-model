@@ -217,7 +217,6 @@
       text-overflow: ellipsis;
     }
     .sidebar-link:hover { background: var(--card-border); }
-    .sidebar-link.active { background: var(--accent); color: #fff; }
     .sidebar-link.hidden { display: none; }
 
     /* Main content */

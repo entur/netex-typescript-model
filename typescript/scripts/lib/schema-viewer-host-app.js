@@ -73,25 +73,6 @@
       if (e.target === roleHelpOverlay) roleHelpOverlay.classList.remove('open');
     });
 
-    // Highlight active on scroll — track only the single active link
-    var _activeLink = null;
-    const sections = document.querySelectorAll('.def-section');
-    const observer = new IntersectionObserver(entries => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          if (_activeLink) _activeLink.classList.remove('active');
-          const id = e.target.id;
-          const link = document.querySelector('.sidebar-link[href="#' + CSS.escape(id) + '"]');
-          if (link) {
-            link.classList.add('active');
-            link.scrollIntoView({ block: 'nearest' });
-            _activeLink = link;
-          }
-        }
-      }
-    }, { rootMargin: '-10% 0px -80% 0px' });
-    sections.forEach(s => observer.observe(s));
-
     // Mobile sidebar toggle
     const toggle = document.getElementById('sidebarToggle');
     const sidebar = document.getElementById('sidebar');
@@ -838,6 +819,7 @@
         if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'explore') {
           closeExplorer();
         } else {
+          location.hash = '#' + name;
           renderExplorer(name);
           setExplorerMode('explore');
           openExplorer();
@@ -852,6 +834,7 @@
         if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'code') {
           closeExplorer();
         } else {
+          location.hash = '#' + name;
           renderExplorer(name);
           setExplorerMode('code');
           openExplorer();
