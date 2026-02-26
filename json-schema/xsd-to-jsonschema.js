@@ -534,6 +534,7 @@ class XsdToJsonSchema {
       const result = {
         type: "array",
         items: itemType ? this.resolveTypeRef(itemType) : { type: "string" },
+        "x-netex-atom": "array",
       };
       if (desc) result.description = desc;
       return result;

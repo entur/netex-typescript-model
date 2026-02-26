@@ -41,7 +41,11 @@
       visibleCount.textContent = count;
     }
 
-    search.addEventListener('input', applyFilters);
+    var _filterTimer = null;
+    search.addEventListener('input', function() {
+      clearTimeout(_filterTimer);
+      _filterTimer = setTimeout(applyFilters, 150);
+    });
 
     roleChips.forEach(chip => {
       chip.addEventListener('click', () => {
@@ -68,23 +72,6 @@
     roleHelpOverlay.addEventListener('click', e => {
       if (e.target === roleHelpOverlay) roleHelpOverlay.classList.remove('open');
     });
-
-    // Highlight active on scroll
-    const sections = document.querySelectorAll('.def-section');
-    const observer = new IntersectionObserver(entries => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          links.forEach(a => a.classList.remove('active'));
-          const id = e.target.id;
-          const link = document.querySelector('.sidebar-link[href="#' + CSS.escape(id) + '"]');
-          if (link) {
-            link.classList.add('active');
-            link.scrollIntoView({ block: 'nearest' });
-          }
-        }
-      }
-    }, { rootMargin: '-10% 0px -80% 0px' });
-    sections.forEach(s => observer.observe(s));
 
     // Mobile sidebar toggle
     const toggle = document.getElementById('sidebarToggle');
@@ -133,6 +120,7 @@
         firstVisible.classList.add('active');
         var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
         document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
+        ifaceToggleLabel.style.display = firstVisible.dataset.tab === 'iface' ? '' : 'none';
       }
     }
 
@@ -145,6 +133,7 @@
       tab.classList.add('active');
       const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
       document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
+      ifaceToggleLabel.style.display = tab.dataset.tab === 'iface' ? '' : 'none';
     });
 
     /** HTML-escape a string using the DOM (createElement + textContent → innerHTML). */
@@ -313,6 +302,9 @@
     // ── Interface tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
+    const ifaceToggleLabel = document.getElementById('ifaceToggleLabel');
+    const inlineRefsCheck = document.getElementById('inlineRefsCheck');
+    var inlineRefsEnabled = false;
 
     /**
      * Build the "suggested flat interface" HTML for the Interface tab.
@@ -325,7 +317,8 @@
      * @returns {string} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name) {
-      var props = flattenAllOf(defs, name);
+      var flat = flattenAllOf(defs, name);
+      var props = inlineRefsEnabled ? inlineSingleRefs(flat) : flat;
       var origins = [];
       var originSeen = {};
       for (var oi = 0; oi < props.length; oi++) {
@@ -340,12 +333,20 @@
       lines.push('<span class="if-kw">interface</span> My_' + esc(name) + ' {');
 
       var lastOrigin = null;
+      var lastInlinedFrom = null;
       for (var pi = 0; pi < props.length; pi++) {
         var p = props[pi];
         if (p.origin !== lastOrigin) {
           if (lastOrigin !== null) lines.push('');
           lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
           lastOrigin = p.origin;
+          lastInlinedFrom = null;
+        }
+        if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
+          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.inlinedFrom) + ' (inlined) \u2500\u2500</span>');
+          lastInlinedFrom = p.inlinedFrom;
+        } else if (!p.inlinedFrom && lastInlinedFrom) {
+          lastInlinedFrom = null;
         }
         var resolved = resolvePropertyType(p.schema);
         var typeHtml;
@@ -383,9 +384,16 @@
       return html;
     }
 
+    // Wire inline-refs checkbox once
+    inlineRefsCheck.addEventListener('change', function() {
+      inlineRefsEnabled = inlineRefsCheck.checked;
+      if (currentExplored) renderInterface(currentExplored);
+    });
+
     /** Render the Interface tab into its container element. */
     function renderInterface(name) {
       explorerIface.innerHTML = renderInterfaceHtml(name);
+      inlineRefsCheck.checked = inlineRefsEnabled;
     }
 
     // Copy handler
@@ -680,7 +688,7 @@
     graphContainer.addEventListener('click', e => {
       const node = e.target.closest('.graph-node');
       if (node && node.dataset.def && defs[node.dataset.def]) {
-        location.hash = '#' + node.dataset.def;
+        if (decodeURIComponent(location.hash) !== '#' + node.dataset.def) location.hash = '#' + node.dataset.def;
         renderExplorer(node.dataset.def);
       }
     });
@@ -703,6 +711,7 @@
       explorerPanel.style.width = '';
       currentExplored = null;
       currentMode = null;
+      ifaceToggleLabel.style.display = 'none';
     }
 
     handle1.addEventListener('mousedown', e => {
@@ -811,13 +820,10 @@
       if (btn) {
         e.preventDefault();
         const name = btn.dataset.def;
-        if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'explore') {
-          closeExplorer();
-        } else {
-          renderExplorer(name);
-          setExplorerMode('explore');
-          openExplorer();
-        }
+        if (decodeURIComponent(location.hash) !== '#' + name) location.hash = '#' + name;
+        renderExplorer(name);
+        setExplorerMode('explore');
+        openExplorer();
         return;
       }
       // Suggest code button click
@@ -825,13 +831,10 @@
       if (sbtn) {
         e.preventDefault();
         const name = sbtn.dataset.def;
-        if (document.body.classList.contains('explorer-open') && currentExplored === name && currentMode === 'code') {
-          closeExplorer();
-        } else {
-          renderExplorer(name);
-          setExplorerMode('code');
-          openExplorer();
-        }
+        if (decodeURIComponent(location.hash) !== '#' + name) location.hash = '#' + name;
+        renderExplorer(name);
+        setExplorerMode('code');
+        openExplorer();
         return;
       }
       // Type link click inside explorer panel
@@ -849,3 +852,7 @@
     });
 
     document.getElementById('explorerClose').addEventListener('click', closeExplorer);
+
+    // Remove loading overlay — all DOM queries and setup are done
+    var _loadingOverlay = document.getElementById('loadingOverlay');
+    if (_loadingOverlay) _loadingOverlay.remove();

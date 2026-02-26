@@ -31,7 +31,12 @@ docs: $(GEN)/$(ASSEMBLY)/docs/index.html
 
 # ── Schema HTML viewer ────────────────────────────────────────────────────────
 
-$(GEN)/$(ASSEMBLY)/netex-schema.html: $(GEN)/$(ASSEMBLY)/$(ASSEMBLY).schema.json
+SCHEMA_HTML_SRCS := typescript/scripts/build-schema-html.ts \
+	typescript/scripts/lib/schema-viewer-fns.ts \
+	typescript/scripts/lib/schema-viewer-host-app.js \
+	typescript/scripts/lib/schema-viewer.css
+
+$(GEN)/$(ASSEMBLY)/netex-schema.html: $(GEN)/$(ASSEMBLY)/$(ASSEMBLY).schema.json $(SCHEMA_HTML_SRCS)
 	npx --prefix typescript tsx typescript/scripts/build-schema-html.ts
 
 # ── TypeScript interfaces ─────────────────────────────────────────────────────

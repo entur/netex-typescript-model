@@ -42,6 +42,7 @@ export interface ViaHop {
     | "atom-collapse"
     | "mixed-unwrap"
     | "array-unwrap"
+    | "array-of"
     | "empty-object"
     | "enum"
     | "primitive"
@@ -62,6 +63,8 @@ export interface FlatProperty {
   desc: string;
   origin: string;
   schema: Def;
+  /** When set, this property was inlined from a 1-to-1 $ref member with this tsName. */
+  inlinedFrom?: string;
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -303,13 +306,16 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
     }
   }
 
-  // Enum
-  if (def.enum)
+  // Enum — stamped enumerations stop at the name; unstamped expand to literal union
+  if (def.enum) {
+    if (def["x-netex-role"] === "enumeration")
+      return { ts: name, complex: false, via: [{ name, rule: "enum" }] };
     return {
       ts: def.enum.map((v: unknown) => JSON.stringify(v)).join(" | "),
       complex: false,
       via: [{ name, rule: "enum" }],
     };
+  }
 
   // anyOf union — branches diverge, no single linear chain
   if (def.anyOf) {
@@ -329,16 +335,30 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
     };
   }
 
+  // Check x-netex-atom annotation — stamps take precedence over structural inference
+  const atom = def["x-netex-atom"];
+  if (atom === "array" && def.type === "array" && def.items) {
+    const itemShape = classifySchema(def.items);
+    if (itemShape.kind === "ref") {
+      const inner = resolveDefType(defs, itemShape.target, new Set(visited));
+      return withHop(
+        { ts: inner.ts + "[]", complex: inner.complex, via: inner.via },
+        name,
+        "array-of",
+      );
+    }
+    const itemType = itemShape.kind === "primitive" ? itemShape.type : "any";
+    return { ts: itemType + "[]", complex: false, via: [{ name, rule: "array-of" }] };
+  }
+  // Single-prop simpleContent wrappers collapse to primitive
+  if (typeof atom === "string" && atom !== "simpleObj" && atom !== "array")
+    return { ts: atom, complex: false, via: [{ name, rule: "atom-collapse" }] };
+
   // Primitive (no properties)
   if (def.type && !def.properties && typeof def.type === "string" && def.type !== "object") {
     const fmt = def.format ? " /* " + def.format + " */" : "";
     return { ts: def.type + fmt, complex: false, via: [{ name, rule: "primitive" }] };
   }
-
-  // Check x-netex-atom annotation — single-prop simpleContent wrappers collapse to primitive
-  const atom = def["x-netex-atom"];
-  if (typeof atom === "string" && atom !== "simpleObj")
-    return { ts: atom, complex: false, via: [{ name, rule: "atom-collapse" }] };
 
   // Mixed-content wrapper — resolve as the inner element type array
   const mixedTarget = unwrapMixed(defs, name);
@@ -626,5 +646,82 @@ export function defaultForType(ts: string): string {
 /** Lowercase the first character of a property name (NeTEx props are PascalCase, TS conventions use camelCase). */
 export function lcFirst(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+// ── Inline single-$ref expansion ──────────────────────────────────────────────
+
+/**
+ * Replace 1-to-1 `$ref` properties with the target's inner properties.
+ *
+ * A property is a single-$ref candidate when:
+ * - Its schema is `{ $ref }` or `{ allOf: [{ $ref }] }` (one ref, not array)
+ * - `resolvePropertyType` returns complex and not an array
+ * - The resolved target's role is neither `"collection"` nor `"reference"`
+ *
+ * For each candidate, the target's properties (from `flattenAllOf`) replace
+ * the original entry. Inner prop names that collide with existing names get
+ * prefixed with `parentProp_`.
+ */
+export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatProperty[] {
+  // Identify candidate indices
+  const candidates: { idx: number; targetName: string }[] = [];
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i];
+    const shape = classifySchema(p.schema);
+    if (shape.kind !== "ref") continue;
+    const resolved = resolvePropertyType(defs, p.schema);
+    if (!resolved.complex || resolved.ts.endsWith("[]")) continue;
+    const targetDef = defs[resolved.ts];
+    if (!targetDef) continue;
+    const role = defRole(targetDef);
+    if (role === "collection" || role === "reference") continue;
+    if (targetDef["x-netex-atom"]) continue;
+    candidates.push({ idx: i, targetName: resolved.ts });
+  }
+
+  if (candidates.length === 0) return props;
+
+  // Build set of taken names from non-candidate props
+  const candidateIndices = new Set(candidates.map((c) => c.idx));
+  const takenNames = new Set<string>();
+  for (let i = 0; i < props.length; i++) {
+    if (!candidateIndices.has(i)) takenNames.add(props[i].prop[1]);
+  }
+
+  // Collect parent chain origins (before inlining) — skip props that are
+  // themselves candidates so we only capture the inherited ancestor origins.
+  const parentOrigins = new Set<string>();
+  for (let i = 0; i < props.length; i++) {
+    if (!candidateIndices.has(i) && props[i].origin) parentOrigins.add(props[i].origin);
+  }
+
+  // Build result, replacing candidates with their inner props
+  const result: FlatProperty[] = [];
+  let nextCandidate = 0;
+  for (let i = 0; i < props.length; i++) {
+    if (nextCandidate < candidates.length && candidates[nextCandidate].idx === i) {
+      const cand = candidates[nextCandidate++];
+      const parentTsName = props[i].prop[1];
+      const innerProps = flattenAllOf(defs, cand.targetName);
+      for (const ip of innerProps) {
+        // Skip props whose origin is already in the parent chain (shared ancestor)
+        if (ip.origin && parentOrigins.has(ip.origin)) continue;
+        const baseName = ip.prop[1];
+        const chosenName = takenNames.has(baseName) ? parentTsName + "_" + baseName : baseName;
+        takenNames.add(chosenName);
+        result.push({
+          prop: [chosenName, chosenName],
+          type: ip.type,
+          desc: ip.desc,
+          origin: ip.origin,
+          schema: ip.schema,
+          inlinedFrom: parentTsName,
+        });
+      }
+    } else {
+      result.push(props[i]);
+    }
+  }
+  return result;
 }
 

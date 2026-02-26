@@ -165,7 +165,8 @@ function buildViewerFnsScript(): string {
         defRole: defRole,
         defaultForType: defaultForType,
         lcFirst: lcFirst,
-        buildInheritanceChain: buildInheritanceChain
+        buildInheritanceChain: buildInheritanceChain,
+        inlineSingleRefs: inlineSingleRefs
       };
     })();
 
@@ -180,6 +181,7 @@ function buildViewerFnsScript(): string {
     function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
 
+    function inlineSingleRefs(props) { return _fns.inlineSingleRefs(defs, props); }
     function defRole(name) { return _fns.defRole(defs[name]); }
     function buildInheritanceChain(n) { return _fns.buildInheritanceChain(defs, n); }
     var _reverseIdx = null;
@@ -216,6 +218,11 @@ ${css}
   </style>
 </head>
 <body>
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Loading ${defNames.length} definitions\u2026</div>
+  </div>
+
   <button class="sidebar-toggle" id="sidebarToggle">Definitions</button>
 
   <nav class="sidebar" id="sidebar">
@@ -258,6 +265,7 @@ ${sections}
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
+    <label class="iface-toggle" id="ifaceToggleLabel" style="display:none"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
     <div class="explorer-tab-content" id="explorerUtils"></div>
