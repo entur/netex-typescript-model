@@ -1021,6 +1021,234 @@ class XsdToJsonSchema {
   }
 }
 
+// ── Sub-graph extraction ──────────────────────────────────────────────────────
+
+/**
+ * Prune a schema to only the definitions transitively reachable from `rootName`.
+ * Walks every $ref in the object tree starting from the root definition,
+ * collecting the transitive closure. Returns a new schema with only those
+ * definitions (originals are shared, not cloned).
+ */
+function pruneToSubGraph(schema, rootName) {
+  const defs = schema.definitions;
+  if (!defs[rootName]) {
+    throw new Error(`--sub-graph root '${rootName}' not found in definitions`);
+  }
+
+  const reachable = new Set();
+  const queue = [rootName];
+
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (reachable.has(name)) continue;
+    if (!defs[name]) continue;
+    reachable.add(name);
+
+    // Walk the definition's object tree for $ref strings
+    const objQueue = [defs[name]];
+    const visited = new Set();
+    while (objQueue.length > 0) {
+      const obj = objQueue.pop();
+      if (typeof obj !== "object" || obj === null) continue;
+      if (visited.has(obj)) continue;
+      visited.add(obj);
+      for (const [key, val] of Object.entries(obj)) {
+        if (key === "$ref" && typeof val === "string" && val.startsWith("#/definitions/")) {
+          const target = val.substring("#/definitions/".length);
+          if (!reachable.has(target)) queue.push(target);
+        }
+        if (typeof val === "object" && val !== null) objQueue.push(val);
+      }
+    }
+  }
+
+  const pruned = {};
+  for (const name of reachable) {
+    pruned[name] = defs[name];
+  }
+
+  return {
+    $schema: schema.$schema,
+    "x-netex-assembly": schema["x-netex-assembly"],
+    "x-netex-sub-graph-root": rootName,
+    definitions: pruned,
+  };
+}
+
+// ── Transparent wrapper collapsing ────────────────────────────────────────────
+
+/**
+ * Detect if a definition is a transparent wrapper — a lone $ref with no own
+ * structural content. Returns the target name or null.
+ *
+ * Pattern 1: { $ref: "#/definitions/X", description?, x-netex-*? }
+ * Pattern 2: { allOf: [{ $ref: "#/definitions/X" }], description?, x-netex-*? }
+ */
+function isTransparent(def) {
+  if (typeof def !== "object" || def === null) return null;
+
+  const STRUCTURAL_KEYS = ["properties", "type", "enum", "items", "required", "anyOf", "oneOf"];
+  for (const key of STRUCTURAL_KEYS) {
+    if (def[key] !== undefined) return null;
+  }
+
+  // Pattern 1: direct $ref
+  if (def.$ref && typeof def.$ref === "string" && def.$ref.startsWith("#/definitions/")) {
+    return def.$ref.substring("#/definitions/".length);
+  }
+
+  // Pattern 2: allOf with a single $ref entry and no structural entries
+  if (Array.isArray(def.allOf)) {
+    const refs = [];
+    for (const entry of def.allOf) {
+      if (entry.$ref && typeof entry.$ref === "string" && entry.$ref.startsWith("#/definitions/")) {
+        refs.push(entry.$ref.substring("#/definitions/".length));
+      } else {
+        // Non-$ref entry — check for structural content
+        for (const key of STRUCTURAL_KEYS) {
+          if (entry[key] !== undefined) return null;
+        }
+      }
+    }
+    if (refs.length === 1) return refs[0];
+  }
+
+  return null;
+}
+
+/**
+ * Walk all definitions and count how many times each definition name is
+ * referenced via $ref. Returns a Map<targetName, count>.
+ */
+function buildRefCounts(defs) {
+  const counts = {};
+  for (const [, def] of Object.entries(defs)) {
+    const queue = [def];
+    const visited = new Set();
+    while (queue.length > 0) {
+      const obj = queue.pop();
+      if (typeof obj !== "object" || obj === null) continue;
+      if (visited.has(obj)) continue;
+      visited.add(obj);
+      for (const [key, val] of Object.entries(obj)) {
+        if (key === "$ref" && typeof val === "string" && val.startsWith("#/definitions/")) {
+          const target = val.substring("#/definitions/".length);
+          counts[target] = (counts[target] || 0) + 1;
+        }
+        if (typeof val === "object" && val !== null) queue.push(val);
+      }
+    }
+  }
+  return counts;
+}
+
+/**
+ * Collapse transparent wrappers in the schema. A transparent wrapper is a
+ * definition that is just a $ref alias to another type. When the target has
+ * exactly 1 referrer (the wrapper), the target's content is absorbed into
+ * the wrapper and the target is removed.
+ *
+ * Iterates until stable to handle chains (A → B → C).
+ * Returns the modified schema.
+ */
+function collapseTransparent(schema) {
+  const defs = schema.definitions;
+  let totalCollapsed = 0;
+
+  for (let iteration = 0; ; iteration++) {
+    // 1. Find all transparent defs
+    const transparent = {}; // wrapperName → targetName
+    for (const [name, def] of Object.entries(defs)) {
+      const target = isTransparent(def);
+      if (target && defs[target]) {
+        transparent[name] = target;
+      }
+    }
+
+    if (Object.keys(transparent).length === 0) break;
+
+    // 2. Build ref counts
+    const refCounts = buildRefCounts(defs);
+
+    // 3. Collapse where target has exactly 1 referrer
+    let collapsedThisIteration = 0;
+    for (const [wrapperName, targetName] of Object.entries(transparent)) {
+      const count = refCounts[targetName] || 0;
+      if (count > 1) {
+        print(`WARN: DE_NORM_GIVES_DUPLICATIONS: ${wrapperName} -> ${targetName} (referenced by ${count} defs, skipping)`);
+        continue;
+      }
+
+      const wrapper = defs[wrapperName];
+      const target = defs[targetName];
+
+      // Guard: wrapper or target may have been deleted earlier in this iteration
+      if (!wrapper || !target) continue;
+
+      // Keep wrapper's metadata
+      const wrapperDesc = wrapper.description;
+      const wrapperSource = wrapper["x-netex-source"];
+
+      // Structural keys to copy from target
+      const COPY_KEYS = [
+        "allOf", "properties", "type", "enum", "items", "required",
+        "anyOf", "oneOf", "pattern", "minimum", "maximum",
+        "minLength", "maxLength", "format",
+      ];
+
+      // Remove wrapper's $ref or allOf (unwrap pattern 1 or 2)
+      delete wrapper.$ref;
+      delete wrapper.allOf;
+
+      // Copy structural keys from target
+      for (const key of COPY_KEYS) {
+        if (target[key] !== undefined) {
+          wrapper[key] = target[key];
+        }
+      }
+
+      // Description: prefer wrapper's, fall back to target's
+      if (wrapperDesc) {
+        wrapper.description = wrapperDesc;
+      } else if (target.description) {
+        wrapper.description = target.description;
+      }
+
+      // Keep wrapper's x-netex-source
+      if (wrapperSource) {
+        wrapper["x-netex-source"] = wrapperSource;
+      }
+
+      // Inherit annotations from target if not on wrapper
+      const ANNOTATIONS = ["x-netex-role", "x-netex-atom", "x-netex-mixed", "x-netex-frames"];
+      for (const ann of ANNOTATIONS) {
+        if (wrapper[ann] === undefined && target[ann] !== undefined) {
+          wrapper[ann] = target[ann];
+        }
+      }
+
+      // Stamp reduction annotation
+      wrapper["x-netex-reduced"] = [targetName];
+
+      // Delete target
+      delete defs[targetName];
+      collapsedThisIteration++;
+    }
+
+    totalCollapsed += collapsedThisIteration;
+    if (collapsedThisIteration === 0) break;
+
+    print(`  collapse iteration ${iteration + 1}: ${collapsedThisIteration} collapsed`);
+  }
+
+  if (totalCollapsed > 0) {
+    schema["x-netex-collapsed"] = totalCollapsed;
+    print(`Collapsed ${totalCollapsed} transparent wrappers`);
+  }
+
+  return schema;
+}
+
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const REQUIRED_PARTS = ["framework", "gml", "siri", "service"];
@@ -1103,12 +1331,18 @@ function main() {
     }
   }
 
-  // Separate positional args from --parts flag
+  // Separate positional args from flags
   const positional = [];
   let cliParts = [];
+  let subGraphRoot = null;
+  let collapseEnabled = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--parts" && args[i + 1]) {
       cliParts = args[++i].split(",");
+    } else if (args[i] === "--sub-graph" && args[i + 1]) {
+      subGraphRoot = args[++i];
+    } else if (args[i] === "--collapse") {
+      collapseEnabled = true;
     } else {
       positional.push(args[i]);
     }
@@ -1116,12 +1350,14 @@ function main() {
 
   if (positional.length < 2) {
     print(
-      "Usage: js --jvm xsd-to-jsonschema.js <xsdRoot> <outDir> [configPath] [--parts <key,key,...>]",
+      "Usage: js --jvm xsd-to-jsonschema.js <xsdRoot> <outDir> [configPath] [--parts <key,...>] [--sub-graph <TypeName>] [--collapse]",
     );
-    print("  xsdRoot    - path to the versioned XSD directory (e.g. ../xsd/2.0)");
-    print("  outDir     - output directory for ASSEMBLY.schema.json");
-    print("  configPath - optional path to config.json (for part filtering)");
-    print("  --parts    - optional comma-separated list of parts to enable");
+    print("  xsdRoot      - path to the versioned XSD directory (e.g. ../xsd/2.0)");
+    print("  outDir       - output directory for ASSEMBLY.schema.json");
+    print("  configPath   - optional path to config.json (for part filtering)");
+    print("  --parts      - optional comma-separated list of parts to enable");
+    print("  --sub-graph  - prune output to definitions reachable from TypeName");
+    print("  --collapse   - collapse transparent wrappers (only with --sub-graph)");
     java.lang.System.exit(1);
   }
 
@@ -1202,16 +1438,27 @@ function main() {
     ? (sourceFile) => isEnabledPath(sourceFile, enabledDirList, enabledRootXsdList)
     : null;
 
-  const schema = converter.toJsonSchema(filter);
+  let schema = converter.toJsonSchema(filter);
   schema["x-netex-assembly"] = assembly;
-  const defCount = Object.keys(schema.definitions || {}).length;
-  print(`${defCount} definitions in filtered schema`);
+  const fullCount = Object.keys(schema.definitions || {}).length;
+  print(`${fullCount} definitions in filtered schema`);
+
+  if (subGraphRoot) {
+    schema = pruneToSubGraph(schema, subGraphRoot);
+    const prunedCount = Object.keys(schema.definitions).length;
+    print(`Sub-graph '${subGraphRoot}': ${prunedCount} reachable definitions (pruned ${fullCount - prunedCount})`);
+    if (collapseEnabled) {
+      schema = collapseTransparent(schema);
+    }
+  }
 
   const outPath = Paths.get(outDir);
   if (!Files.exists(outPath)) {
     Files.createDirectories(outPath);
   }
-  const outFile = outPath.resolve(`${assembly}.schema.json`);
+  const tinyTag = collapseEnabled ? "@tiny" : "";
+  const fileName = subGraphRoot ? `${assembly}@${subGraphRoot}${tinyTag}.schema.json` : `${assembly}.schema.json`;
+  const outFile = outPath.resolve(fileName);
   const json = JSON.stringify(schema, null, 2);
   Files.writeString(outFile, json, StandardCharsets.UTF_8);
   print(`\nWritten to ${outFile.toString()}`);

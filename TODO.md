@@ -54,9 +54,9 @@ Build a TypeScript parser that can read NeTEx XML documents into the generated i
 
 `build-docs-index.ts` generates the GitHub Pages welcome page. It has hardcoded assembly descriptions and no connection to releases. Improve:
 
-- **Derive assembly descriptions from config** — `assembly-config.json` already has part metadata; generate descriptions from part keys and their enabled state instead of the hardcoded `ASSEMBLY_DESCRIPTIONS` map
+- ~~**Derive assembly descriptions from config**~~ — Done. Descriptions derived from config part metadata for full assemblies, and from root definition `description` for sub-graph assemblies. Root stamps (`x-netex-assembly`, `x-netex-sub-graph-root`, `x-netex-collapsed`) extracted from schema JSON and displayed as chips.
 - **Link to GitHub Releases** — the welcome page should link to the latest release tarball for each assembly (the release workflow already produces `netex-<version>-<assembly>-v<tag>.tgz` artifacts). Use the GitHub API or a static convention to construct download links
-- **Show NeTEx version** — read `netex.version` from config and display it prominently on the landing page
+- ~~**Show NeTEx version**~~ — Done. Already reads `netex.version` from config and displays in subtitle.
 - **Reduce template hardcoding** — the inline HTML/CSS is a long string literal; extract into a template file (same pattern as the `build-schema-html.ts` TODO)
 
 ## Quality-improve build-schema-html.ts

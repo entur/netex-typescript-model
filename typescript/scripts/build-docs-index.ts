@@ -4,6 +4,10 @@
  * 1. Copies each assembly's TypeDoc output into docs-site/<assembly>/
  * 2. Generates a welcome index.html listing all assemblies with descriptions.
  *
+ * Descriptions and metadata are derived from root-level stamps in each
+ * assembly's JSON Schema file (x-netex-assembly, x-netex-sub-graph-root,
+ * x-netex-collapsed) and from assembly-config.json part descriptions.
+ *
  * Usage: npx tsx scripts/build-docs-index.ts
  */
 
@@ -23,20 +27,63 @@ const configDir = dirname(CONFIG_PATH);
 const generatedBase = resolve(configDir, config.paths.generated);
 const siteDir = resolve(configDir, "docs-site");
 
-// Descriptions for each assembly, derived from config parts
-const ASSEMBLY_DESCRIPTIONS: Record<string, string> = {
-  base: "Framework types, SIRI, GML, and service definitions — the required foundation for all NeTEx profiles.",
-  network:
-    "Part 1 — Network topology: routes, lines, stop places, scheduled stop points, timing patterns.",
-  timetable:
-    "Part 2 — Timetables: service journeys, vehicle services, dated calls, passing times.",
-  fares:
-    "Part 3 — Fares: fare products, pricing, distribution, sales transactions.",
-  "new-modes":
-    "Part 5 — New modes: mobility services, vehicle meeting points, shared mobility.",
-  "network+timetable":
-    "Parts 1+2 — Network topology and timetables: routes, lines, stop places, service journeys, passing times.",
+// Natural names for config part keys (same as xsd-to-jsonschema.js)
+const NATURAL_NAMES: Record<string, string> = {
+  part1_network: "network",
+  part2_timetable: "timetable",
+  part3_fares: "fares",
+  part5_new_modes: "new-modes",
 };
+
+// Reverse: natural name → config key
+const REVERSE_NAMES: Record<string, string> = {};
+for (const [key, name] of Object.entries(NATURAL_NAMES)) {
+  REVERSE_NAMES[name] = key;
+}
+
+/** Build a description from the assembly name by looking up config parts. */
+function describeAssembly(assemblyName: string): string {
+  if (assemblyName === "base") {
+    return "Framework types, SIRI, GML, and service definitions — the required foundation for all NeTEx profiles.";
+  }
+  const partNames = assemblyName.split("+");
+  const descriptions: string[] = [];
+  for (const name of partNames) {
+    const configKey = REVERSE_NAMES[name] ?? name;
+    const part = config.parts[configKey];
+    if (part?.description) {
+      descriptions.push(part.description);
+    }
+  }
+  if (descriptions.length > 0) return descriptions.join(" ");
+  return "";
+}
+
+interface SchemaStamps {
+  assembly: string;
+  subGraphRoot: string | null;
+  collapsed: number | null;
+  rootDescription: string | null;
+}
+
+/** Extract root-level stamps and root definition description from a schema. */
+function extractSchemaStamps(schemaPath: string): SchemaStamps | null {
+  try {
+    const schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
+    const assembly = schema["x-netex-assembly"] ?? "";
+    const subGraphRoot = schema["x-netex-sub-graph-root"] ?? null;
+    const collapsed = schema["x-netex-collapsed"] ?? null;
+
+    let rootDescription: string | null = null;
+    if (subGraphRoot && schema.definitions?.[subGraphRoot]) {
+      rootDescription = schema.definitions[subGraphRoot].description ?? null;
+    }
+
+    return { assembly, subGraphRoot, collapsed, rootDescription };
+  } catch {
+    return null;
+  }
+}
 
 interface AssemblyInfo {
   name: string;
@@ -44,6 +91,7 @@ interface AssemblyInfo {
   moduleCount: number;
   definitionCount: number;
   hasSchemaHtml: boolean;
+  stamps: SchemaStamps | null;
 }
 
 // Discover assemblies that have docs/ output
@@ -68,25 +116,40 @@ for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
     ).length;
   }
 
-  // Count definitions from JSON Schema
-  let definitionCount = 0;
+  // Find schema file and extract stamps + definition count
   const assemblyDir = join(generatedBase, entry.name);
   const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
+  let definitionCount = 0;
+  let stamps: SchemaStamps | null = null;
+
   if (schemaFile) {
+    const schemaPath = join(assemblyDir, schemaFile);
+    stamps = extractSchemaStamps(schemaPath);
     try {
-      const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
+      const schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
       definitionCount = Object.keys(schema.definitions ?? {}).length;
     } catch {
       // ignore parse errors
     }
   }
 
+  // Build description: sub-graph → root definition description, else → config parts
+  let description: string;
+  if (stamps?.subGraphRoot && stamps.rootDescription) {
+    description = stamps.rootDescription;
+  } else if (stamps?.assembly) {
+    description = describeAssembly(stamps.assembly);
+  } else {
+    description = describeAssembly(entry.name);
+  }
+
   assemblies.push({
     name: entry.name,
-    description: ASSEMBLY_DESCRIPTIONS[entry.name] ?? "",
+    description,
     moduleCount,
     definitionCount,
     hasSchemaHtml: false,
+    stamps,
   });
 }
 
@@ -95,10 +158,13 @@ if (assemblies.length === 0) {
   process.exit(1);
 }
 
-// Sort: base first, then alphabetically
+// Sort: base first, then full assemblies, then sub-graphs alphabetically
 assemblies.sort((a, b) => {
   if (a.name === "base") return -1;
   if (b.name === "base") return 1;
+  const aIsSub = a.stamps?.subGraphRoot != null;
+  const bIsSub = b.stamps?.subGraphRoot != null;
+  if (aIsSub !== bIsSub) return aIsSub ? 1 : -1;
   return a.name.localeCompare(b.name);
 });
 
@@ -126,19 +192,27 @@ const branch = config.netex.branch;
 
 const assemblyCards = assemblies
   .map((s) => {
-    const stats = [
-      s.definitionCount > 0 ? `${s.definitionCount.toLocaleString()} types` : "",
-      s.moduleCount > 0 ? `${s.moduleCount} modules` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const statParts: string[] = [];
+    if (s.definitionCount > 0) statParts.push(`${s.definitionCount.toLocaleString()} types`);
+    if (s.moduleCount > 0) statParts.push(`${s.moduleCount} modules`);
+    if (s.stamps?.collapsed != null) statParts.push(`${s.stamps.collapsed} collapsed`);
+    const stats = statParts.join(" · ");
 
     const schemaLink = s.hasSchemaHtml
       ? `<a href="./${s.name}/netex-schema.html" class="card-link">JSON Schema</a>`
       : "";
 
+    // Chips for sub-graph and collapsed
+    let chips = "";
+    if (s.stamps?.subGraphRoot) {
+      chips += `<span class="chip-subgraph">sub-graph: ${s.stamps.subGraphRoot}</span>`;
+    }
+    if (s.stamps?.collapsed != null) {
+      chips += `<span class="chip-collapsed">collapsed</span>`;
+    }
+
     return `      <div class="card">
-        <h2>${s.name}</h2>
+        <h2>${s.name}${chips}</h2>
         <p>${s.description}</p>
         ${stats ? `<span class="stats">${stats}</span>` : ""}
         <div class="card-links">
@@ -252,11 +326,47 @@ const html = `<!DOCTYPE html>
       margin-left: 0.5rem;
       vertical-align: middle;
     }
+    .chip-subgraph {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: #1565c0;
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      border-radius: 1rem;
+      padding: 0.1rem 0.55rem;
+      margin-left: 0.4rem;
+      vertical-align: middle;
+      font-family: system-ui, sans-serif;
+    }
+    .chip-collapsed {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: #2e7d32;
+      background: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      border-radius: 1rem;
+      padding: 0.1rem 0.55rem;
+      margin-left: 0.4rem;
+      vertical-align: middle;
+      font-family: system-ui, sans-serif;
+    }
     @media (prefers-color-scheme: dark) {
       .chip-experimental {
         color: #ffb74d;
         background: rgba(255,167,38,0.12);
         border-color: rgba(255,167,38,0.3);
+      }
+      .chip-subgraph {
+        color: #90caf9;
+        background: rgba(33,150,243,0.12);
+        border-color: rgba(33,150,243,0.3);
+      }
+      .chip-collapsed {
+        color: #81c784;
+        background: rgba(76,175,80,0.12);
+        border-color: rgba(76,175,80,0.3);
       }
     }
     footer {

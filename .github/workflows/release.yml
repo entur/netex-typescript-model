@@ -37,6 +37,9 @@ jobs:
       - name: Build network+timetable assembly
         run: make all tarball ASSEMBLY=network+timetable VERSION=${{ steps.version.outputs.value }}
 
+      - name: Build base@ResourceFrame@tiny sub-graph
+        run: make all tarball SUB_GRAPH=ResourceFrame COLLAPSE=1 VERSION=${{ steps.version.outputs.value }}
+
       - name: Run tests
         working-directory: typescript
         run: npx vitest run

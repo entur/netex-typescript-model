@@ -72,8 +72,8 @@ npm run docs               # generate TypeDoc HTML per assembly (requires genera
 - `scripts/generate-docs.ts` — generates TypeDoc HTML documentation per assembly. Discovers assemblies in `generated-src/`, creates an assembly-specific README for the landing page, runs TypeDoc on the split module files. Output: `generated-src/<assembly>/docs/` (gitignored)
 - `scripts/build-schema-html.ts` — generates a self-contained HTML viewer per assembly from `generated-src/<assembly>/<assembly>.schema.json`. Assembles the page from three extracted files: `schema-viewer.css` (embedded in `<style>`), `schema-viewer-fns.ts` (transpiled to JS, wrapped in an IIFE with bound wrappers, spliced into `/*@@VIEWER_FNS@@*/`), and `schema-viewer-host-app.js` (embedded in `<script>`). Also generates the HTML structure: sidebar with search and role-based filter chips, per-definition sections with permalink anchors, syntax-highlighted JSON with clickable `$ref` links, explorer panel, role help popup. Output: `generated-src/<assembly>/netex-schema.html`
 - `scripts/build-docs-index.ts` — assembles a `docs-site/` directory for GitHub Pages deployment. Copies each assembly's TypeDoc output and schema HTML into `docs-site/<assembly>/` and generates a welcome `index.html` listing all assemblies with descriptions, stats, and links to both TypeDoc and JSON Schema viewer
-- `.github/workflows/docs.yml` — CI workflow that builds `base` and `network+timetable` assemblies via `make all`, then deploys TypeDoc + schema HTML to GitHub Pages
-- `.github/workflows/release.yml` — tag-triggered (`v*`) release workflow: builds assemblies, packages `.tgz` tarballs, creates GitHub Release
+- `.github/workflows/docs.yml` — CI workflow that builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` assemblies via `make all`, then deploys TypeDoc + schema HTML to GitHub Pages
+- `.github/workflows/release.yml` — tag-triggered (`v*`) release workflow: builds the same assemblies, packages `.tgz` tarballs, creates GitHub Release
 
 ### json-schema/
 
@@ -103,7 +103,7 @@ Generated output is written to `generated-src/<assembly>/` where the assembly na
 - `fares+network` — base + part1_network + part3_fares
 - etc.
 
-The CI workflow (`docs.yml`) builds `base` and `network+timetable` assemblies. The release workflow (`release.yml`) builds the same assemblies and packages them as tarballs on `v*` tag push.
+The CI workflow (`docs.yml`) builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` (collapsed sub-graph) assemblies. The release workflow (`release.yml`) builds the same assemblies and packages them as tarballs on `v*` tag push.
 
 ### Generation Pipeline
 

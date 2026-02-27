@@ -41,6 +41,9 @@ jobs:
       - name: Build network+timetable assembly
         run: make all ASSEMBLY=network+timetable
 
+      - name: Build base@ResourceFrame@tiny sub-graph
+        run: make all SUB_GRAPH=ResourceFrame COLLAPSE=1
+
       - name: Run tests
         working-directory: typescript
         run: npx vitest run
