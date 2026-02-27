@@ -1,7 +1,7 @@
 {
   "netex": {
     "version": "2.0",
-    "branch": "next",
+    "branch": "v2.0",
     "repoName": "NeTEx",
     "githubUrl": "https://github.com/NeTEx-CEN/NeTEx",
     "entryXsd": "NeTEx_publication.xsd"

@@ -19,7 +19,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <graaljs.version>24.1.2</graaljs.version>
     <netex.version>2.0</netex.version>
-    <netex.branch>next</netex.branch>
+    <netex.branch>v2.0</netex.branch>
     <netex.repoName>NeTEx</netex.repoName>
     <netex.githubUrl>https://github.com/NeTEx-CEN/NeTEx</netex.githubUrl>
     <xsd.dest>${project.basedir}/../xsd/${netex.version}</xsd.dest>
@@ -67,6 +67,9 @@
             <goals><goal>run</goal></goals>
             <configuration>
               <target>
+                <!-- GitHub may mangle the branch name in the archive prefix
+                     (e.g. branch "v2.0" produces prefix "NeTEx-2.0/"), so we
+                     match any top-level directory containing an xsd/ subtree. -->
                 <get src="${netex.githubUrl}/archive/refs/heads/${netex.branch}.zip"
                      dest="${project.build.directory}/${netex.repoName}-${netex.branch}.zip"
                      skipexisting="true"/>
@@ -75,11 +78,9 @@
                 <unzip src="${project.build.directory}/${netex.repoName}-${netex.branch}.zip"
                        dest="${xsd.dest}">
                   <patternset>
-                    <include name="${netex.repoName}-${netex.branch}/xsd/**"/>
+                    <include name="*/xsd/**"/>
                   </patternset>
-                  <mapper type="glob"
-                          from="${netex.repoName}-${netex.branch}/xsd/*"
-                          to="*"/>
+                  <regexpmapper from="^[^/]+/xsd/(.+)$$" to="\1"/>
                 </unzip>
               </target>
             </configuration>
