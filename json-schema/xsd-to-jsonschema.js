@@ -157,6 +157,7 @@ class XsdToJsonSchema {
     this.rawElements = [];
 
     this.elementMeta = {}; // name → { abstract, substitutionGroup }
+    this.sgMembers = {}; // head name → [member names]
 
     this.converted = false;
     this.warnings = [];
@@ -297,10 +298,13 @@ class XsdToJsonSchema {
       }
     }
 
-    // Pass 3: classify definitions by role
+    // Pass 3: build substitution group reverse map
+    this.buildSubstitutionGroupRegistry();
+
+    // Pass 4: classify definitions by role
     this.classifyDefinitions();
 
-    // Pass 4: annotate atoms (needs roles to gate inherited types)
+    // Pass 5: annotate atoms (needs roles to gate inherited types)
     this.annotateAtoms();
   }
 
@@ -782,6 +786,21 @@ class XsdToJsonSchema {
     return null;
   }
 
+  // ── Substitution group registry ─────────────────────────────────────────
+
+  buildSubstitutionGroupRegistry() {
+    this.sgMembers = {};
+    for (const [name, meta] of Object.entries(this.elementMeta)) {
+      if (!meta.substitutionGroup) continue;
+      const head = meta.substitutionGroup;
+      if (!this.sgMembers[head]) this.sgMembers[head] = [];
+      this.sgMembers[head].push(name);
+    }
+    for (const members of Object.values(this.sgMembers)) {
+      members.sort();
+    }
+  }
+
   // ── Role classification ──────────────────────────────────────────────────
 
   loadFrameRegistry(jsonPath) {
@@ -913,6 +932,19 @@ class XsdToJsonSchema {
 
       if (role) {
         schema["x-netex-role"] = role;
+      }
+    }
+
+    // Stamp substitution group annotations
+    for (const [name, def] of Object.entries(allDefs)) {
+      const schema = def.schema || def;
+      const meta = this.elementMeta[name];
+      if (meta?.substitutionGroup) {
+        schema["x-netex-substitutionGroup"] = meta.substitutionGroup;
+      }
+      const members = this.sgMembers[name];
+      if (members?.length) {
+        schema["x-netex-sg-members"] = members;
       }
     }
   }
@@ -1058,6 +1090,14 @@ function pruneToSubGraph(schema, rootName) {
           if (!reachable.has(target)) queue.push(target);
         }
         if (typeof val === "object" && val !== null) objQueue.push(val);
+      }
+    }
+
+    // Follow substitution group edges
+    const sgMembers = defs[name]?.["x-netex-sg-members"];
+    if (Array.isArray(sgMembers)) {
+      for (const member of sgMembers) {
+        if (!reachable.has(member)) queue.push(member);
       }
     }
   }
@@ -1220,7 +1260,7 @@ function collapseTransparent(schema) {
       }
 
       // Inherit annotations from target if not on wrapper
-      const ANNOTATIONS = ["x-netex-role", "x-netex-atom", "x-netex-mixed", "x-netex-frames"];
+      const ANNOTATIONS = ["x-netex-role", "x-netex-atom", "x-netex-mixed", "x-netex-frames", "x-netex-substitutionGroup", "x-netex-sg-members"];
       for (const ann of ANNOTATIONS) {
         if (wrapper[ann] === undefined && target[ann] !== undefined) {
           wrapper[ann] = target[ann];
