@@ -259,7 +259,7 @@ ${sections}
     <div class="explorer-tabs">
       <button class="explorer-tab active" data-tab="props">Properties</button>
       <button class="explorer-tab" data-tab="graph">Graph</button>
-      <button class="explorer-tab" data-tab="iface">Interface</button>
+      <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">Mapping</button>
       <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
