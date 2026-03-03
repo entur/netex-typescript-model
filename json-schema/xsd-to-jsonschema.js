@@ -24,6 +24,11 @@ const NodeConst = Java.type("org.w3c.dom.Node");
 
 const XSD_NS = "http://www.w3.org/2001/XMLSchema";
 
+// When true, frame-registry entries get a distinct "frameMember" role instead of
+// falling through to "entity".  Currently false — all DMO-based concrete elements
+// are classified as entity, and x-netex-frames is stamped independently of role.
+const DIVERSE_FRAME_MEMBERS = false;
+
 /**
  * Return direct child elements matching the given namespace URI and local name.
  * Does NOT recurse — only immediate children.
@@ -907,10 +912,9 @@ class XsdToJsonSchema {
       else if (this.elementMeta[name]?.abstract) {
         role = "abstract";
       }
-      // 7. Frame member (from registry)
-      else if (this.frameRegistry[name]) {
+      // 7. Frame member (from registry) — separate role only when DIVERSE_FRAME_MEMBERS
+      else if (DIVERSE_FRAME_MEMBERS && this.frameRegistry[name]) {
         role = "frameMember";
-        schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
       }
       // 8. Concrete element with substitutionGroup + DMO ancestry
       else if (
@@ -932,6 +936,14 @@ class XsdToJsonSchema {
 
       if (role) {
         schema["x-netex-role"] = role;
+      }
+    }
+
+    // Stamp frame membership (independent of role — any classified def benefits)
+    for (const [name, entry] of Object.entries(allDefs)) {
+      const schema = entry.schema;
+      if (this.frameRegistry[name]) {
+        schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
       }
     }
 
