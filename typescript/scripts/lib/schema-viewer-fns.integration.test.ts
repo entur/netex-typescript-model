@@ -749,3 +749,43 @@ describe("inlineSingleRefs — VehicleType real schema", () => {
     expect(result.length).toBeGreaterThan(props.length);
   });
 });
+
+// ── x-fixed-single-enum resolution ──────────────────────────────────────────
+
+describe("resolvePropertyType — x-fixed-single-enum (real schema)", () => {
+  it("Operator.nameOfClass with context resolves to string literal", () => {
+    const props = flattenAllOf(defs, "Operator");
+    const noc = props.find((p) => p.prop[0] === "nameOfClass");
+    expect(noc).toBeDefined();
+    expect(noc!.schema["x-fixed-single-enum"]).toBe("NameOfClass");
+    const result = resolvePropertyType(defs, noc!.schema, "Operator");
+    expect(result).toEqual({
+      ts: '"Operator"',
+      complex: false,
+      via: [{ name: "Operator", rule: "fixed-for" }],
+    });
+  });
+
+  it("VehicleType.nameOfClass with context resolves to string literal", () => {
+    const props = flattenAllOf(defs, "VehicleType");
+    const noc = props.find((p) => p.prop[0] === "nameOfClass");
+    expect(noc).toBeDefined();
+    expect(noc!.schema["x-fixed-single-enum"]).toBe("NameOfClass");
+    const result = resolvePropertyType(defs, noc!.schema, "VehicleType");
+    expect(result).toEqual({
+      ts: '"VehicleType"',
+      complex: false,
+      via: [{ name: "VehicleType", rule: "fixed-for" }],
+    });
+  });
+
+  it("nameOfClass without context resolves to NameOfClass enum normally", () => {
+    const props = flattenAllOf(defs, "Operator");
+    const noc = props.find((p) => p.prop[0] === "nameOfClass");
+    expect(noc).toBeDefined();
+    const result = resolvePropertyType(defs, noc!.schema);
+    // Without context, falls through to normal enum resolution
+    expect(result.ts).toBe("NameOfClass");
+    expect(result.via).toEqual([{ name: "NameOfClass", rule: "enum" }]);
+  });
+});

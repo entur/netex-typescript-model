@@ -311,6 +311,9 @@ class XsdToJsonSchema {
 
     // Pass 5: annotate atoms (needs roles to gate inherited types)
     this.annotateAtoms();
+
+    // Pass 6: mark "Fixed for" enum properties
+    this.annotateFixedEnumProperties();
   }
 
   // ── Description extraction ─────────────────────────────────────────────────
@@ -723,6 +726,49 @@ class XsdToJsonSchema {
         schema["x-netex-atom"] = "simpleObj";
       }
     }
+  }
+
+  /**
+   * Stamp `x-fixed-single-enum` on properties whose description says "Fixed for"
+   * and that reference an enumeration definition. The stamp value is the enum
+   * definition name (e.g. "NameOfClass"). The viewer combines this with the
+   * display context to produce a string literal.
+   */
+  annotateFixedEnumProperties() {
+    const allDefs = {};
+    for (const [name, entry] of Object.entries(this.types)) {
+      allDefs[name] = entry.schema;
+    }
+    for (const [name, entry] of Object.entries(this.elements)) {
+      if (!allDefs[name]) allDefs[name] = entry.schema;
+    }
+
+    for (const [, schema] of Object.entries(allDefs)) {
+      const props = schema.properties;
+      if (!props) continue;
+      for (const [, propSchema] of Object.entries(props)) {
+        if (!propSchema.description || !/[Ff]ixed for/.test(propSchema.description)) continue;
+        const refTarget = this.extractRefTarget(propSchema);
+        if (!refTarget) continue;
+        const targetDef = allDefs[refTarget];
+        if (targetDef && targetDef["x-netex-role"] === "enumeration") {
+          propSchema["x-fixed-single-enum"] = refTarget;
+        }
+      }
+    }
+  }
+
+  /** Extract the $ref target name from a property schema (direct $ref or allOf[{$ref}]). */
+  extractRefTarget(propSchema) {
+    if (propSchema.$ref) {
+      return propSchema.$ref.replace("#/definitions/", "");
+    }
+    if (propSchema.allOf) {
+      for (const entry of propSchema.allOf) {
+        if (entry.$ref) return entry.$ref.replace("#/definitions/", "");
+      }
+    }
+    return null;
   }
 
   resolveValueAtom(name, allDefs, visited) {

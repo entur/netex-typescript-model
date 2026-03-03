@@ -348,7 +348,7 @@
         } else if (!p.inlinedFrom && lastInlinedFrom) {
           lastInlinedFrom = null;
         }
-        var resolved = resolvePropertyType(p.schema);
+        var resolved = resolvePropertyType(p.schema, name);
         var typeHtml;
         if (resolved.complex) {
           var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
@@ -503,7 +503,7 @@
       fromLines.push('  <span class="if-kw">return</span> {');
       for (var mi = 0; mi < props.length; mi++) {
         var p = props[mi];
-        var resolved = resolvePropertyType(p.schema);
+        var resolved = resolvePropertyType(p.schema, name);
         var atom = null;
         if (resolved.complex) {
           var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
@@ -572,7 +572,7 @@
       lines.push('  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;');
       for (var gi = 0; gi < props.length; gi++) {
         var p = props[gi];
-        var resolved = resolvePropertyType(p.schema);
+        var resolved = resolvePropertyType(p.schema, name);
         var check = '';
         if (resolved.ts.endsWith('[]')) {
           check = '!Array.isArray(obj.' + p.prop[1] + ')';
@@ -613,7 +613,7 @@
         for (var fi = 0; fi < props.length; fi++) {
           var fp = props[fi];
           if (!required.has(fp.prop[0])) continue;
-          var fresolved = resolvePropertyType(fp.schema);
+          var fresolved = resolvePropertyType(fp.schema, name);
           var defVal = defaultForType(fresolved.ts);
           flines.push('    ' + esc(fp.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
         }

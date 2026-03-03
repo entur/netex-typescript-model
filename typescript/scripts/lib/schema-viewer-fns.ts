@@ -46,7 +46,8 @@ export interface ViaHop {
     | "empty-object"
     | "enum"
     | "primitive"
-    | "complex";
+    | "complex"
+    | "fixed-for";
 }
 
 export interface ResolvedType {
@@ -397,7 +398,14 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
  * Delegates to resolveDefType for $ref targets. Handles arrays, enums,
  * and inline primitives directly.
  */
-export function resolvePropertyType(defs: Defs, schema: Def): ResolvedType {
+export function resolvePropertyType(defs: Defs, schema: Def, context?: string): ResolvedType {
+  if (context && typeof schema["x-fixed-single-enum"] === "string") {
+    return {
+      ts: JSON.stringify(context),
+      complex: false,
+      via: [{ name: context, rule: "fixed-for" }],
+    };
+  }
   const shape = classifySchema(schema);
   switch (shape.kind) {
     case "ref":

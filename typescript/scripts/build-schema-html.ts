@@ -177,7 +177,7 @@ function buildViewerFnsScript(): string {
     function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
     function collectRequired(d, n) { return _fns.collectRequired(d, n); }
     function resolveDefType(n, v) { return _fns.resolveDefType(defs, n, v); }
-    function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
+    function resolvePropertyType(s, ctx) { return _fns.resolvePropertyType(defs, s, ctx); }
     function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
 
