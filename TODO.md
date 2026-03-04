@@ -2,19 +2,19 @@
 
 ## Link TypeDoc and schema viewer back to upstream XSD source
 
-Each JSON Schema definition already carries an `x-netex-source` annotation with the relative XSD path (e.g. `netex_framework/netex_reusable/netex_address_version.xsd`). Use this to generate clickable links to the NeTEx-CEN GitHub repo (`https://github.com/NeTEx-CEN/NeTEx/blob/next/xsd/...`) in:
+Each JSON Schema definition already carries an `x-netex-source` annotation with the relative XSD path (e.g. `netex_framework/netex_reusable/netex_address_version.xsd`). Use this to generate clickable links to the NeTEx-CEN GitHub repo (`https://github.com/NeTEx-CEN/NeTEx/blob/v2.0/xsd/...`) in:
 
 1. **TypeDoc JSDoc** (`generate.ts`) — add a second `@see` tag linking to the source XSD on GitHub
 2. **Schema HTML viewer** (`build-schema-html.ts`) — show an "XSD source" link per definition
 
 ## Address known XSD parser limitations using Java DOM
 
-The Java-based `xsd-to-jsonschema.js` (GraalJS + `javax.xml.parsers`) has full DOM access and Xerces on the classpath, giving it significantly more power than the deprecated fast-xml-parser TS version. Plan which of the known limitations (documented in CLAUDE.md) can now be fixed:
+Remaining XSD parser limitations (see CLAUDE.md for full list):
 
-- **Substitution groups** — Java DOM can read `substitutionGroup` attributes and build a registry to emit `oneOf`/`anyOf` unions
-- **`xsd:any` / `xsd:anyAttribute`** — detectable via DOM; could emit `additionalProperties: true` or a typed wildcard
-- **Attribute `use="required"`** — trivial to read from DOM and propagate to JSON Schema `required` arrays
-- **Mixed content** — `mixed="true"` is a DOM attribute; could add a `_text` or `$value` string property
+- **Substitution group unions** — annotations are stamped (`x-netex-substitutionGroup` / `x-netex-sg-members`), but polymorphic element references don't yet emit `oneOf`/`anyOf` unions
+- **`xsd:any` / `xsd:anyAttribute`** — could emit `additionalProperties: true` or a typed wildcard
+- **Attribute `use="required"`** — propagate to JSON Schema `required` arrays
+- **Mixed content** — `x-netex-mixed` is now stamped; remaining: add a `_text` or `$value` string property to the schema output
 - **Namespace-qualified names** — Java DOM preserves namespace URIs; could disambiguate collisions if needed
 
 ## Make x-netex-role comprehensive — eliminate unclassified types
@@ -54,21 +54,15 @@ Build a TypeScript parser that can read NeTEx XML documents into the generated i
 
 `build-docs-index.ts` generates the GitHub Pages welcome page. It has hardcoded assembly descriptions and no connection to releases. Improve:
 
-- ~~**Derive assembly descriptions from config**~~ — Done. Descriptions derived from config part metadata for full assemblies, and from root definition `description` for sub-graph assemblies. Root stamps (`x-netex-assembly`, `x-netex-sub-graph-root`, `x-netex-collapsed`) extracted from schema JSON and displayed as chips.
 - **Link to GitHub Releases** — the welcome page should link to the latest release tarball for each assembly (the release workflow already produces `netex-<version>-<assembly>-v<tag>.tgz` artifacts). Use the GitHub API or a static convention to construct download links
-- ~~**Show NeTEx version**~~ — Done. Already reads `netex.version` from config and displays in subtitle.
-- **Reduce template hardcoding** — the inline HTML/CSS is a long string literal; extract into a template file (same pattern as the `build-schema-html.ts` TODO)
+- **Reduce template hardcoding** — the inline HTML/CSS is a long string literal; extract into a template file
 
 ## Quality-improve build-schema-html.ts
 
-`build-schema-html.ts` is a single 1400+ line file that mixes CSS, HTML template strings, and JS logic. Refactor for maintainability:
+`build-schema-html.ts` (354 lines) assembles the viewer from extracted files (`schema-viewer.css`, `schema-viewer-fns.ts`, `schema-viewer-host-app.js`). Remaining refactoring:
 
-- **Extract CSS** into a `.templ` file (or `.css` that gets inlined at build time) — the style block is ~300 lines of string literals
 - **Extract text/HTML templates** into `.templ` files — tab renderers (Interface, Mapping, Utilities, Graph, Properties) are long template-string blocks that would be clearer as separate files with placeholder substitution
 - **More functional style** — the tab render functions use imperative loops building HTML strings; refactor toward composable helpers (e.g. `renderPropRow`, `renderTypeLink`, `renderCodeBlock`) that return fragments
-- **Split by concern** — consider separating the IIFE/runtime JS (embedded in the page) from the build-time template assembly
-
-Goal: the main file becomes a build orchestrator that reads templates and composes the final HTML, rather than a monolith that does everything inline.
 
 ## Sync GitHub Actions with Entur conventions
 
