@@ -2,7 +2,7 @@
 
 ## Annotation Stamping
 
-The converter (`xsd-to-jsonschema.js`) stamps six custom `x-netex-*` annotations on JSON Schema definitions. These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
+The converter (`xsd-to-jsonschema.js`) stamps nine custom `x-netex-*` annotations on JSON Schema definitions. These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
 
 ### `x-netex-source` (string)
 
@@ -50,3 +50,15 @@ Used by the schema viewer's Interface/Mapping tabs to collapse trivial wrapper t
 ### `x-netex-mixed` (boolean)
 
 Set to `true` when the XSD complexType has `mixed="true"`. Currently informational only — mixed content isn't fully modeled in the output.
+
+### `x-netex-substitutionGroup` (string)
+
+Stamped per-definition on elements that declare a `substitutionGroup` attribute. Records the head element name (e.g. `"Place_"`). Used by `classifyDefinitions()` rule 8 (entity detection) and by `pruneToSubGraph()` to follow substitution group edges when computing reachable definitions.
+
+### `x-netex-sg-members` (string[])
+
+Stamped on head elements of substitution groups. Lists the concrete members (e.g. `["StopPlace", "TopographicPlace", ...]`). Built from a reverse map populated during element parsing. Used by `pruneToSubGraph()` to include substitution group members when the head is reachable.
+
+### `x-netex-collapsed` (number)
+
+Top-level schema annotation (not per-definition). Set by `collapseTransparent()` when invoked via the `--collapse` CLI flag. Records the total number of transparent wrapper definitions inlined during collapse. Only applies to sub-graph outputs.

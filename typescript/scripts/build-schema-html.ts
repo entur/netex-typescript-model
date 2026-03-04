@@ -177,7 +177,7 @@ function buildViewerFnsScript(): string {
     function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
     function collectRequired(d, n) { return _fns.collectRequired(d, n); }
     function resolveDefType(n, v) { return _fns.resolveDefType(defs, n, v); }
-    function resolvePropertyType(s) { return _fns.resolvePropertyType(defs, s); }
+    function resolvePropertyType(s, ctx) { return _fns.resolvePropertyType(defs, s, ctx); }
     function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
     function defaultForType(t) { return _fns.defaultForType(t); }
 
@@ -259,7 +259,7 @@ ${sections}
     <div class="explorer-tabs">
       <button class="explorer-tab active" data-tab="props">Properties</button>
       <button class="explorer-tab" data-tab="graph">Graph</button>
-      <button class="explorer-tab" data-tab="iface">Interface</button>
+      <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">Mapping</button>
       <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
@@ -277,7 +277,6 @@ ${sections}
       <p>Every definition in the NeTEx schema has a <em>role</em> that describes its purpose. Filtering by role helps you find the types relevant to your task.</p>
       <ul>
         <li><strong>Entity</strong> &mdash; The primary domain objects you create, display, and edit: stops, lines, journeys, vehicles. <em>This is the most useful filter for frontend work.</em></li>
-        <li><strong>Frame member</strong> &mdash; Top-level containers in NeTEx XML. A frame groups related entities for import/export (e.g. a ServiceFrame holds routes and lines). Relevant when working directly with NeTEx XML payloads.</li>
         <li><strong>Structure</strong> &mdash; Value objects embedded inside entities: addresses, contact details, capacities. You encounter these as properties of entities rather than searching for them directly.</li>
         <li><strong>Reference</strong> &mdash; Foreign-key wrappers (e.g. StopPlaceRef). Typically a wrapper around a string ID with an optional version.</li>
         <li><strong>Enum</strong> &mdash; Fixed value sets used for dropdowns and classification (stop place types, vehicle modes, day types).</li>
@@ -286,6 +285,7 @@ ${sections}
         <li><strong>View</strong> &mdash; Projection types that present a subset of an entity&rsquo;s data.</li>
         <li><strong>Unclassified</strong> &mdash; Definitions without an assigned role, typically low-level schema plumbing.</li>
       </ul>
+      <p style="background:#f0f0f0;padding:0.5em 0.75em;border-radius:4px;font-size:0.9em;"><strong>Frame member</strong> &mdash; Some schemas use a separate &ldquo;frameMember&rdquo; role for entities that sit directly inside NeTEx frames (e.g. Operator in ResourceFrame, DayType in ServiceCalendarFrame). When present, this chip filters to those top-level frame entries.</p>
       <p>Click one or more chips to show only matching definitions. When no chips are active, all definitions are shown.</p>
       <div class="close-row"><button id="roleHelpClose">Got it</button></div>
     </div>

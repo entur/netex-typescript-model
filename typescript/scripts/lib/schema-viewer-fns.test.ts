@@ -533,6 +533,45 @@ describe("resolvePropertyType", () => {
       complex: false,
     });
   });
+
+  it("resolves x-fixed-single-enum as string literal when context is provided", () => {
+    const defs: Defs = { MyEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" } };
+    const schema = {
+      allOf: [{ $ref: "#/definitions/MyEnum" }],
+      description: "Fixed for each ENTITY type.",
+      "x-fixed-single-enum": "MyEnum",
+    };
+    expect(resolvePropertyType(defs, schema, "ContextName")).toEqual({
+      ts: '"ContextName"',
+      complex: false,
+      via: [{ name: "ContextName", rule: "fixed-for" }],
+    });
+  });
+
+  it("resolves x-fixed-single-enum normally without context", () => {
+    const defs: Defs = { MyEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" } };
+    const schema = {
+      allOf: [{ $ref: "#/definitions/MyEnum" }],
+      description: "Fixed for each ENTITY type.",
+      "x-fixed-single-enum": "MyEnum",
+    };
+    const result = resolvePropertyType(defs, schema);
+    // Without context, falls through to normal enum resolution (stamped enum → name)
+    expect(result.ts).toBe("MyEnum");
+    expect(result.via).toEqual([{ name: "MyEnum", rule: "enum" }]);
+  });
+
+  it("ignores x-fixed-single-enum stamp when absent", () => {
+    const defs: Defs = { MyEnum: { enum: ["A", "B"], "x-netex-role": "enumeration" } };
+    const schema = {
+      allOf: [{ $ref: "#/definitions/MyEnum" }],
+      description: "Some other description.",
+    };
+    const result = resolvePropertyType(defs, schema, "ContextName");
+    // No stamp → normal resolution regardless of context (stamped enum → name)
+    expect(result.ts).toBe("MyEnum");
+    expect(result.via).toEqual([{ name: "MyEnum", rule: "enum" }]);
+  });
 });
 
 // ── resolveAtom ──────────────────────────────────────────────────────────────

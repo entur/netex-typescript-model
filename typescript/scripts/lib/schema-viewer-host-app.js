@@ -120,7 +120,7 @@
         firstVisible.classList.add('active');
         var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
         document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
-        ifaceToggleLabel.style.display = firstVisible.dataset.tab === 'iface' ? '' : 'none';
+        ifaceToggleLabel.style.display = (firstVisible.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
       }
     }
 
@@ -133,7 +133,7 @@
       tab.classList.add('active');
       const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
       document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
-      ifaceToggleLabel.style.display = tab.dataset.tab === 'iface' ? '' : 'none';
+      ifaceToggleLabel.style.display = (tab.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
     });
 
     /** HTML-escape a string using the DOM (createElement + textContent → innerHTML). */
@@ -150,6 +150,7 @@
      * @param {string} name  Definition name (e.g. "StopPlace").
      */
     function renderExplorer(name) {
+      currentIsAlias = false;
       const props = flattenAllOf(defs, name);
       explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
@@ -299,25 +300,36 @@
       graphContainer.innerHTML = renderGraphSvg(name, colors);
     }
 
-    // ── Interface tab ─────────────────────────────────────────────────
+    // ── TypeScript tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
     const ifaceToggleLabel = document.getElementById('ifaceToggleLabel');
     const inlineRefsCheck = document.getElementById('inlineRefsCheck');
     var inlineRefsEnabled = false;
+    var currentIsAlias = false;
 
     /**
-     * Build the "suggested flat interface" HTML for the Interface tab.
+     * Build the "suggested flat interface" HTML for the TypeScript tab.
      *
      * Flattens the allOf inheritance chain, resolves each property's
      * TypeScript type, and emits syntax-highlighted pseudo-code with
      * clickable ref links and `data-via` attributes for hover popups.
      *
      * @param {string} name  Definition name.
-     * @returns {string} An `.interface-block` div with a Copy button.
+     * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name) {
       var flat = flattenAllOf(defs, name);
+
+      // If no properties, try to render as a type alias
+      if (flat.length === 0) {
+        var resolved = resolveDefType(name);
+        var isAlias = !resolved.complex || resolved.ts !== name;
+        if (isAlias) {
+          return renderTypeAliasHtml(name, resolved);
+        }
+      }
+
       var props = inlineRefsEnabled ? inlineSingleRefs(flat) : flat;
       var origins = [];
       var originSeen = {};
@@ -330,7 +342,7 @@
       lines.push(' * Suggested flat interface for ' + esc(name));
       lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
       lines.push(' */</span>');
-      lines.push('<span class="if-kw">interface</span> My_' + esc(name) + ' {');
+      lines.push('<span class="if-kw">interface</span> ' + esc(name) + ' {');
 
       var lastOrigin = null;
       var lastInlinedFrom = null;
@@ -348,7 +360,7 @@
         } else if (!p.inlinedFrom && lastInlinedFrom) {
           lastInlinedFrom = null;
         }
-        var resolved = resolvePropertyType(p.schema);
+        var resolved = resolvePropertyType(p.schema, name);
         var typeHtml;
         if (resolved.complex) {
           var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
@@ -356,6 +368,9 @@
           typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
           var atom = resolveAtom(typeName);
           if (atom && atom !== 'simpleObj') typeHtml += ' <span class="if-cmt">// \u2192 ' + esc(atom) + '</span>';
+        } else if (defs[resolved.ts]) {
+          // Named def resolved as non-complex (e.g. stamped enum) — still linkable
+          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(resolved.ts) + '">' + esc(resolved.ts) + '</a>';
         } else if (resolved.ts.indexOf('|') !== -1) {
           var parts = resolved.ts.split(' | ');
           typeHtml = parts.map(function(part) {
@@ -381,7 +396,80 @@
 
       var html = '<div class="interface-block">' + lines.join('\n');
       html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
-      return html;
+      return { html: html, isAlias: false };
+    }
+
+    /**
+     * Convert a PascalCase type name to UPPER_SNAKE_CASE for a const array name.
+     * Strips trailing "Enumeration" suffix before converting.
+     * e.g. "AllPublicTransportModesEnumeration" → "ALL_PUBLIC_TRANSPORT_MODES"
+     */
+    function toConstName(name) {
+      var base = name.replace(/Enumeration$/, '');
+      return base.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toUpperCase();
+    }
+
+    /**
+     * Build type-alias HTML for definitions that resolve to a primitive or enum.
+     * @param {string} name  Definition name.
+     * @param {{ts:string, complex:boolean, via?:Array}} resolved  Result from resolveDefType.
+     * @returns {{html:string, isAlias:boolean}}
+     */
+    function renderTypeAliasHtml(name, resolved) {
+      // Find the enum values — walk through the via chain to find the def with .enum
+      var enumValues = null;
+      var def = defs[name];
+      if (def && def.enum) {
+        enumValues = def.enum;
+      } else if (resolved.via) {
+        for (var vi = 0; vi < resolved.via.length; vi++) {
+          var hopDef = defs[resolved.via[vi].name];
+          if (hopDef && hopDef.enum) { enumValues = hopDef.enum; break; }
+        }
+      }
+
+      var lines = [];
+      lines.push('<span class="if-cmt">/**');
+      lines.push(' * Type alias for ' + esc(name));
+      if (resolved.via && resolved.via.length > 0) {
+        var chain = resolved.via.map(function(hop) { return hop.name + ' \u2192 ' + hop.rule; }).join(' \u2192 ');
+        lines.push(' * Resolved via: ' + esc(chain));
+      }
+      lines.push(' */</span>');
+
+      // Enum with values → const array + indexed type
+      if (enumValues) {
+        var constName = toConstName(name);
+        var litItems = enumValues.map(function(v) {
+          return '  <span class="if-lit">' + esc(JSON.stringify(v)) + '</span>';
+        });
+        lines.push('<span class="if-kw">const</span> ' + esc(constName) + ' = [');
+        lines.push(litItems.join(',\n'));
+        lines.push('] <span class="if-kw">as const</span>;');
+        lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = (<span class="if-kw">typeof</span> ' + esc(constName) + ')[<span class="if-prim">number</span>];');
+      } else {
+        // Non-enum type alias
+        var typeHtml;
+        if (resolved.complex) {
+          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
+          var suffix = resolved.ts.endsWith('[]') ? '[]' : '';
+          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
+        } else if (resolved.ts.indexOf('|') !== -1) {
+          var parts = resolved.ts.split(' | ');
+          typeHtml = parts.map(function(part) {
+            part = part.trim();
+            if (part.charAt(0) === '"' || part.charAt(0) === "'") return '<span class="if-lit">' + esc(part) + '</span>';
+            return '<span class="if-prim">' + esc(part) + '</span>';
+          }).join(' | ');
+        } else {
+          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
+        }
+        lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = ' + typeHtml + ';');
+      }
+
+      var html = '<div class="interface-block">' + lines.join('\n');
+      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
+      return { html: html, isAlias: true };
     }
 
     // Wire inline-refs checkbox once
@@ -390,10 +478,18 @@
       if (currentExplored) renderInterface(currentExplored);
     });
 
-    /** Render the Interface tab into its container element. */
+    /** Render the TypeScript tab into its container element. */
     function renderInterface(name) {
-      explorerIface.innerHTML = renderInterfaceHtml(name);
+      var result = renderInterfaceHtml(name);
+      explorerIface.innerHTML = result.html;
+      currentIsAlias = result.isAlias;
       inlineRefsCheck.checked = inlineRefsEnabled;
+      // Hide inline-refs toggle for type aliases (no properties to inline)
+      if (currentIsAlias) {
+        ifaceToggleLabel.style.display = 'none';
+      } else {
+        ifaceToggleLabel.style.display = '';
+      }
     }
 
     // Copy handler
@@ -466,61 +562,24 @@
     const explorerMapping = document.getElementById('explorerMapping');
 
     /**
-     * Build the Mapping tab HTML: `toGenerated` and `fromGenerated` converters.
-     *
-     * For simpleContent atom types the `fromGenerated` body includes a
-     * `?.value` unwrap with a comment showing the atom primitive.
+     * Build the Mapping tab HTML: informative text about structural equivalence.
      *
      * @param {string} name  Definition name.
-     * @returns {string} A `.mapping-section` div with two code blocks and Copy buttons.
+     * @returns {string} Informative paragraphs explaining type compatibility.
      */
     function renderMappingHtml(name) {
-      var props = flattenAllOf(defs, name);
-      var myName = 'My_' + name;
-
-      var html = '';
-      html += '<div class="mapping-section">';
-      html += '<p class="mapping-intro">';
-      html += 'The generated <code>' + esc(name) + '</code> uses intersection types from the NeTEx inheritance chain. ';
-      html += 'The flat <code>' + esc(myName) + '</code> from the Interface tab is simpler to work with. ';
-      html += 'These functions convert between them.</p>';
-
-      html += '<h3>' + esc(myName) + ' \u2192 ' + esc(name) + '</h3>';
-      html += '<div class="interface-block">';
-      var toLines = [];
-      toLines.push('<span class="if-kw">function</span> toGenerated(src: <span class="if-ref">' + esc(myName) + '</span>): <span class="if-ref">' + esc(name) + '</span> {');
-      toLines.push('  <span class="if-cmt">// The generated type is an intersection (allOf),</span>');
-      toLines.push('  <span class="if-cmt">// but at runtime it\u2019s just a plain object with the same keys.</span>');
-      toLines.push('  <span class="if-kw">return</span> src <span class="if-kw">as unknown as</span> <span class="if-ref">' + esc(name) + '</span>;');
-      toLines.push('}');
-      html += toLines.join('\n');
-      html += '<button class="copy-btn">Copy</button></div>';
-
-      html += '<h3>' + esc(name) + ' \u2192 ' + esc(myName) + '</h3>';
-      html += '<div class="interface-block">';
-      var fromLines = [];
-      fromLines.push('<span class="if-kw">function</span> fromGenerated(src: <span class="if-ref">' + esc(name) + '</span>): <span class="if-ref">' + esc(myName) + '</span> {');
-      fromLines.push('  <span class="if-kw">return</span> {');
-      for (var mi = 0; mi < props.length; mi++) {
-        var p = props[mi];
-        var resolved = resolvePropertyType(p.schema);
-        var atom = null;
-        if (resolved.complex) {
-          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          atom = resolveAtom(typeName);
-        }
-        if (atom && atom !== 'simpleObj') {
-          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + '<span class="if-cmt">?.value</span>,  <span class="if-cmt">// ' + esc(resolved.ts) + ' \u2192 ' + esc(atom) + '</span>');
-        } else {
-          fromLines.push('    ' + esc(p.prop[1]) + ': src.' + esc(p.prop[0]) + ',');
-        }
-      }
-      fromLines.push('  };');
-      fromLines.push('}');
-      html += fromLines.join('\n');
-      html += '<button class="copy-btn">Copy</button></div>';
-
-      html += '</div>';
+      var html = '<p class="mapping-intro">';
+      html += 'The generated <code>' + esc(name) + '</code> type uses intersection types ';
+      html += 'to model the NeTEx inheritance chain. The flat interface in the ';
+      html += 'TypeScript tab has the same properties resolved into a single block.';
+      html += '</p><p class="mapping-intro">';
+      html += 'At runtime the two shapes are structurally identical \u2014 a simple ';
+      html += '<code>as</code> cast works in either direction.';
+      html += '</p><p class="mapping-intro">';
+      html += 'For simpleContent wrapper types (atoms), the primitive value lives ';
+      html += 'in the <code>.value</code> property. The TypeScript tab marks these ';
+      html += 'with a <code>// \u2192 <em>type</em></code> comment.';
+      html += '</p>';
       return html;
     }
 
@@ -528,19 +587,6 @@
     function renderMappingGuide(name) {
       explorerMapping.innerHTML = renderMappingHtml(name);
     }
-
-    // Copy handler for mapping tab
-    explorerMapping.addEventListener('click', function(e) {
-      if (!e.target.closest('.copy-btn')) return;
-      var block = e.target.closest('.interface-block');
-      if (!block) return;
-      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(function() {
-        var btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
-      });
-    });
 
     // ── Utilities tab ─────────────────────────────────────────────────
 
@@ -572,7 +618,7 @@
       lines.push('  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;');
       for (var gi = 0; gi < props.length; gi++) {
         var p = props[gi];
-        var resolved = resolvePropertyType(p.schema);
+        var resolved = resolvePropertyType(p.schema, name);
         var check = '';
         if (resolved.ts.endsWith('[]')) {
           check = '!Array.isArray(obj.' + p.prop[1] + ')';
@@ -590,6 +636,8 @@
             }
           } else if (base === 'integer') {
             check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
+          } else if (base.charAt(0) === '"' || base.charAt(0) === "'") {
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
           } else {
             check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
           }
@@ -613,7 +661,7 @@
         for (var fi = 0; fi < props.length; fi++) {
           var fp = props[fi];
           if (!required.has(fp.prop[0])) continue;
-          var fresolved = resolvePropertyType(fp.schema);
+          var fresolved = resolvePropertyType(fp.schema, name);
           var defVal = defaultForType(fresolved.ts);
           flines.push('    ' + esc(fp.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
         }

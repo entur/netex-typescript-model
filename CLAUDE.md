@@ -78,7 +78,7 @@ npm run docs               # generate TypeDoc HTML per assembly (requires genera
 ### json-schema/
 
 - `pom.xml` — Maven POM with `pom` packaging (no Java source). Downloads NeTEx XSDs via `maven-antrun-plugin` in `initialize` phase (Ant `<get>` + `<unzip>`). Declares GraalJS + Xerces dependencies, uses `maven-dependency-plugin` to write classpath, `exec-maven-plugin` to invoke `JSLauncher` on stock JDK 21+
-- `xsd-to-jsonschema.js` — **primary** XSD → JSON Schema converter (invoked via Makefile). Uses `Java.type()` for DOM parsing (`DocumentBuilderFactory`, `org.w3c.dom.Node`). Plain JavaScript, no modules, no npm. The canonical implementation. Stamps `x-netex-source`, `x-netex-assembly`, `x-netex-role`, and `x-netex-atom` annotations on definitions. `x-netex-atom` values: primitive string (e.g. `"string"`) for single-prop simpleContent wrappers, `"simpleObj"` for multi-prop ones, `"array"` for `xsd:list` types. Accepts both config keys and natural part names via `--parts`. See `json-schema/README.md` for full annotation documentation
+- `xsd-to-jsonschema.js` — **primary** XSD → JSON Schema converter (invoked via Makefile). Uses `Java.type()` for DOM parsing (`DocumentBuilderFactory`, `org.w3c.dom.Node`). Plain JavaScript, no modules, no npm. The canonical implementation. Stamps nine `x-netex-*` annotations on definitions: `x-netex-source`, `x-netex-assembly`, `x-netex-role`, `x-netex-atom`, `x-netex-frames`, `x-netex-mixed`, `x-netex-substitutionGroup`, `x-netex-sg-members`, `x-netex-collapsed`. Supports `--parts` (config keys or natural names), `--sub-graph <TypeName>` (prune to reachable definitions), and `--collapse` (collapse transparent wrappers in sub-graphs). See `json-schema/README.md` for full annotation documentation
 
 ## Architecture
 
@@ -132,7 +132,7 @@ Each definition in the JSON Schema carries an `x-netex-source` annotation identi
 XSD (all files) → xsd-to-jsonschema.js (Java DOM) → JSON Schema (with descriptions, annotations)
 ```
 
-Primary conversion path. Uses Java standard library DOM APIs via GraalVM interop. Stamps per-definition annotations: `x-netex-source` (origin XSD file), `x-netex-role` (entity, structure, reference, enumeration, abstract, collection, view, frameMember), and `x-netex-atom` (atom type for transparent wrappers — primitive string for value-only simpleContent types, `"simpleObj"` for multi-prop simpleContent, `"array"` for `xsd:list` types). The schema HTML viewer uses these annotations for role filtering, type resolution (stamped enumerations stop at the name rather than expanding to literal unions; stamped arrays resolve their items), and transitive entity usage lookups.
+Primary conversion path. Uses Java standard library DOM APIs via GraalVM interop. Stamps nine per-definition annotations: `x-netex-source` (origin XSD file), `x-netex-role` (entity, structure, reference, enumeration, abstract, collection, view, frameMember), `x-netex-atom` (atom type for transparent wrappers — primitive string for value-only simpleContent types, `"simpleObj"` for multi-prop simpleContent, `"array"` for `xsd:list` types), `x-netex-frames` (frame membership list), `x-netex-mixed` (mixed content flag), `x-netex-substitutionGroup` (head element name), `x-netex-sg-members` (member list on head elements), and `x-netex-collapsed` (count, set by `--collapse` pass). The schema HTML viewer uses these annotations for role filtering, type resolution (stamped enumerations stop at the name rather than expanding to literal unions; stamped arrays resolve their items), and transitive entity usage lookups. Optional `--sub-graph <TypeName>` prunes the schema to definitions reachable from a root type; `--collapse` then inlines transparent wrappers.
 
 ### Documentation Pipeline
 
@@ -152,7 +152,7 @@ Triggered by pushing a `v*` tag. Builds each assembly via `make all tarball`, ru
 
 `json-schema/xsd-to-jsonschema.js` is a purpose-built converter, not a full XSD implementation. Areas that may need revisiting:
 
-- **Substitution groups** — not modeled. Elements in a substitution group are treated as independent types; the `substitutionGroup` attribute is ignored. This means polymorphic element references (e.g., `<xsd:element ref="Place_"/>` accepting any subtype) won't generate union types. Could be addressed by building a substitution group registry and emitting `oneOf`/`anyOf`.
+- **Substitution groups** — partially modeled. The converter reads `substitutionGroup` attributes, builds a reverse registry, and stamps `x-netex-substitutionGroup` / `x-netex-sg-members` annotations. These drive entity classification (rule 8) and sub-graph pruning. However, polymorphic element references (e.g., `<xsd:element ref="Place_"/>` accepting any subtype) don't yet generate `oneOf`/`anyOf` union types.
 - **`xsd:any` / `xsd:anyAttribute`** — ignored. Types using open content models will be missing their wildcard properties.
 - **Attribute use (`use="required"`)** — not tracked. All attributes are emitted as optional properties.
 - **Mixed content** — not handled. Types with `mixed="true"` are treated as regular objects without a text content property.
@@ -180,7 +180,7 @@ This project mirrors the XSD download step of `netex-java-model` but replaces:
 - Shell scripts (`netex-download-extract.sh`, `annotation-replacer.sh`) → `maven-antrun-plugin` in `json-schema/pom.xml` (annotations preserved, not stripped)
 - JAXB/cxf-xjc-plugin → custom XSD parser + json-schema-to-typescript
 
-Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `next`.
+Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `v2.0`.
 
 ## Gitignored Artifacts
 

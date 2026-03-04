@@ -24,6 +24,11 @@ const NodeConst = Java.type("org.w3c.dom.Node");
 
 const XSD_NS = "http://www.w3.org/2001/XMLSchema";
 
+// When true, frame-registry entries get a distinct "frameMember" role instead of
+// falling through to "entity".  Currently false — all DMO-based concrete elements
+// are classified as entity, and x-netex-frames is stamped independently of role.
+const DIVERSE_FRAME_MEMBERS = false;
+
 /**
  * Return direct child elements matching the given namespace URI and local name.
  * Does NOT recurse — only immediate children.
@@ -157,6 +162,7 @@ class XsdToJsonSchema {
     this.rawElements = [];
 
     this.elementMeta = {}; // name → { abstract, substitutionGroup }
+    this.sgMembers = {}; // head name → [member names]
 
     this.converted = false;
     this.warnings = [];
@@ -297,11 +303,17 @@ class XsdToJsonSchema {
       }
     }
 
-    // Pass 3: classify definitions by role
+    // Pass 3: build substitution group reverse map
+    this.buildSubstitutionGroupRegistry();
+
+    // Pass 4: classify definitions by role
     this.classifyDefinitions();
 
-    // Pass 4: annotate atoms (needs roles to gate inherited types)
+    // Pass 5: annotate atoms (needs roles to gate inherited types)
     this.annotateAtoms();
+
+    // Pass 6: mark "Fixed for" enum properties
+    this.annotateFixedEnumProperties();
   }
 
   // ── Description extraction ─────────────────────────────────────────────────
@@ -716,6 +728,49 @@ class XsdToJsonSchema {
     }
   }
 
+  /**
+   * Stamp `x-fixed-single-enum` on properties whose description says "Fixed for"
+   * and that reference an enumeration definition. The stamp value is the enum
+   * definition name (e.g. "NameOfClass"). The viewer combines this with the
+   * display context to produce a string literal.
+   */
+  annotateFixedEnumProperties() {
+    const allDefs = {};
+    for (const [name, entry] of Object.entries(this.types)) {
+      allDefs[name] = entry.schema;
+    }
+    for (const [name, entry] of Object.entries(this.elements)) {
+      if (!allDefs[name]) allDefs[name] = entry.schema;
+    }
+
+    for (const [, schema] of Object.entries(allDefs)) {
+      const props = schema.properties;
+      if (!props) continue;
+      for (const [, propSchema] of Object.entries(props)) {
+        if (!propSchema.description || !/[Ff]ixed for/.test(propSchema.description)) continue;
+        const refTarget = this.extractRefTarget(propSchema);
+        if (!refTarget) continue;
+        const targetDef = allDefs[refTarget];
+        if (targetDef && targetDef["x-netex-role"] === "enumeration") {
+          propSchema["x-fixed-single-enum"] = refTarget;
+        }
+      }
+    }
+  }
+
+  /** Extract the $ref target name from a property schema (direct $ref or allOf[{$ref}]). */
+  extractRefTarget(propSchema) {
+    if (propSchema.$ref) {
+      return propSchema.$ref.replace("#/definitions/", "");
+    }
+    if (propSchema.allOf) {
+      for (const entry of propSchema.allOf) {
+        if (entry.$ref) return entry.$ref.replace("#/definitions/", "");
+      }
+    }
+    return null;
+  }
+
   resolveValueAtom(name, allDefs, visited) {
     if (visited[name]) return null;
     visited[name] = true;
@@ -780,6 +835,21 @@ class XsdToJsonSchema {
       }
     }
     return null;
+  }
+
+  // ── Substitution group registry ─────────────────────────────────────────
+
+  buildSubstitutionGroupRegistry() {
+    this.sgMembers = {};
+    for (const [name, meta] of Object.entries(this.elementMeta)) {
+      if (!meta.substitutionGroup) continue;
+      const head = meta.substitutionGroup;
+      if (!this.sgMembers[head]) this.sgMembers[head] = [];
+      this.sgMembers[head].push(name);
+    }
+    for (const members of Object.values(this.sgMembers)) {
+      members.sort();
+    }
   }
 
   // ── Role classification ──────────────────────────────────────────────────
@@ -888,10 +958,9 @@ class XsdToJsonSchema {
       else if (this.elementMeta[name]?.abstract) {
         role = "abstract";
       }
-      // 7. Frame member (from registry)
-      else if (this.frameRegistry[name]) {
+      // 7. Frame member (from registry) — separate role only when DIVERSE_FRAME_MEMBERS
+      else if (DIVERSE_FRAME_MEMBERS && this.frameRegistry[name]) {
         role = "frameMember";
-        schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
       }
       // 8. Concrete element with substitutionGroup + DMO ancestry
       else if (
@@ -913,6 +982,27 @@ class XsdToJsonSchema {
 
       if (role) {
         schema["x-netex-role"] = role;
+      }
+    }
+
+    // Stamp frame membership (independent of role — any classified def benefits)
+    for (const [name, entry] of Object.entries(allDefs)) {
+      const schema = entry.schema;
+      if (this.frameRegistry[name]) {
+        schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
+      }
+    }
+
+    // Stamp substitution group annotations
+    for (const [name, def] of Object.entries(allDefs)) {
+      const schema = def.schema || def;
+      const meta = this.elementMeta[name];
+      if (meta?.substitutionGroup) {
+        schema["x-netex-substitutionGroup"] = meta.substitutionGroup;
+      }
+      const members = this.sgMembers[name];
+      if (members?.length) {
+        schema["x-netex-sg-members"] = members;
       }
     }
   }
@@ -1058,6 +1148,14 @@ function pruneToSubGraph(schema, rootName) {
           if (!reachable.has(target)) queue.push(target);
         }
         if (typeof val === "object" && val !== null) objQueue.push(val);
+      }
+    }
+
+    // Follow substitution group edges
+    const sgMembers = defs[name]?.["x-netex-sg-members"];
+    if (Array.isArray(sgMembers)) {
+      for (const member of sgMembers) {
+        if (!reachable.has(member)) queue.push(member);
       }
     }
   }
@@ -1220,7 +1318,7 @@ function collapseTransparent(schema) {
       }
 
       // Inherit annotations from target if not on wrapper
-      const ANNOTATIONS = ["x-netex-role", "x-netex-atom", "x-netex-mixed", "x-netex-frames"];
+      const ANNOTATIONS = ["x-netex-role", "x-netex-atom", "x-netex-mixed", "x-netex-frames", "x-netex-substitutionGroup", "x-netex-sg-members"];
       for (const ann of ANNOTATIONS) {
         if (wrapper[ann] === undefined && target[ann] !== undefined) {
           wrapper[ann] = target[ann];
