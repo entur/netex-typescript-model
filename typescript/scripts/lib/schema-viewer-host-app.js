@@ -150,6 +150,7 @@
      * @param {string} name  Definition name (e.g. "StopPlace").
      */
     function renderExplorer(name) {
+      currentIsAlias = false;
       const props = flattenAllOf(defs, name);
       explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
@@ -299,7 +300,7 @@
       graphContainer.innerHTML = renderGraphSvg(name, colors);
     }
 
-    // ── Interface tab ─────────────────────────────────────────────────
+    // ── TypeScript tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
     const ifaceToggleLabel = document.getElementById('ifaceToggleLabel');
@@ -308,14 +309,14 @@
     var currentIsAlias = false;
 
     /**
-     * Build the "suggested flat interface" HTML for the Interface tab.
+     * Build the "suggested flat interface" HTML for the TypeScript tab.
      *
      * Flattens the allOf inheritance chain, resolves each property's
      * TypeScript type, and emits syntax-highlighted pseudo-code with
      * clickable ref links and `data-via` attributes for hover popups.
      *
      * @param {string} name  Definition name.
-     * @returns {string} An `.interface-block` div with a Copy button.
+     * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name) {
       var flat = flattenAllOf(defs, name);
@@ -399,12 +400,6 @@
     }
 
     /**
-     * Build type-alias HTML for definitions that resolve to a primitive or enum.
-     * @param {string} name  Definition name.
-     * @param {{ts:string, complex:boolean, via?:Array}} resolved  Result from resolveDefType.
-     * @returns {{html:string, isAlias:boolean}}
-     */
-    /**
      * Convert a PascalCase type name to UPPER_SNAKE_CASE for a const array name.
      * Strips trailing "Enumeration" suffix before converting.
      * e.g. "AllPublicTransportModesEnumeration" → "ALL_PUBLIC_TRANSPORT_MODES"
@@ -414,6 +409,12 @@
       return base.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toUpperCase();
     }
 
+    /**
+     * Build type-alias HTML for definitions that resolve to a primitive or enum.
+     * @param {string} name  Definition name.
+     * @param {{ts:string, complex:boolean, via?:Array}} resolved  Result from resolveDefType.
+     * @returns {{html:string, isAlias:boolean}}
+     */
     function renderTypeAliasHtml(name, resolved) {
       // Find the enum values — walk through the via chain to find the def with .enum
       var enumValues = null;
@@ -477,7 +478,7 @@
       if (currentExplored) renderInterface(currentExplored);
     });
 
-    /** Render the Interface tab into its container element. */
+    /** Render the TypeScript tab into its container element. */
     function renderInterface(name) {
       var result = renderInterfaceHtml(name);
       explorerIface.innerHTML = result.html;
@@ -486,6 +487,8 @@
       // Hide inline-refs toggle for type aliases (no properties to inline)
       if (currentIsAlias) {
         ifaceToggleLabel.style.display = 'none';
+      } else {
+        ifaceToggleLabel.style.display = '';
       }
     }
 
@@ -568,13 +571,13 @@
       var html = '<p class="mapping-intro">';
       html += 'The generated <code>' + esc(name) + '</code> type uses intersection types ';
       html += 'to model the NeTEx inheritance chain. The flat interface in the ';
-      html += 'Interface tab has the same properties resolved into a single block.';
+      html += 'TypeScript tab has the same properties resolved into a single block.';
       html += '</p><p class="mapping-intro">';
       html += 'At runtime the two shapes are structurally identical \u2014 a simple ';
       html += '<code>as</code> cast works in either direction.';
       html += '</p><p class="mapping-intro">';
       html += 'For simpleContent wrapper types (atoms), the primitive value lives ';
-      html += 'in the <code>.value</code> property. The Interface tab marks these ';
+      html += 'in the <code>.value</code> property. The TypeScript tab marks these ';
       html += 'with a <code>// \u2192 <em>type</em></code> comment.';
       html += '</p>';
       return html;
@@ -633,6 +636,8 @@
             }
           } else if (base === 'integer') {
             check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
+          } else if (base.charAt(0) === '"' || base.charAt(0) === "'") {
+            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
           } else {
             check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
           }

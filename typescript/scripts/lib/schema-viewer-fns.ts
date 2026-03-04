@@ -633,6 +633,7 @@ export function presentRoles(
 
 /** Return a sensible default value literal for a resolved TypeScript type string. */
 export function defaultForType(ts: string): string {
+  if ((ts.startsWith('"') || ts.startsWith("'")) && ts.indexOf("|") === -1) return ts;
   if (ts === "string") return '""';
   if (ts === "number" || ts === "integer") return "0";
   if (ts === "boolean") return "false";
