@@ -166,7 +166,8 @@ function buildViewerFnsScript(): string {
         defaultForType: defaultForType,
         lcFirst: lcFirst,
         buildInheritanceChain: buildInheritanceChain,
-        inlineSingleRefs: inlineSingleRefs
+        inlineSingleRefs: inlineSingleRefs,
+        canonicalPropName: canonicalPropName
       };
     })();
 
@@ -182,6 +183,7 @@ function buildViewerFnsScript(): string {
     function defaultForType(t) { return _fns.defaultForType(t); }
 
     function inlineSingleRefs(props) { return _fns.inlineSingleRefs(defs, props); }
+    function canonicalPropName(n, s) { return _fns.canonicalPropName(n, s); }
     function defRole(name) { return _fns.defRole(defs[name]); }
     function buildInheritanceChain(n) { return _fns.buildInheritanceChain(defs, n); }
     var _reverseIdx = null;
@@ -260,7 +262,7 @@ ${sections}
       <button class="explorer-tab active" data-tab="props">Properties</button>
       <button class="explorer-tab" data-tab="graph">Graph</button>
       <button class="explorer-tab" data-tab="iface">TypeScript</button>
-      <button class="explorer-tab" data-tab="mapping">Mapping</button>
+      <button class="explorer-tab" data-tab="mapping">XML Mapping</button>
       <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>

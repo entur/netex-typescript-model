@@ -20,6 +20,7 @@ import {
   ROLE_LABELS,
   buildInheritanceChain,
   inlineSingleRefs,
+  canonicalPropName,
   type Defs,
   type ViaHop,
 } from "./schema-viewer-fns.js";
@@ -760,6 +761,26 @@ describe("lcFirst", () => {
   });
 });
 
+// ── canonicalPropName ─────────────────────────────────────────────────────────
+
+describe("canonicalPropName", () => {
+  it("returns PascalCase for XML elements", () => {
+    expect(canonicalPropName("TransportMode", {})).toBe("TransportMode");
+  });
+
+  it("returns $-prefixed for XML attributes", () => {
+    expect(canonicalPropName("id", { xml: { attribute: true } })).toBe("$id");
+  });
+
+  it("returns name unchanged when schema is undefined", () => {
+    expect(canonicalPropName("Foo", undefined)).toBe("Foo");
+  });
+
+  it("returns name unchanged when schema has no xml property", () => {
+    expect(canonicalPropName("Bar", { type: "string" })).toBe("Bar");
+  });
+});
+
 // ── unwrapMixed ──────────────────────────────────────────────────────────────
 
 describe("unwrapMixed", () => {
@@ -1038,13 +1059,13 @@ describe("inlineSingleRefs", () => {
     const props = flattenAllOf(defs, "Root");
     const result = inlineSingleRefs(defs, props);
     // Code should be replaced by value and type
-    expect(result.some((p) => p.prop[1] === "code")).toBe(false);
+    expect(result.some((p) => p.prop[1] === "Code")).toBe(false);
     expect(result.some((p) => p.prop[1] === "value")).toBe(true);
     expect(result.some((p) => p.prop[1] === "type")).toBe(true);
     // inlinedFrom should be set
     const inlined = result.filter((p) => p.inlinedFrom);
     expect(inlined).toHaveLength(2);
-    expect(inlined[0].inlinedFrom).toBe("code");
+    expect(inlined[0].inlinedFrom).toBe("Code");
   });
 
   it("uses parentProp_innerProp when name conflicts exist", () => {
@@ -1069,8 +1090,8 @@ describe("inlineSingleRefs", () => {
     };
     const props = flattenAllOf(defs, "Root");
     const result = inlineSingleRefs(defs, props);
-    // "value" is already taken → should become "code_value"
-    expect(result.some((p) => p.prop[1] === "code_value")).toBe(true);
+    // "value" is already taken → should become "Code_value"
+    expect(result.some((p) => p.prop[1] === "Code_value")).toBe(true);
     // "extra" is free → should stay as-is
     expect(result.some((p) => p.prop[1] === "extra")).toBe(true);
     // Original "value" still present
@@ -1102,7 +1123,7 @@ describe("inlineSingleRefs", () => {
     const result = inlineSingleRefs(defs, props);
     // Should NOT inline — Ref stays as-is
     expect(result).toHaveLength(1);
-    expect(result[0].prop[1]).toBe("ref");
+    expect(result[0].prop[1]).toBe("Ref");
     expect(result[0].inlinedFrom).toBeUndefined();
   });
 
@@ -1129,7 +1150,7 @@ describe("inlineSingleRefs", () => {
     const props = flattenAllOf(defs, "Root");
     const result = inlineSingleRefs(defs, props);
     expect(result).toHaveLength(1);
-    expect(result[0].prop[1]).toBe("items");
+    expect(result[0].prop[1]).toBe("Items");
     expect(result[0].inlinedFrom).toBeUndefined();
   });
 
@@ -1157,7 +1178,7 @@ describe("inlineSingleRefs", () => {
     const result = inlineSingleRefs(defs, props);
     // Should NOT inline — atom types are transparent wrappers
     expect(result).toHaveLength(1);
-    expect(result[0].prop[1]).toBe("code");
+    expect(result[0].prop[1]).toBe("Code");
     expect(result[0].inlinedFrom).toBeUndefined();
   });
 
@@ -1194,9 +1215,9 @@ describe("inlineSingleRefs", () => {
     const props = flattenAllOf(defs, "Root");
     const result = inlineSingleRefs(defs, props);
     // First "shared" from A is free
-    expect(result.some((p) => p.prop[1] === "shared" && p.inlinedFrom === "a")).toBe(true);
-    // Second "shared" from B conflicts → b_shared
-    expect(result.some((p) => p.prop[1] === "b_shared" && p.inlinedFrom === "b")).toBe(true);
+    expect(result.some((p) => p.prop[1] === "shared" && p.inlinedFrom === "A")).toBe(true);
+    // Second "shared" from B conflicts → B_shared
+    expect(result.some((p) => p.prop[1] === "B_shared" && p.inlinedFrom === "B")).toBe(true);
   });
 
   it("filters shared-ancestor props when target and parent share a common base", () => {
@@ -1252,7 +1273,7 @@ describe("inlineSingleRefs", () => {
     const result = inlineSingleRefs(defs, props);
 
     // Shared-ancestor props should NOT appear as inlined from Detail
-    const detailInlined = result.filter((p) => p.inlinedFrom === "detail");
+    const detailInlined = result.filter((p) => p.inlinedFrom === "Detail");
     const detailNames = detailInlined.map((p) => p.prop[1]);
 
     // BaseStruct and MiddleStruct props should be filtered out
@@ -1261,13 +1282,13 @@ describe("inlineSingleRefs", () => {
     expect(detailNames).not.toContain("created");
     expect(detailNames).not.toContain("keyList");
 
-    // Only TargetStruct's own props should be inlined (lcFirst-normalised)
-    expect(detailNames).toContain("capacity");
-    expect(detailNames).toContain("class");
+    // Only TargetStruct's own props should be inlined (canonical names)
+    expect(detailNames).toContain("Capacity");
+    expect(detailNames).toContain("Class");
     expect(detailInlined).toHaveLength(2);
 
-    // Parent's own props should still be present (lcFirst-normalised)
-    expect(result.some((p) => p.prop[1] === "name" && !p.inlinedFrom)).toBe(true);
+    // Parent's own props should still be present (canonical names)
+    expect(result.some((p) => p.prop[1] === "Name" && !p.inlinedFrom)).toBe(true);
     // Inherited props from the parent chain should still be present
     expect(result.some((p) => p.prop[1] === "id" && !p.inlinedFrom)).toBe(true);
     expect(result.some((p) => p.prop[1] === "version" && !p.inlinedFrom)).toBe(true);
