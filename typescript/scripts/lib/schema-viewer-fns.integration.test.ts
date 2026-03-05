@@ -141,16 +141,16 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
     const props = flattenAllOf(defs, "VehicleType");
     expect(props.length).toBeGreaterThan(20);
     // Own properties from VehicleType_VersionStructure
-    expect(props.some((p) => p.prop[1] === "lowFloor")).toBe(true);
-    expect(props.some((p) => p.prop[1] === "length")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "LowFloor")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "Length")).toBe(true);
     // Inherited from TransportType_VersionStructure
     expect(
-      props.some((p) => p.prop[1] === "name" && p.origin === "TransportType_VersionStructure"),
+      props.some((p) => p.prop[1] === "Name" && p.origin === "TransportType_VersionStructure"),
     ).toBe(true);
-    expect(props.some((p) => p.prop[1] === "transportMode")).toBe(true);
-    // Deep inherited from EntityInVersionStructure
-    expect(props.some((p) => p.prop[1] === "created")).toBe(true);
-    expect(props.some((p) => p.prop[1] === "version")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "TransportMode")).toBe(true);
+    // Deep inherited from EntityInVersionStructure (XML attributes get $ prefix)
+    expect(props.some((p) => p.prop[1] === "$created")).toBe(true);
+    expect(props.some((p) => p.prop[1] === "$version")).toBe(true);
   });
 
   it("flattenAllOf origin chain documents exactly 5 types and why", () => {
@@ -213,7 +213,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType handles booleans from VehicleType", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const lowFloor = props.find((p) => p.prop[1] === "lowFloor");
+    const lowFloor = props.find((p) => p.prop[1] === "LowFloor");
     expect(lowFloor).toBeDefined();
     expect(resolvePropertyType(defs, lowFloor!.schema)).toEqual({ ts: "boolean", complex: false });
   });
@@ -221,7 +221,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
   it("resolvePropertyType resolves allOf-wrapped measurement types", () => {
     // Length → allOf[$ref LengthType] → should resolve to an atom
     const props = flattenAllOf(defs, "VehicleType");
-    const length = props.find((p) => p.prop[1] === "length");
+    const length = props.find((p) => p.prop[1] === "Length");
     expect(length).toBeDefined();
     const result = resolvePropertyType(defs, length!.schema);
     expect(result.ts).toBeTruthy();
@@ -232,7 +232,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType resolves enum from inherited TransportMode to enum name", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const mode = props.find((p) => p.prop[1] === "transportMode");
+    const mode = props.find((p) => p.prop[1] === "TransportMode");
     expect(mode).toBeDefined();
     const result = resolvePropertyType(defs, mode!.schema);
     expect(result.complex).toBe(false);
@@ -242,7 +242,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType resolves array from deep-inherited ValidBetween", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const vb = props.find((p) => p.prop[1] === "validBetween");
+    const vb = props.find((p) => p.prop[1] === "ValidBetween");
     expect(vb).toBeDefined();
     const result = resolvePropertyType(defs, vb!.schema);
     expect(result.ts).toMatch(/\[\]$/);
@@ -250,7 +250,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType resolves BrandingRef as complex via x-netex-atom simpleObj", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const branding = props.find((p) => p.prop[1] === "brandingRef");
+    const branding = props.find((p) => p.prop[1] === "BrandingRef");
     expect(branding).toBeDefined();
     const result = resolvePropertyType(defs, branding!.schema);
     // BrandingRef chain ends at a simpleObj (value + attrs) — stays complex
@@ -260,7 +260,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
   it("resolvePropertyType resolves complex ref types", () => {
     // capacities → allOf[$ref passengerCapacities_RelStructure] — a complex structure
     const props = flattenAllOf(defs, "VehicleType");
-    const cap = props.find((p) => p.prop[1] === "capacities");
+    const cap = props.find((p) => p.prop[1] === "capacities"); // lowercase in XSD
     expect(cap).toBeDefined();
     const result = resolvePropertyType(defs, cap!.schema);
     expect(result.complex).toBe(true);
@@ -268,7 +268,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType unwraps keyList to KeyValueStructure[] (simpleObj atom as [])", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const kl = props.find((p) => p.prop[1] === "keyList");
+    const kl = props.find((p) => p.prop[1] === "keyList"); // lowercase in XSD
     expect(kl).toBeDefined();
     const result = resolvePropertyType(defs, kl!.schema);
     // keyList → KeyListStructure (single-prop, no role) → KeyValue: KeyValueStructure[] (simpleObj)
@@ -287,7 +287,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType unwraps privateCodes to PrivateCodeStructure[] (simpleObj atom as [])", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const pc = props.find((p) => p.prop[1] === "privateCodes");
+    const pc = props.find((p) => p.prop[1] === "privateCodes"); // lowercase in XSD
     expect(pc).toBeDefined();
     const result = resolvePropertyType(defs, pc!.schema);
     // privateCodes → PrivateCodesStructure (single-prop, no role) → PrivateCode → PrivateCodeStructure (simpleObj)
@@ -349,7 +349,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
   it("resolvePropertyType unpacks Extensions as non-complex object", () => {
     const props = flattenAllOf(defs, "VehicleType");
-    const ext = props.find((p) => p.prop[1] === "extensions");
+    const ext = props.find((p) => p.prop[1] === "Extensions");
     expect(ext).toBeDefined();
     const result = resolvePropertyType(defs, ext!.schema);
     // Extensions → ExtensionsStructure (xsd:any wrapper — no properties, no role)
@@ -699,37 +699,37 @@ describe("inlineSingleRefs — VehicleType real schema", () => {
     // PassengerCapacity → PassengerCapacityStructure (role=structure) → INLINED
     //
     // The 4 reference-role targets should remain as-is
-    expect(result.some((p) => p.prop[1] === "brandingRef" && !p.inlinedFrom)).toBe(true);
-    expect(result.some((p) => p.prop[1] === "deckPlanRef" && !p.inlinedFrom)).toBe(true);
-    expect(result.some((p) => p.prop[1] === "includedIn" && !p.inlinedFrom)).toBe(true);
-    expect(result.some((p) => p.prop[1] === "classifiedAsRef" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "BrandingRef" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "DeckPlanRef" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "IncludedIn" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "ClassifiedAsRef" && !p.inlinedFrom)).toBe(true);
 
     // PrivateCode → atom type, should remain as-is (not inlined)
-    expect(result.some((p) => p.prop[1] === "privateCode" && !p.inlinedFrom)).toBe(true);
+    expect(result.some((p) => p.prop[1] === "PrivateCode" && !p.inlinedFrom)).toBe(true);
 
     // PassengerCapacity should be replaced by its inner props
-    expect(result.some((p) => p.prop[1] === "passengerCapacity" && !p.inlinedFrom)).toBe(false);
-    const capInlined = result.filter((p) => p.inlinedFrom === "passengerCapacity");
+    expect(result.some((p) => p.prop[1] === "PassengerCapacity" && !p.inlinedFrom)).toBe(false);
+    const capInlined = result.filter((p) => p.inlinedFrom === "PassengerCapacity");
     expect(capInlined.length).toBeGreaterThan(0);
 
     // Shared-ancestor props (EntityStructure, EntityInVersionStructure,
     // DataManagedObjectStructure) should NOT be duplicated from PassengerCapacity —
     // they already exist in the parent chain.
     const capNames = capInlined.map((p) => p.prop[1]);
-    const sharedAncestorProps = ["id", "version", "created", "changed", "keyList", "BrandingRef"];
+    const sharedAncestorProps = ["$id", "$version", "$created", "$changed", "keyList", "BrandingRef"];
     for (const name of sharedAncestorProps) {
       expect(capNames).not.toContain(name);
     }
 
     // Only PassengerCapacityStructure's own props should be inlined
     const expectedCapProps = [
-      "fareClass",
-      "totalCapacity",
-      "seatingCapacity",
-      "standingCapacity",
-      "specialPlaceCapacity",
-      "pushchairCapacity",
-      "wheelchairPlaceCapacity",
+      "FareClass",
+      "TotalCapacity",
+      "SeatingCapacity",
+      "StandingCapacity",
+      "SpecialPlaceCapacity",
+      "PushchairCapacity",
+      "WheelchairPlaceCapacity",
     ];
     for (const name of expectedCapProps) {
       expect(capNames).toContain(name);

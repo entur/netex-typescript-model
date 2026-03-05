@@ -12,7 +12,7 @@
      * Responsibilities:
      *  - Sidebar search and role-chip filtering
      *  - Explorer panel lifecycle (open/close, tab switching, resize)
-     *  - HTML builders for explorer tabs (graph, interface, mapping, utils)
+     *  - HTML builders for explorer tabs (graph, interface, XML mapping, utils)
      *  - "Used by entities" dropdown (BFS via findTransitiveEntityUsers)
      *  - Via-chain hover popup on interface properties
      *  - Copy-to-clipboard for code blocks
@@ -311,6 +311,10 @@
     /**
      * Build the "suggested flat interface" HTML for the TypeScript tab.
      *
+     * Property names use the canonical XML convention: PascalCase for XML
+     * elements, `$`-prefixed for XML attributes (mirrors fast-xml-parser's
+     * `@_` prefix, but uses `$` for JS-friendly property access).
+     *
      * Flattens the allOf inheritance chain, resolves each property's
      * TypeScript type, and emits syntax-highlighted pseudo-code with
      * clickable ref links and `data-via` attributes for hover popups.
@@ -562,28 +566,89 @@
     const explorerMapping = document.getElementById('explorerMapping');
 
     /**
-     * Build the Mapping tab HTML: informative text about structural equivalence.
+     * Build the XML Mapping tab HTML: a serialize function for fast-xml-parser.
+     *
+     * Convention: PascalCase = XML elements, `$` prefix = XML attributes.
+     * The serialize function renames `$`-prefixed props to `@_` for fast-xml-parser,
+     * stringifies booleans, and recurses into nested objects.
      *
      * @param {string} name  Definition name.
-     * @returns {string} Informative paragraphs explaining type compatibility.
+     * @returns {string} HTML with intro text and a serialize code block.
      */
     function renderMappingHtml(name) {
-      var html = '<p class="mapping-intro">';
-      html += 'The generated <code>' + esc(name) + '</code> type uses intersection types ';
-      html += 'to model the NeTEx inheritance chain. The flat interface in the ';
-      html += 'TypeScript tab has the same properties resolved into a single block.';
-      html += '</p><p class="mapping-intro">';
-      html += 'At runtime the two shapes are structurally identical \u2014 a simple ';
-      html += '<code>as</code> cast works in either direction.';
-      html += '</p><p class="mapping-intro">';
-      html += 'For simpleContent wrapper types (atoms), the primitive value lives ';
-      html += 'in the <code>.value</code> property. The TypeScript tab marks these ';
-      html += 'with a <code>// \u2192 <em>type</em></code> comment.';
+      var html = '';
+      html += '<p class="mapping-intro">';
+      html += 'Serialize <code>' + esc(name) + '</code> to XML via ';
+      html += '<a href="https://github.com/NaturalIntelligence/fast-xml-parser" target="_blank">fast-xml-parser</a>. ';
+      html += 'Convention: PascalCase = XML elements, <code>$</code> prefix = XML attributes.';
       html += '</p>';
+
+      html += '<div class="mapping-section"><h3>Serialize</h3>';
+      html += '<div class="interface-block">';
+      html += renderSerializeCode(name);
+      html += '<button class="copy-btn">Copy</button></div></div>';
+
       return html;
     }
 
-    /** Render the Mapping tab into its container element. */
+    /**
+     * Generate serialize code for fast-xml-parser XMLBuilder.
+     *
+     * Emits a generic recursive `serializeValue` that handles `$`→`@_`
+     * renaming, boolean stringification, arrays, and nested objects —
+     * matching the proven Hathor pattern. No per-property enumeration.
+     *
+     * @param {string} name  Definition name.
+     * @returns {string} Syntax-highlighted HTML code block.
+     */
+    function renderSerializeCode(name) {
+      var kw = 'if-kw', lit = 'if-lit', prim = 'if-prim', ref = 'if-ref', prop = 'if-prop', cmt = 'if-cmt';
+      var lines = [];
+      lines.push('<span class="' + kw + '">import</span> { XMLBuilder } <span class="' + kw + '">from</span> <span class="' + lit + '">"fast-xml-parser"</span>;');
+      lines.push('');
+      lines.push('<span class="' + kw + '">const</span> builder = <span class="' + kw + '">new</span> XMLBuilder({');
+      lines.push('  format: <span class="' + lit + '">true</span>,');
+      lines.push('  indentBy: <span class="' + lit + '">"  "</span>,');
+      lines.push('  ignoreAttributes: <span class="' + lit + '">false</span>,');
+      lines.push('});');
+      lines.push('');
+      lines.push('<span class="' + cmt + '">/** Recursively convert canonical props to fast-xml-parser shape. */</span>');
+      lines.push('<span class="' + kw + '">function</span> serializeValue(');
+      lines.push('  obj: Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;');
+      lines.push('): Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt; {');
+      lines.push('  <span class="' + kw + '">const</span> out: Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt; = {};');
+      lines.push('  <span class="' + kw + '">for</span> (<span class="' + kw + '">const</span> [key, val] <span class="' + kw + '">of</span> Object.entries(obj)) {');
+      lines.push('    <span class="' + kw + '">if</span> (val === <span class="' + lit + '">undefined</span>) <span class="' + kw + '">continue</span>;');
+      lines.push('    <span class="' + kw + '">if</span> (key.startsWith(<span class="' + lit + '">"$"</span>)) {');
+      lines.push('      out[<span class="' + lit + '">`@_${key.slice(1)}`</span>] = <span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"boolean"</span> ? String(val) : val;');
+      lines.push('    } <span class="' + kw + '">else if</span> (Array.isArray(val)) {');
+      lines.push('      out[key] = val.map(item =&gt;');
+      lines.push('        <span class="' + kw + '">typeof</span> item === <span class="' + lit + '">"object"</span> &amp;&amp; item !== <span class="' + lit + '">null</span>');
+      lines.push('          ? serializeValue(item <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;)');
+      lines.push('          : item');
+      lines.push('      );');
+      lines.push('    } <span class="' + kw + '">else if</span> (<span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"object"</span> &amp;&amp; val !== <span class="' + lit + '">null</span>) {');
+      lines.push('      out[key] = serializeValue(val <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;);');
+      lines.push('    } <span class="' + kw + '">else if</span> (<span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"boolean"</span>) {');
+      lines.push('      out[key] = String(val);');
+      lines.push('    } <span class="' + kw + '">else</span> {');
+      lines.push('      out[key] = val;');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  <span class="' + kw + '">return</span> out;');
+      lines.push('}');
+      lines.push('');
+      lines.push('<span class="' + kw + '">export function</span> serialize(');
+      lines.push('  obj: Partial&lt;<span class="' + ref + ' explorer-type-link" href="#' + esc(name) + '">' + esc(name) + '</span>&gt;');
+      lines.push('): <span class="' + prim + '">string</span> {');
+      lines.push('  <span class="' + kw + '">const</span> xmlObj = serializeValue(obj <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;);');
+      lines.push('  <span class="' + kw + '">return</span> builder.build({ <span class="' + prop + '">' + esc(name) + '</span>: xmlObj }) <span class="' + kw + '">as</span> <span class="' + prim + '">string</span>;');
+      lines.push('}');
+
+      return lines.join('\n');
+    }
+
+    /** Render the XML Mapping tab into its container element. */
     function renderMappingGuide(name) {
       explorerMapping.innerHTML = renderMappingHtml(name);
     }
@@ -718,6 +783,19 @@
     function renderUtils(name) {
       explorerUtils.innerHTML = renderUtilsHtml(name);
     }
+
+    // Copy handler for XML mapping tab
+    explorerMapping.addEventListener('click', function(e) {
+      if (!e.target.closest('.copy-btn')) return;
+      var block = e.target.closest('.interface-block');
+      if (!block) return;
+      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
+      navigator.clipboard.writeText(plain).then(function() {
+        var btn = e.target.closest('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
 
     // Copy handler for utilities tab
     explorerUtils.addEventListener('click', function(e) {

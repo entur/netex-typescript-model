@@ -17,9 +17,8 @@
  * `resolvePropertyType` to resolve each to its TypeScript type and
  * `resolveAtom` to annotate simpleContent wrappers (e.g. `→ string`).
  *
- * **Mapping** — `flattenAllOf`, `resolvePropertyType`, and `resolveAtom`
- * to generate `toGenerated` / `fromGenerated` converter functions between the
- * flat interface and the generated intersection type.
+ * **XML Mapping** — `flattenAllOf`, `resolvePropertyType`, and `resolveAtom`
+ * to generate a serialize function for fast-xml-parser XML output.
  *
  * **Utilities** — `flattenAllOf` + `collectRequired` for factory defaults,
  * `resolvePropertyType` for type-guard checks, `refTarget` for outgoing refs,
@@ -58,7 +57,7 @@ export interface ResolvedType {
 }
 
 export interface FlatProperty {
-  /** `[xsdName, tsName]` — original XSD property name and its camelCase TypeScript equivalent. */
+  /** `[xsdName, canonicalName]` — original XSD property name and its canonical name (PascalCase for elements, $-prefixed for attributes). */
   prop: [string, string];
   type: string;
   desc: string;
@@ -205,7 +204,7 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
         } else if (entry.properties) {
           for (const [pn, pv] of Object.entries(entry.properties) as [string, Def][]) {
             results.push({
-              prop: [pn, lcFirst(pn)],
+              prop: [pn, canonicalPropName(pn, pv)],
               type: resolveType(pv),
               desc: pv.description || "",
               origin: n,
@@ -219,7 +218,7 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
       for (const [pn, pv] of Object.entries(def.properties) as [string, Def][]) {
         if (!results.some((r) => r.prop[0] === pn && r.origin === n)) {
           results.push({
-            prop: [pn, lcFirst(pn)],
+            prop: [pn, canonicalPropName(pn, pv)],
             type: resolveType(pv),
             desc: pv.description || "",
             origin: n,
@@ -655,6 +654,12 @@ export function defaultForType(ts: string): string {
 /** Lowercase the first character of a property name (NeTEx props are PascalCase, TS conventions use camelCase). */
 export function lcFirst(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+/** Return the canonical property name: PascalCase for XML elements, $-prefixed for XML attributes. */
+export function canonicalPropName(xsdName: string, schema: Def | undefined): string {
+  if (schema && schema.xml && (schema.xml as any).attribute) return "$" + xsdName;
+  return xsdName;
 }
 
 // ── Inline single-$ref expansion ──────────────────────────────────────────────
