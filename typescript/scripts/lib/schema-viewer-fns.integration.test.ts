@@ -846,8 +846,6 @@ describe("genMockObject — VehicleType (real schema)", () => {
     //   TransportType_VersionStructure   (TransportMode, PrivateCode, ...)
     //   VehicleType_VersionStructure     (LowFloor, Length, PropulsionTypes, ...)
     //
-    // Name/Description → MultilingualString (complex mixed-content) are intentionally
-    // omitted — genMockObject keeps the mock shallow by skipping deep complex types.
     const mock = genMockObject(defs, "VehicleType");
 
     // EntityStructure
@@ -863,9 +861,12 @@ describe("genMockObject — VehicleType (real schema)", () => {
     // DataManagedObjectStructure
     expect(mock.BrandingRef).toBeDefined();
 
-    // TransportType_VersionStructure — TransportMode (enum), PrivateCode (simpleObj atom)
+    // TransportType_VersionStructure — TransportMode (enum), PrivateCode (simpleObj atom),
+    // Name (shallow-complex: TextType[])
     expect(mock.TransportMode).toBeDefined();
     expect(mock.PrivateCode).toBeDefined();
+    expect(mock.Name).toBeDefined();
+    expect(Array.isArray(mock.Name)).toBe(true);
 
     // VehicleType_VersionStructure
     expect(mock.LowFloor).toBeDefined();
@@ -874,12 +875,41 @@ describe("genMockObject — VehicleType (real schema)", () => {
     expect(mock.FuelTypes).toBeDefined();
   });
 
-  it("omits Name and Description (complex MultilingualString — mixed-content)", () => {
-    // Name/Description → MultilingualString → mixed-unwrap → TextType[] (complex)
-    // genMockObject intentionally omits deep complex types to keep the mock shallow
+  it("fills Name as TextType[] array with value and $lang (shallow-complex via mixed-unwrap)", () => {
     const mock = genMockObject(defs, "VehicleType");
-    expect(mock.Name).toBeUndefined();
-    expect(mock.Description).toBeUndefined();
+    expect(Array.isArray(mock.Name)).toBe(true);
+    const item = (mock.Name as Record<string, unknown>[])[0];
+    expect(item).toBeDefined();
+    expect("value" in item).toBe(true);
+    expect("$lang" in item).toBe(true);
+  });
+
+  it("fills Description as TextType[] (same shallow-complex path as Name)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(Array.isArray(mock.Description)).toBe(true);
+  });
+
+  it("fills keyList as KeyValueStructure[] with Key and Value props", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(Array.isArray(mock.keyList)).toBe(true);
+    const item = (mock.keyList as Record<string, unknown>[])[0];
+    expect(item).toBeDefined();
+    expect("Key" in item).toBe(true);
+    expect("Value" in item).toBe(true);
+  });
+
+  it("fills privateCodes as PrivateCodeStructure[] with value and $type", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(Array.isArray(mock.privateCodes)).toBe(true);
+    const item = (mock.privateCodes as Record<string, unknown>[])[0];
+    expect(item).toBeDefined();
+    expect("value" in item).toBe(true);
+  });
+
+  it("fills plain string properties with \"string\" default", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const pc = mock.PrivateCode as Record<string, unknown>;
+    expect(pc.value).toBe("string");
   });
 
   it("fills $created as date-time string (inherited from EntityInVersionStructure)", () => {

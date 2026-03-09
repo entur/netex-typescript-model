@@ -710,8 +710,8 @@ describe("findTransitiveEntityUsers", () => {
 // ── defaultForType ───────────────────────────────────────────────────────────
 
 describe("defaultForType", () => {
-  it('returns "" for string', () => {
-    expect(defaultForType("string")).toBe('""');
+  it('returns "string" for string', () => {
+    expect(defaultForType("string")).toBe('"string"');
   });
 
   it("returns 0 for number", () => {
@@ -734,8 +734,8 @@ describe("defaultForType", () => {
     expect(defaultForType('"a" | "b"')).toBe('"a"');
   });
 
-  it('returns "" for string with format', () => {
-    expect(defaultForType("string /* date-time */")).toBe('""');
+  it('returns "string" for string with format', () => {
+    expect(defaultForType("string /* date-time */")).toBe('"string"');
   });
 
   it("returns cast for complex types", () => {
@@ -1417,9 +1417,9 @@ describe("genMockObject", () => {
     expect(result.nameOfClass).toBe("MyEntity");
   });
 
-  it("fills string properties with empty string", () => {
+  it("fills string properties with \"string\" default", () => {
     const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.Name).toBe("");
+    expect(result.Name).toBe("string");
   });
 
   it("fills boolean properties with false", () => {
@@ -1448,5 +1448,48 @@ describe("genMockObject", () => {
   it("fills collection properties with empty array", () => {
     const result = genMockObject(syntheticDefs, "MyEntity");
     expect(result.items).toEqual([]);
+  });
+
+  it("fills shallow-complex ref as nested object", () => {
+    const defsWithShallow: Defs = {
+      Parent: {
+        type: "object",
+        properties: {
+          Detail: { allOf: [{ $ref: "#/definitions/DetailStruct" }] },
+        },
+      },
+      DetailStruct: {
+        type: "object",
+        properties: {
+          Label: { type: "string" },
+          Count: { type: "integer" },
+        },
+      },
+    };
+    const result = genMockObject(defsWithShallow, "Parent");
+    expect(result.Detail).toEqual({ Label: "string", Count: 0 });
+  });
+
+  it("fills shallow-complex array ref as one-element array", () => {
+    const defsWithArray: Defs = {
+      Parent: {
+        type: "object",
+        properties: {
+          Items: { type: "array", items: { $ref: "#/definitions/ItemType" } },
+        },
+      },
+      ItemType: {
+        type: "object",
+        "x-netex-atom": "simpleObj",
+        properties: {
+          value: { type: "string" },
+          lang: { type: "string", xml: { attribute: true } },
+        },
+      },
+    };
+    const result = genMockObject(defsWithArray, "Parent");
+    // ItemType is simpleObj so atom path handles it before shallow-complex,
+    // but either way the array should be populated
+    expect(Array.isArray(result.Items)).toBe(true);
   });
 });

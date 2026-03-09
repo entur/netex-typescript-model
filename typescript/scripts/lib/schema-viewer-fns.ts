@@ -639,20 +639,20 @@ export function presentRoles(
 /** Return a sensible default value literal for a resolved TypeScript type string. */
 export function defaultForType(ts: string): string {
   if ((ts.startsWith('"') || ts.startsWith("'")) && ts.indexOf("|") === -1) return ts;
-  if (ts === "string") return '""';
+  if (ts === "string") return '"string"';
   if (ts === "number" || ts === "integer") return "0";
   if (ts === "boolean") return "false";
   if (ts.endsWith("[]")) return "[]";
   if (ts.indexOf("|") !== -1) {
     const first = ts.split("|")[0].trim();
     if (first.startsWith('"')) return first;
-    return '""';
+    return '"string"';
   }
   if (ts.indexOf("/*") !== -1) {
     const base = ts.slice(0, ts.indexOf(" /*")).trim();
-    if (base === "string") return '""';
+    if (base === "string") return '"string"';
     if (base === "number" || base === "integer") return "0";
-    return '""';
+    return '"string"';
   }
   return "{} as " + ts;
 }
@@ -804,7 +804,7 @@ function genRefMock(defs: Defs, targetName: string): Record<string, unknown> {
         const shape = classifySchema(p.schema);
         if (shape.kind === "primitive") {
           if (shape.type === "boolean") result[propName] = false;
-          else result[propName] = "";
+          else result[propName] = "string";
         }
       }
     }
@@ -813,6 +813,21 @@ function genRefMock(defs: Defs, targetName: string): Record<string, unknown> {
     return result;
   }
   return { value: id, $ref: id };
+}
+
+/**
+ * Check whether a definition's flattened properties are all non-complex.
+ * Returns true if every property resolves to a primitive, enum, or array of primitives.
+ * Used to decide if genSimpleObjMock can fill the type.
+ */
+function isShallowComplex(defs: Defs, typeName: string): boolean {
+  const innerProps = flattenAllOf(defs, typeName);
+  if (innerProps.length === 0) return false;
+  for (const ip of innerProps) {
+    const r = resolvePropertyType(defs, ip.schema);
+    if (r.complex) return false;
+  }
+  return true;
 }
 
 /** Build a mock for a simpleObj atom (value + attributes). */
@@ -825,15 +840,15 @@ function genSimpleObjMock(defs: Defs, targetName: string): Record<string, unknow
     if (shape.kind === "primitive") {
       if (shape.type === "boolean") result[propName] = false;
       else if (shape.type === "number" || shape.type === "integer") result[propName] = 0;
-      else result[propName] = "";
+      else result[propName] = "string";
     } else if (shape.kind === "enum") {
-      result[propName] = shape.values[0] ?? "";
+      result[propName] = shape.values[0] ?? "string";
     } else if (shape.kind === "ref") {
       const innerDef = defs[shape.target];
       if (innerDef?.enum) {
-        result[propName] = innerDef.enum[0] ?? "";
+        result[propName] = innerDef.enum[0] ?? "string";
       } else {
-        result[propName] = "";
+        result[propName] = "string";
       }
     }
   }
@@ -907,10 +922,10 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
       }
       // Single-prop atom collapses to primitive
       if (atom && atom !== "array") {
-        if (atom === "string") result[propName] = "";
+        if (atom === "string") result[propName] = "string";
         else if (atom === "number" || atom === "integer") result[propName] = 0;
         else if (atom === "boolean") result[propName] = false;
-        else result[propName] = "";
+        else result[propName] = "string";
         continue;
       }
     }
@@ -922,10 +937,6 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         result[propName] = [];
         continue;
       }
-    }
-    if (shape.kind === "refArray") {
-      result[propName] = [];
-      continue;
     }
 
     // Primitives
@@ -952,7 +963,7 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         continue;
       }
       if (ts === "string" || ts.startsWith('"')) {
-        result[propName] = "";
+        result[propName] = "string";
         continue;
       }
       if (ts.endsWith("[]")) {
@@ -964,12 +975,35 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         result[propName] = JSON.parse(ts);
         continue;
       }
-      result[propName] = "";
+      result[propName] = "string";
       continue;
     }
 
-    // Complex types at depth > 0 — omit to keep mock shallow
-    // (collections and refs already handled above)
+    // Shallow-complex: all inner props are non-complex — fill with genSimpleObjMock
+    if (resolved.complex) {
+      if (resolved.ts.endsWith("[]")) {
+        // Array type (e.g. TextType[], KeyValueStructure[]) — one-element sample
+        const itemType = resolved.ts.slice(0, -2);
+        if (defs[itemType] && isShallowComplex(defs, itemType)) {
+          result[propName] = [genSimpleObjMock(defs, itemType)];
+          continue;
+        }
+      } else if (shape.kind === "ref") {
+        // Single ref (e.g. PassengerCapacity → PassengerCapacityStructure)
+        if (defs[shape.target] && isShallowComplex(defs, shape.target)) {
+          result[propName] = genSimpleObjMock(defs, shape.target);
+          continue;
+        }
+      }
+    }
+
+    // Non-shallow refArray — empty array fallback
+    if (shape.kind === "refArray") {
+      result[propName] = [];
+      continue;
+    }
+
+    // Complex types with nested complexity — omit to keep mock shallow
   }
 
   return result;

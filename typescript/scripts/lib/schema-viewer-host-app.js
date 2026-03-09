@@ -92,6 +92,8 @@
     let currentExplored = null;
     let currentMode = null;
 
+    var TAB_MAP = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
+
     /**
      * Switch the explorer panel between "explore" (Properties + Graph)
      * and "code" (Interface + Mapping + Utilities) tab sets.
@@ -118,8 +120,7 @@
         tabs.forEach(function(t) { t.classList.remove('active'); });
         explorerPanel.querySelectorAll('.explorer-tab-content').forEach(function(c) { c.classList.remove('active'); });
         firstVisible.classList.add('active');
-        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
-        document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
+        document.getElementById(TAB_MAP[firstVisible.dataset.tab]).classList.add('active');
         ifaceToggleLabel.style.display = (firstVisible.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
       }
     }
@@ -131,8 +132,7 @@
       explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
-      document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
+      document.getElementById(TAB_MAP[tab.dataset.tab] || 'explorerProps').classList.add('active');
       ifaceToggleLabel.style.display = (tab.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
     });
 
@@ -498,19 +498,21 @@
       }
     }
 
-    // Copy handler
-    explorerIface.addEventListener('click', e => {
-      if (!e.target.closest('.copy-btn')) return;
-      const block = explorerIface.querySelector('.interface-block');
-      if (!block) return;
-      // Extract plain text (strip HTML tags)
-      const plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(() => {
-        const btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(() => btn.textContent = 'Copy', 1500);
+    // Copy-to-clipboard: shared handler for all tabs with .copy-btn inside .interface-block
+    function attachCopyHandler(container) {
+      container.addEventListener('click', function(e) {
+        if (!e.target.closest('.copy-btn')) return;
+        var block = e.target.closest('.interface-block');
+        if (!block) return;
+        var plain = block.innerText.replace(/Copy$/, '').trimEnd();
+        navigator.clipboard.writeText(plain).then(function() {
+          var btn = e.target.closest('.copy-btn');
+          btn.textContent = 'Copied!';
+          setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+        });
       });
-    });
+    }
+    attachCopyHandler(explorerIface);
 
     // Via-chain popup on hover
     var viaPopup = null;
@@ -794,6 +796,8 @@
 
     /** Syntax-highlight a JSON string for display. */
     function highlightJsonStr(str) {
+      // Manual HTML-escaping (not esc()) because the regex highlighting below
+      // needs to operate on the raw string structure, not a DOM-escaped result.
       return str
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"([^"\\]*(\\.[^"\\]*)*)"(\s*:)?/g, function(match, content, _esc, colon) {
@@ -846,44 +850,9 @@
       }
     });
 
-    // Copy handler for sample tab
-    explorerSample.addEventListener('click', function(e) {
-      if (!e.target.closest('.copy-btn')) return;
-      var block = e.target.closest('.interface-block');
-      if (!block) return;
-      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(function() {
-        var btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
-      });
-    });
-
-    // Copy handler for XML mapping tab
-    explorerMapping.addEventListener('click', function(e) {
-      if (!e.target.closest('.copy-btn')) return;
-      var block = e.target.closest('.interface-block');
-      if (!block) return;
-      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(function() {
-        var btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
-      });
-    });
-
-    // Copy handler for utilities tab
-    explorerUtils.addEventListener('click', function(e) {
-      if (!e.target.closest('.copy-btn')) return;
-      var block = e.target.closest('.interface-block');
-      if (!block) return;
-      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(function() {
-        var btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
-      });
-    });
+    attachCopyHandler(explorerSample);
+    attachCopyHandler(explorerMapping);
+    attachCopyHandler(explorerUtils);
 
     // Graph node clicks
     graphContainer.addEventListener('click', e => {
