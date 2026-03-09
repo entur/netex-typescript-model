@@ -11,6 +11,8 @@ import {
   defRole,
   unwrapMixed,
   inlineSingleRefs,
+  genMockObject,
+  buildXmlString,
   type Defs,
   type ViaHop,
 } from "./schema-viewer-fns.js";
@@ -787,5 +789,72 @@ describe("resolvePropertyType — x-fixed-single-enum (real schema)", () => {
     // Without context, falls through to normal enum resolution
     expect(result.ts).toBe("NameOfClass");
     expect(result.via).toEqual([{ name: "NameOfClass", rule: "enum" }]);
+  });
+});
+
+// ── genMockObject — real schema ─────────────────────────────────────────────
+
+describe("genMockObject — VehicleType (real schema)", () => {
+  it("has $id containing VehicleType", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.$id).toContain("VehicleType");
+  });
+
+  it("has $version set to '1'", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.$version).toBe("1");
+  });
+
+  it("has TransportMode as a valid enum value", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(typeof mock.TransportMode).toBe("string");
+    expect((mock.TransportMode as string).length).toBeGreaterThan(0);
+  });
+
+  it("has LowFloor as a boolean", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(typeof mock.LowFloor).toBe("boolean");
+  });
+
+  it("has BrandingRef as ref-pattern object", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const ref = mock.BrandingRef as Record<string, unknown>;
+    expect(ref).toBeDefined();
+    expect(typeof ref.value).toBe("string");
+    expect(typeof ref.$ref).toBe("string");
+  });
+
+  it("has PropulsionTypes as array with enum value", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const pt = mock.PropulsionTypes;
+    expect(Array.isArray(pt)).toBe(true);
+    expect((pt as unknown[]).length).toBeGreaterThan(0);
+    expect(typeof (pt as unknown[])[0]).toBe("string");
+  });
+
+  it("has $nameOfClass matching the entity name (XML attribute)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    // nameOfClass is an XML attribute → canonical name is $nameOfClass
+    expect(mock.$nameOfClass).toBe("VehicleType");
+  });
+});
+
+describe("buildXmlString — VehicleType (real schema)", () => {
+  it("produces XML starting with <VehicleType", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const xml = buildXmlString("VehicleType", mock);
+    expect(xml).toContain("<VehicleType");
+  });
+
+  it("contains id= attribute", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const xml = buildXmlString("VehicleType", mock);
+    expect(xml).toContain('id=');
+  });
+
+  it("contains version= attribute", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const xml = buildXmlString("VehicleType", mock);
+    expect(xml).toContain('version=');
   });
 });

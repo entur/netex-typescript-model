@@ -106,7 +106,7 @@
         chip.textContent = mode === 'code' ? 'Code' : 'Explore';
       }
       var tabs = explorerPanel.querySelectorAll('.explorer-tab');
-      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true } : { props: true, graph: true };
+      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true, sample: true } : { props: true, graph: true };
       var firstVisible = null;
       tabs.forEach(function(t) {
         var show = !!visible[t.dataset.tab];
@@ -118,7 +118,7 @@
         tabs.forEach(function(t) { t.classList.remove('active'); });
         explorerPanel.querySelectorAll('.explorer-tab-content').forEach(function(c) { c.classList.remove('active'); });
         firstVisible.classList.add('active');
-        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
+        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
         document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
         ifaceToggleLabel.style.display = (firstVisible.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
       }
@@ -131,7 +131,7 @@
       explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
+      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
       document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
       ifaceToggleLabel.style.display = (tab.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
     });
@@ -179,10 +179,12 @@
       explorerIface.innerHTML = '<div class="spinner"></div>';
       explorerMapping.innerHTML = '<div class="spinner"></div>';
       explorerUtils.innerHTML = '<div class="spinner"></div>';
+      explorerSample.innerHTML = '<div class="spinner"></div>';
       setTimeout(function() {
         renderInterface(name);
         renderMappingGuide(name);
         renderUtils(name);
+        renderSampleData(name);
       }, 0);
       currentExplored = name;
     }
@@ -783,6 +785,79 @@
     function renderUtils(name) {
       explorerUtils.innerHTML = renderUtilsHtml(name);
     }
+
+    // ── Sample data tab ──────────────────────────────────────────────────
+
+    const explorerSample = document.getElementById('explorerSample');
+    var _cachedSampleObj = null;
+    var _cachedSampleName = null;
+
+    /** Syntax-highlight a JSON string for display. */
+    function highlightJsonStr(str) {
+      return str
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"([^"\\]*(\\.[^"\\]*)*)"(\s*:)?/g, function(match, content, _esc, colon) {
+          if (colon) return '<span class="if-prop">"' + content + '"</span>:';
+          // Check if content looks like a number or boolean
+          return '<span class="if-lit">"' + content + '"</span>';
+        })
+        .replace(/\b(true|false)\b/g, '<span class="if-kw">$1</span>')
+        .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="if-prim">$1</span>');
+    }
+
+    /** Render the Sample data tab content for a given format ('js' or 'xml'). */
+    function renderSampleContent(format) {
+      var html = '';
+
+      // Pill toggle
+      html += '<div class="sample-toggle">';
+      html += '<label class="sample-pill' + (format === 'js' ? ' active' : '') + '">';
+      html += '<input type="radio" name="sampleFmt" value="js"' + (format === 'js' ? ' checked' : '') + '> JS Object';
+      html += '</label>';
+      html += '<label class="sample-pill' + (format === 'xml' ? ' active' : '') + '">';
+      html += '<input type="radio" name="sampleFmt" value="xml"' + (format === 'xml' ? ' checked' : '') + '> XML';
+      html += '</label>';
+      html += '</div>';
+
+      html += '<div class="interface-block">';
+      if (format === 'js') {
+        var jsonStr = JSON.stringify(_cachedSampleObj, null, 2);
+        html += highlightJsonStr(jsonStr);
+      } else {
+        var xmlStr = buildXmlString(_cachedSampleName, _cachedSampleObj);
+        html += esc(xmlStr);
+      }
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      explorerSample.innerHTML = html;
+    }
+
+    /** Generate and render sample data for a definition. */
+    function renderSampleData(name) {
+      _cachedSampleObj = genMockObject(name);
+      _cachedSampleName = name;
+      renderSampleContent('js');
+    }
+
+    // Toggle handler for sample format pills
+    explorerSample.addEventListener('change', function(e) {
+      if (e.target.name === 'sampleFmt') {
+        renderSampleContent(e.target.value);
+      }
+    });
+
+    // Copy handler for sample tab
+    explorerSample.addEventListener('click', function(e) {
+      if (!e.target.closest('.copy-btn')) return;
+      var block = e.target.closest('.interface-block');
+      if (!block) return;
+      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
+      navigator.clipboard.writeText(plain).then(function() {
+        var btn = e.target.closest('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
 
     // Copy handler for XML mapping tab
     explorerMapping.addEventListener('click', function(e) {

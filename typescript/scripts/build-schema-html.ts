@@ -14,7 +14,7 @@
 
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
-import ts from "typescript";
+import { buildSync } from "esbuild";
 import { defRole, presentRoles } from "./lib/schema-viewer-fns.js";
 
 // ── HTML builder ──────────────────────────────────────────────────────────────
@@ -124,75 +124,58 @@ function buildAppScript(): string {
 }
 
 /**
- * Read the canonical viewer functions from schema-viewer-fns.ts and compile
- * to plain JS via the TypeScript compiler API.
+ * Bundle the canonical viewer functions from schema-viewer-fns.ts via esbuild.
+ *
+ * esbuild bundles the entry point (which re-exports all public functions)
+ * into a single IIFE with `globalName: "_viewerBundle"`. This also bundles
+ * fast-xml-parser so `buildXmlString` works in-browser.
  *
  * The util functions take `defs` as an explicit first parameter. The browser
  * wrappers close over the page-level `defs` variable and bind it automatically.
  */
 function buildViewerFnsScript(): string {
-  const src = readFileSync(resolve(import.meta.dirname, "lib/schema-viewer-fns.ts"), "utf-8");
-
-  // Strip `export` keywords before transpiling — ts.transpileModule still
-  // emits `exports.x = x` for exported declarations even with ModuleKind.None.
-  const stripped = src.replace(/^export /gm, "");
-
-  const { outputText: js } = ts.transpileModule(stripped, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.None,
-      removeComments: false,
-    },
+  const result = buildSync({
+    entryPoints: [resolve(import.meta.dirname, "lib/schema-viewer-bundle-entry.ts")],
+    bundle: true,
+    format: "iife",
+    globalName: "_viewerBundle",
+    platform: "browser",
+    target: "es2020",
+    minify: false,
+    write: false,
+    treeShaking: true,
   });
+  const bundleJs = result.outputFiles[0].text;
 
-  // The util functions take `defs` as first arg. Create bound wrappers that
-  // close over the page-level `defs` for use in the rest of the inline script.
   const bound = `
-    // ── Viewer functions (generated from scripts/lib/schema-viewer-fns.ts) ──
-    var _fns = (function() {
-      ${js}
-      return {
-        resolveType: resolveType,
-        isRefType: isRefType,
-        refTarget: refTarget,
-        flattenAllOf: flattenAllOf,
-        collectRequired: collectRequired,
-        resolveDefType: resolveDefType,
-        resolvePropertyType: resolvePropertyType,
-        resolveAtom: resolveAtom,
-        buildReverseIndex: buildReverseIndex,
-        findTransitiveEntityUsers: findTransitiveEntityUsers,
-        defRole: defRole,
-        defaultForType: defaultForType,
-        lcFirst: lcFirst,
-        buildInheritanceChain: buildInheritanceChain,
-        inlineSingleRefs: inlineSingleRefs,
-        canonicalPropName: canonicalPropName
-      };
-    })();
+    // ── Viewer functions (bundled from scripts/lib/schema-viewer-fns.ts via esbuild) ──
+    ${bundleJs}
 
     // Bound wrappers — close over page-level defs
-    function resolveType(p) { return _fns.resolveType(p); }
-    function isRefType(p) { return _fns.isRefType(p); }
-    function refTarget(p) { return _fns.refTarget(p); }
-    function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
-    function collectRequired(d, n) { return _fns.collectRequired(d, n); }
-    function resolveDefType(n, v) { return _fns.resolveDefType(defs, n, v); }
-    function resolvePropertyType(s, ctx) { return _fns.resolvePropertyType(defs, s, ctx); }
-    function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
-    function defaultForType(t) { return _fns.defaultForType(t); }
+    function resolveType(p) { return _viewerBundle.resolveType(p); }
+    function isRefType(p) { return _viewerBundle.isRefType(p); }
+    function refTarget(p) { return _viewerBundle.refTarget(p); }
+    function flattenAllOf(d, n) { return _viewerBundle.flattenAllOf(d, n); }
+    function collectRequired(d, n) { return _viewerBundle.collectRequired(d, n); }
+    function resolveDefType(n, v) { return _viewerBundle.resolveDefType(defs, n, v); }
+    function resolvePropertyType(s, ctx) { return _viewerBundle.resolvePropertyType(defs, s, ctx); }
+    function resolveAtom(n) { return _viewerBundle.resolveAtom(defs, n); }
+    function defaultForType(t) { return _viewerBundle.defaultForType(t); }
 
-    function inlineSingleRefs(props) { return _fns.inlineSingleRefs(defs, props); }
-    function canonicalPropName(n, s) { return _fns.canonicalPropName(n, s); }
-    function defRole(name) { return _fns.defRole(defs[name]); }
-    function buildInheritanceChain(n) { return _fns.buildInheritanceChain(defs, n); }
+    function inlineSingleRefs(props) { return _viewerBundle.inlineSingleRefs(defs, props); }
+    function canonicalPropName(n, s) { return _viewerBundle.canonicalPropName(n, s); }
+    function defRole(name) { return _viewerBundle.defRole(defs[name]); }
+    function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(defs, n); }
+    function serializeValue(obj) { return _viewerBundle.serializeValue(obj); }
+    function genMockObject(n) { return _viewerBundle.genMockObject(defs, n); }
+    function buildXmlString(n, obj) { return _viewerBundle.buildXmlString(n, obj); }
     var _reverseIdx = null;
     function buildReverseIndex() {
-      if (!_reverseIdx) _reverseIdx = _fns.buildReverseIndex(defs);
+      if (!_reverseIdx) _reverseIdx = _viewerBundle.buildReverseIndex(defs);
       return _reverseIdx;
     }
     function findTransitiveEntityUsers(name) {
-      return _fns.findTransitiveEntityUsers(name, buildReverseIndex(), (n) => _fns.defRole(defs[n]) === "entity");
+      return _viewerBundle.findTransitiveEntityUsers(name, buildReverseIndex(), (n) => _viewerBundle.defRole(defs[n]) === "entity");
     }`;
   return bound;
 }
@@ -264,6 +247,7 @@ ${sections}
       <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">XML Mapping</button>
       <button class="explorer-tab" data-tab="utils">Utilities</button>
+      <button class="explorer-tab" data-tab="sample">Sample data</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
@@ -271,6 +255,7 @@ ${sections}
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
     <div class="explorer-tab-content" id="explorerUtils"></div>
+    <div class="explorer-tab-content" id="explorerSample"></div>
   </aside>
 
   <div class="role-help-overlay" id="roleHelpOverlay">

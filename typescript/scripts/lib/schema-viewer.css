@@ -643,6 +643,12 @@
     .utils-section { margin-bottom: 0.5rem; }
     .utils-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); }
 
+    /* Sample data pill toggle */
+    .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; }
+    .sample-pill { padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; background: var(--card-bg); color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
+    .sample-pill.active { background: var(--accent); color: #fff; }
+    .sample-pill input[type="radio"] { display: none; }
+
     /* Resize handles */
     .resize-handle {
       width: 4px;
