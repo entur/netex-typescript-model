@@ -816,25 +816,17 @@ function genRefMock(defs: Defs, targetName: string): Record<string, unknown> {
 }
 
 /**
- * Check whether a definition's flattened properties are all non-complex.
- * Returns true if every property resolves to a primitive, enum, or array of primitives.
- * Used to decide if genSimpleObjMock can fill the type.
+ * Try to build a mock for a shallow-complex type (all props are non-complex).
+ * Calls `flattenAllOf` once — returns null if any property is complex or there are no props.
+ * Used both for the simpleObj atom path and for shallow-complex array/ref handling.
  */
-function isShallowComplex(defs: Defs, typeName: string): boolean {
-  const innerProps = flattenAllOf(defs, typeName);
-  if (innerProps.length === 0) return false;
-  for (const ip of innerProps) {
-    const r = resolvePropertyType(defs, ip.schema);
-    if (r.complex) return false;
-  }
-  return true;
-}
-
-/** Build a mock for a simpleObj atom (value + attributes). */
-function genSimpleObjMock(defs: Defs, targetName: string): Record<string, unknown> {
-  const props = flattenAllOf(defs, targetName);
+function tryGenShallowMock(defs: Defs, typeName: string): Record<string, unknown> | null {
+  const props = flattenAllOf(defs, typeName);
+  if (props.length === 0) return null;
   const result: Record<string, unknown> = {};
   for (const p of props) {
+    const r = resolvePropertyType(defs, p.schema);
+    if (r.complex) return null;
     const propName = p.prop[1];
     const shape = classifySchema(p.schema);
     if (shape.kind === "primitive") {
@@ -914,10 +906,14 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         result[propName] = genRefMock(defs, shape.target);
         continue;
       }
+      if (role === "collection") {
+        result[propName] = [];
+        continue;
+      }
       // Atom types (simpleObj)
       const atom = resolveAtom(defs, shape.target);
       if (atom === "simpleObj") {
-        result[propName] = genSimpleObjMock(defs, shape.target);
+        result[propName] = tryGenShallowMock(defs, shape.target) ?? {};
         continue;
       }
       // Single-prop atom collapses to primitive
@@ -926,15 +922,6 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         else if (atom === "number" || atom === "integer") result[propName] = 0;
         else if (atom === "boolean") result[propName] = false;
         else result[propName] = "string";
-        continue;
-      }
-    }
-
-    // Collection (_RelStructure) — empty array
-    if (shape.kind === "ref") {
-      const targetDef = defs[shape.target];
-      if (defRole(targetDef) === "collection") {
-        result[propName] = [];
         continue;
       }
     }
@@ -962,6 +949,11 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         result[propName] = "00:00:00";
         continue;
       }
+      // Fixed literal (single quoted value, no union)
+      if (ts.startsWith('"') && !ts.includes("|")) {
+        result[propName] = JSON.parse(ts);
+        continue;
+      }
       if (ts === "string" || ts.startsWith('"')) {
         result[propName] = "string";
         continue;
@@ -970,28 +962,25 @@ export function genMockObject(defs: Defs, name: string): Record<string, unknown>
         result[propName] = [];
         continue;
       }
-      // Fixed literal
-      if (ts.startsWith('"') && !ts.includes("|")) {
-        result[propName] = JSON.parse(ts);
-        continue;
-      }
       result[propName] = "string";
       continue;
     }
 
-    // Shallow-complex: all inner props are non-complex — fill with genSimpleObjMock
+    // Shallow-complex: all inner props are non-complex — fill with tryGenShallowMock
     if (resolved.complex) {
       if (resolved.ts.endsWith("[]")) {
         // Array type (e.g. TextType[], KeyValueStructure[]) — one-element sample
         const itemType = resolved.ts.slice(0, -2);
-        if (defs[itemType] && isShallowComplex(defs, itemType)) {
-          result[propName] = [genSimpleObjMock(defs, itemType)];
+        const shallow = defs[itemType] ? tryGenShallowMock(defs, itemType) : null;
+        if (shallow) {
+          result[propName] = [shallow];
           continue;
         }
       } else if (shape.kind === "ref") {
         // Single ref (e.g. PassengerCapacity → PassengerCapacityStructure)
-        if (defs[shape.target] && isShallowComplex(defs, shape.target)) {
-          result[propName] = genSimpleObjMock(defs, shape.target);
+        const shallow = defs[shape.target] ? tryGenShallowMock(defs, shape.target) : null;
+        if (shallow) {
+          result[propName] = shallow;
           continue;
         }
       }
