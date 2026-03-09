@@ -837,6 +837,67 @@ describe("genMockObject — VehicleType (real schema)", () => {
     // nameOfClass is an XML attribute → canonical name is $nameOfClass
     expect(mock.$nameOfClass).toBe("VehicleType");
   });
+
+  it("includes properties from all 5 inherited origins", () => {
+    // VehicleType chain (see flattenAllOf origin chain test):
+    //   EntityStructure                  (ROOT — id, nameOfClass)
+    //   EntityInVersionStructure         ($version, $created, $changed, $modification, ...)
+    //   DataManagedObjectStructure       (keyList, BrandingRef, ...)
+    //   TransportType_VersionStructure   (TransportMode, PrivateCode, ...)
+    //   VehicleType_VersionStructure     (LowFloor, Length, PropulsionTypes, ...)
+    //
+    // Name/Description → MultilingualString (complex mixed-content) are intentionally
+    // omitted — genMockObject keeps the mock shallow by skipping deep complex types.
+    const mock = genMockObject(defs, "VehicleType");
+
+    // EntityStructure
+    expect(mock.$id).toBeDefined();
+    expect(mock.$nameOfClass).toBeDefined();
+
+    // EntityInVersionStructure
+    expect(mock.$version).toBeDefined();
+    expect(mock.$created).toBeDefined();
+    expect(mock.$changed).toBeDefined();
+    expect(mock.$modification).toBeDefined();
+
+    // DataManagedObjectStructure
+    expect(mock.BrandingRef).toBeDefined();
+
+    // TransportType_VersionStructure — TransportMode (enum), PrivateCode (simpleObj atom)
+    expect(mock.TransportMode).toBeDefined();
+    expect(mock.PrivateCode).toBeDefined();
+
+    // VehicleType_VersionStructure
+    expect(mock.LowFloor).toBeDefined();
+    expect(mock.Length).toBeDefined();
+    expect(mock.PropulsionTypes).toBeDefined();
+    expect(mock.FuelTypes).toBeDefined();
+  });
+
+  it("omits Name and Description (complex MultilingualString — mixed-content)", () => {
+    // Name/Description → MultilingualString → mixed-unwrap → TextType[] (complex)
+    // genMockObject intentionally omits deep complex types to keep the mock shallow
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.Name).toBeUndefined();
+    expect(mock.Description).toBeUndefined();
+  });
+
+  it("fills $created as date-time string (inherited from EntityInVersionStructure)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.$created).toBe("2025-01-01T00:00:00");
+  });
+
+  it("fills $modification as first enum value (inherited from EntityInVersionStructure)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(typeof mock.$modification).toBe("string");
+    expect((mock.$modification as string).length).toBeGreaterThan(0);
+  });
+
+  it("fills Length as a number (inherited from VehicleType_VersionStructure)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    // Length → LengthType → atom collapse to number
+    expect(typeof mock.Length).toBe("number");
+  });
 });
 
 describe("buildXmlString — VehicleType (real schema)", () => {
