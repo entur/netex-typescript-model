@@ -13,6 +13,10 @@
  * **Graph** — `isRefType`, `refTarget`, and `resolveType` to build an SVG
  * inheritance-chain diagram with composition edges for ref-typed properties.
  *
+ * **Relations** — `collectRefProps`, `resolveRefEntity`, `collectExtraProps`,
+ * and `findTransitiveEntityUsers` to build a bipartite LTR graph showing
+ * entity-to-entity relationships through reference properties.
+ *
  * **Interface** — `flattenAllOf` to collect all properties, then
  * `resolvePropertyType` to resolve each to its TypeScript type and
  * `resolveAtom` to annotate simpleContent wrappers (e.g. `→ string`).
@@ -573,6 +577,131 @@ export function findTransitiveEntityUsers(
   }
 
   return entities.sort();
+}
+
+// ── Relations (ref-target resolution) ────────────────────────────────────────
+
+/**
+ * Resolve a reference definition name to the entity/entities it targets.
+ *
+ * Uses `x-netex-refTarget` stamp when available, falling back to name-stripping.
+ * For abstract targets, expands `x-netex-sg-members` recursively to find concrete entities.
+ *
+ * @returns A single entity name, an array of entity names (abstract expansion), or null.
+ */
+export function resolveRefEntity(
+  defs: Defs,
+  refDefName: string,
+  _visited?: Set<string>,
+): string | string[] | null {
+  const visited = _visited ?? new Set<string>();
+  if (visited.has(refDefName)) return null;
+  visited.add(refDefName);
+
+  const def = defs[refDefName];
+  // 1. Read stamp or fall back to name stripping
+  let target: string | undefined = def?.["x-netex-refTarget"];
+  if (!target) {
+    if (refDefName.endsWith("Ref")) target = refDefName.slice(0, -3);
+    else if (refDefName.endsWith("_RefStructure")) target = refDefName.slice(0, -13);
+    else if (refDefName.endsWith("RefStructure")) target = refDefName.slice(0, -12);
+  }
+  if (!target || !defs[target]) return null;
+
+  const role = defRole(defs[target]);
+  // 2. Direct entity
+  if (role === "entity") return target;
+  // 3. Abstract — expand sg-members recursively
+  //    Members may be on the target itself or on a parallel `_Dummy` element.
+  if (role === "abstract") {
+    let members: string[] = defs[target]?.["x-netex-sg-members"] ?? [];
+    if (members.length === 0) {
+      members = defs[target + "_Dummy"]?.["x-netex-sg-members"] ?? [];
+    }
+    const entities: string[] = [];
+    for (const m of members) {
+      // Try via Ref first
+      const resolved = resolveRefEntity(defs, m + "Ref", visited);
+      if (typeof resolved === "string") {
+        if (!entities.includes(resolved)) entities.push(resolved);
+      } else if (Array.isArray(resolved)) {
+        for (const e of resolved) if (!entities.includes(e)) entities.push(e);
+      }
+      // If the member itself is an entity, include it directly
+      if (defRole(defs[m]) === "entity" && !entities.includes(m)) entities.push(m);
+    }
+    return entities.length > 0 ? entities.sort() : null;
+  }
+  return null;
+}
+
+/** Entry returned by `collectRefProps`. */
+export interface RefPropEntry {
+  propName: string;
+  refDefName: string;
+  targetEntities: string[];
+}
+
+/**
+ * Collect ref-typed properties from a definition and resolve their entity targets.
+ *
+ * Walks the full allOf chain via `flattenAllOf`, filters to `isRefType` properties,
+ * resolves each through `resolveRefEntity`, and returns only those with resolvable targets.
+ */
+export function collectRefProps(defs: Defs, name: string): RefPropEntry[] {
+  const props = flattenAllOf(defs, name);
+  const result: RefPropEntry[] = [];
+  for (const p of props) {
+    if (!isRefType(p.schema)) continue;
+    const target = refTarget(p.schema);
+    if (!target) continue;
+    const entities = resolveRefEntity(defs, target);
+    if (!entities) continue;
+    const targetEntities = typeof entities === "string" ? [entities] : entities;
+    result.push({ propName: p.prop[0], refDefName: target, targetEntities });
+  }
+  return result;
+}
+
+/**
+ * Collect the "extra" properties an entity's structure adds beyond a base structure.
+ *
+ * Walks the allOf chain from the entity's backing structure up to (but not including)
+ * `baseStructure`, collecting own property names at each intermediate level.
+ */
+export function collectExtraProps(defs: Defs, entityName: string, baseStructure: string): string[] {
+  // Resolve entity → backing structure (entity defs are $ref aliases)
+  const entityDef = defs[entityName];
+  if (!entityDef) return [];
+  let struct = entityDef.$ref ? deref(entityDef.$ref) : null;
+  if (!struct) {
+    const ref = allOfRef(entityDef);
+    struct = ref ? deref(ref) : null;
+  }
+  if (!struct || struct === baseStructure) return [];
+
+  // Walk from struct up to baseStructure, collecting own props
+  const extras: string[] = [];
+  let current: string | null = struct;
+  const visited = new Set<string>();
+  while (current && current !== baseStructure && !visited.has(current)) {
+    visited.add(current);
+    const d = defs[current];
+    if (!d) break;
+    // Collect own properties from this level
+    if (d.properties) {
+      for (const k of Object.keys(d.properties)) extras.push(canonicalPropName(k, d.properties[k]));
+    }
+    for (const ao of d.allOf ?? []) {
+      if (ao.properties) {
+        for (const k of Object.keys(ao.properties)) extras.push(canonicalPropName(k, ao.properties[k]));
+      }
+    }
+    // Move up: find allOf $ref parent
+    const parentRef = d.allOf ? allOfRef(d.allOf) : null;
+    current = parentRef ?? (d.$ref ? deref(d.$ref) : null);
+  }
+  return extras;
 }
 
 // ── Role filter ─────────────────────────────────────────────────────────────

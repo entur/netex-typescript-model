@@ -92,7 +92,8 @@
     let currentExplored = null;
     let currentMode = null;
 
-    var TAB_MAP = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
+    var TAB_MAP = { props: 'explorerProps', graph: 'explorerGraph', relations: 'explorerRelations', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
+    const relationsContainer = document.getElementById('relationsContainer');
 
     /**
      * Switch the explorer panel between "explore" (Properties + Graph)
@@ -108,7 +109,7 @@
         chip.textContent = mode === 'code' ? 'Code' : 'Explore';
       }
       var tabs = explorerPanel.querySelectorAll('.explorer-tab');
-      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true, sample: true } : { props: true, graph: true };
+      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true, sample: true } : { props: true, graph: true, relations: true };
       var firstVisible = null;
       tabs.forEach(function(t) {
         var show = !!visible[t.dataset.tab];
@@ -176,6 +177,8 @@
 
       explorerProps.innerHTML = html;
       renderGraph(name);
+      relationsContainer.innerHTML = '<div class="spinner"></div>';
+      setTimeout(function() { renderRelations(name); }, 0);
       explorerIface.innerHTML = '<div class="spinner"></div>';
       explorerMapping.innerHTML = '<div class="spinner"></div>';
       explorerUtils.innerHTML = '<div class="spinner"></div>';
@@ -301,6 +304,204 @@
       };
       graphContainer.innerHTML = renderGraphSvg(name, colors);
     }
+
+    // ── Relations tab ─────────────────────────────────────────────────
+
+    var _relationsRefProps = [];
+    var _relationsCurrentName = null;
+
+    /**
+     * Build a bipartite SVG showing entity-to-entity relationships through a selected ref.
+     *
+     * Left column = "my entities" (entities whose structure has the ref property).
+     * Right column = "can own" (entities at the target of the ref).
+     * Each box shows entity name + extra properties that entity adds beyond the base.
+     */
+    function renderRelationsSvg(leftNodes, rightNodes, refLabel, colors) {
+      var PAD = 14, COL_W = 180, GAP_X = 80, NODE_RX = 6;
+      var TITLE_H = 22, PROP_H = 14, BOX_PAD_Y = 6, BOX_GAP_Y = 10;
+      var MAX_SHOWN_PROPS = 6;
+      var HEADER_H = 22;
+
+      var accent = colors.accent, fg = colors.fg, muted = colors.muted, cardBg = colors.cardBg, cardBorder = colors.cardBorder;
+
+      function boxHeight(node) {
+        var shown = Math.min(node.extras.length, MAX_SHOWN_PROPS);
+        var moreH = node.extras.length > MAX_SHOWN_PROPS ? PROP_H : 0;
+        return TITLE_H + (shown > 0 ? BOX_PAD_Y + shown * PROP_H + moreH : 0) + BOX_PAD_Y;
+      }
+
+      function stackColumn(nodes) {
+        var y = PAD + HEADER_H;
+        var items = [];
+        for (var i = 0; i < nodes.length; i++) {
+          var h = boxHeight(nodes[i]);
+          items.push({ node: nodes[i], y: y, h: h });
+          y += h + BOX_GAP_Y;
+        }
+        return { items: items, totalH: y - BOX_GAP_Y + PAD };
+      }
+
+      var leftCol = stackColumn(leftNodes);
+      var rightCol = stackColumn(rightNodes);
+      var totalH = Math.max(leftCol.totalH, rightCol.totalH, PAD + HEADER_H + 40);
+      var totalW = PAD + COL_W + GAP_X + COL_W + PAD;
+
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + totalW + '" height="' + totalH + '">';
+      svg += '<defs><marker id="rel-arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">';
+      svg += '<path d="M0,0 L10,3 L0,6 Z" fill="' + muted + '"/></marker></defs>';
+
+      // Column headers
+      svg += '<text x="' + (PAD + COL_W / 2) + '" y="' + (PAD + 14) + '" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="' + muted + '">My entities</text>';
+      svg += '<text x="' + (PAD + COL_W + GAP_X + COL_W / 2) + '" y="' + (PAD + 14) + '" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="' + muted + '">Can own</text>';
+
+      // Ref label centered between columns
+      svg += '<text x="' + (PAD + COL_W + GAP_X / 2) + '" y="' + (PAD + 14) + '" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="' + accent + '">' + esc(refLabel) + '</text>';
+
+      function renderColumn(col, x, isLeft) {
+        for (var i = 0; i < col.items.length; i++) {
+          var item = col.items[i];
+          var n = item.node;
+          var fill = cardBg;
+          var stroke = cardBorder;
+          var textFill = fg;
+          svg += '<g class="graph-node" data-def="' + esc(n.name) + '">';
+          svg += '<title>' + esc(n.name) + (n.extras.length > 0 ? ' (+' + n.extras.length + ' props)' : '') + '</title>';
+          svg += '<rect x="' + x + '" y="' + item.y + '" width="' + COL_W + '" height="' + item.h + '" rx="' + NODE_RX + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>';
+          // Title
+          var label = n.name.length > 22 ? n.name.slice(0, 20) + '\u2026' : n.name;
+          svg += '<text x="' + (x + 8) + '" y="' + (item.y + 15) + '" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="600" fill="' + textFill + '">' + esc(label) + '</text>';
+          // Extra props
+          var shown = Math.min(n.extras.length, MAX_SHOWN_PROPS);
+          for (var j = 0; j < shown; j++) {
+            var py = item.y + TITLE_H + BOX_PAD_Y + j * PROP_H;
+            var pLabel = n.extras[j].length > 24 ? n.extras[j].slice(0, 22) + '\u2026' : n.extras[j];
+            svg += '<text x="' + (x + 12) + '" y="' + (py + 10) + '" font-family="ui-monospace,monospace" font-size="9" fill="' + muted + '">+ ' + esc(pLabel) + '</text>';
+          }
+          if (n.extras.length > MAX_SHOWN_PROPS) {
+            var moreY = item.y + TITLE_H + BOX_PAD_Y + shown * PROP_H;
+            svg += '<text x="' + (x + 12) + '" y="' + (moreY + 10) + '" font-family="system-ui,sans-serif" font-size="9" font-style="italic" fill="' + muted + '">…and ' + (n.extras.length - MAX_SHOWN_PROPS) + ' more</text>';
+          }
+          svg += '</g>';
+        }
+      }
+
+      renderColumn(leftCol, PAD, true);
+      renderColumn(rightCol, PAD + COL_W + GAP_X, false);
+
+      // Edges: each left → each right
+      for (var li = 0; li < leftCol.items.length; li++) {
+        var lItem = leftCol.items[li];
+        var lMidY = lItem.y + lItem.h / 2;
+        for (var ri = 0; ri < rightCol.items.length; ri++) {
+          var rItem = rightCol.items[ri];
+          var rMidY = rItem.y + rItem.h / 2;
+          svg += '<line x1="' + (PAD + COL_W) + '" y1="' + lMidY + '" x2="' + (PAD + COL_W + GAP_X) + '" y2="' + rMidY + '" stroke="' + cardBorder + '" stroke-width="1" marker-end="url(#rel-arrow)"/>';
+        }
+      }
+
+      svg += '</svg>';
+      return svg;
+    }
+
+    /** Render the Relations SVG for a given definition and selected ref prop into the SVG container. */
+    function renderRelationsForRef(name, refEntry) {
+      var svgContainer = document.getElementById('relationsSvgContainer');
+      if (!svgContainer) return;
+
+      var cs = getComputedStyle(document.documentElement);
+      var colors = {
+        accent: cs.getPropertyValue('--accent').trim(),
+        fg: cs.getPropertyValue('--fg').trim(),
+        muted: cs.getPropertyValue('--muted').trim(),
+        cardBg: cs.getPropertyValue('--card-bg').trim(),
+        cardBorder: cs.getPropertyValue('--card-border').trim()
+      };
+
+      // Left column: entities that use the current structure
+      var reverseIdx = buildReverseIndex();
+      var isEntityPred = function(n) { return defRole(defs[n]) === 'entity'; };
+      var myEntities = findTransitiveEntityUsers(name, reverseIdx, isEntityPred);
+
+      // Right column: find entities that use the target's backing structure
+      // (mirrors left-side logic — target entity is a pure alias, its structure has the subtypes)
+      var rightEntitiesSet = {};
+      var rightBaseStructure = null;
+      for (var ti = 0; ti < refEntry.targetEntities.length; ti++) {
+        var te = refEntry.targetEntities[ti];
+        var teDef = defs[te];
+        // Resolve entity → backing structure
+        var backingStruct = teDef && teDef.$ref
+          ? teDef.$ref.replace('#/definitions/', '')
+          : (teDef && teDef.allOf ? (function() {
+              for (var a = 0; a < teDef.allOf.length; a++) {
+                if (teDef.allOf[a].$ref) return teDef.allOf[a].$ref.replace('#/definitions/', '');
+              }
+              return null;
+            })() : null);
+        if (!backingStruct) { rightEntitiesSet[te] = true; continue; }
+        if (!rightBaseStructure) rightBaseStructure = backingStruct;
+        var structUsers = findTransitiveEntityUsers(backingStruct, reverseIdx, isEntityPred);
+        for (var ui = 0; ui < structUsers.length; ui++) {
+          rightEntitiesSet[structUsers[ui]] = true;
+        }
+      }
+      var rightEntityNames = Object.keys(rightEntitiesSet).sort();
+
+      var leftNodes = myEntities.map(function(e) {
+        return { name: e, extras: collectExtraProps(e, name) };
+      });
+      var rightNodes = rightEntityNames.map(function(e) {
+        return { name: e, extras: rightBaseStructure ? collectExtraProps(e, rightBaseStructure) : [] };
+      });
+
+      if (leftNodes.length === 0 && rightNodes.length === 0) {
+        svgContainer.innerHTML = '<p class="explorer-empty">No entity relationships for this reference.</p>';
+        return;
+      }
+
+      svgContainer.innerHTML = renderRelationsSvg(leftNodes, rightNodes, refEntry.propName, colors);
+    }
+
+    /** Populate the Relations tab: dropdown + initial SVG. */
+    function renderRelations(name) {
+      _relationsRefProps = collectRefProps(name);
+      _relationsCurrentName = name;
+
+      if (_relationsRefProps.length === 0) {
+        relationsContainer.innerHTML = '<p class="explorer-empty">No reference properties.</p>';
+        return;
+      }
+
+      // Build dropdown + container
+      var html = '<div class="relations-controls"><label>Ref: <select class="relations-select" id="relationsSelect">';
+      for (var i = 0; i < _relationsRefProps.length; i++) {
+        html += '<option value="' + i + '">' + esc(_relationsRefProps[i].propName) + '</option>';
+      }
+      html += '</select></label></div>';
+      html += '<div class="relations-svg-container" id="relationsSvgContainer"></div>';
+      relationsContainer.innerHTML = html;
+
+      // Render first ref
+      renderRelationsForRef(name, _relationsRefProps[0]);
+
+      // Wire dropdown change
+      document.getElementById('relationsSelect').addEventListener('change', function(e) {
+        var idx = parseInt(e.target.value, 10);
+        if (_relationsRefProps[idx]) {
+          renderRelationsForRef(_relationsCurrentName, _relationsRefProps[idx]);
+        }
+      });
+    }
+
+    // Relations SVG node clicks (delegate from relationsContainer)
+    relationsContainer.addEventListener('click', function(e) {
+      var node = e.target.closest('.graph-node');
+      if (node && node.dataset.def && defs[node.dataset.def]) {
+        if (decodeURIComponent(location.hash) !== '#' + node.dataset.def) location.hash = '#' + node.dataset.def;
+        renderExplorer(node.dataset.def);
+      }
+    });
 
     // ── TypeScript tab ─────────────────────────────────────────────────
 

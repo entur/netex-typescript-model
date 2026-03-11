@@ -993,6 +993,25 @@ class XsdToJsonSchema {
       }
     }
 
+    // Stamp x-netex-refTarget on reference-role definitions
+    for (const [name, entry] of Object.entries(allDefs)) {
+      const schema = entry.schema;
+      if (schema["x-netex-role"] !== "reference") continue;
+
+      // Try stripping Ref / _RefStructure / RefStructure suffix to find target element
+      let target = null;
+      if (name.endsWith("Ref")) {
+        target = name.slice(0, -3);
+      } else if (name.endsWith("_RefStructure")) {
+        target = name.slice(0, -13);
+      } else if (name.endsWith("RefStructure")) {
+        target = name.slice(0, -12);
+      }
+      if (target && (this.elements[target] || this.types[target])) {
+        schema["x-netex-refTarget"] = target;
+      }
+    }
+
     // Stamp substitution group annotations
     for (const [name, def] of Object.entries(allDefs)) {
       const schema = def.schema || def;

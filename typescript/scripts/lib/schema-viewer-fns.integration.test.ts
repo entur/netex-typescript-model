@@ -13,6 +13,9 @@ import {
   inlineSingleRefs,
   genMockObject,
   buildXmlString,
+  resolveRefEntity,
+  collectRefProps,
+  collectExtraProps,
   type Defs,
   type ViaHop,
 } from "./schema-viewer-fns.js";
@@ -947,5 +950,183 @@ describe("buildXmlString — VehicleType (real schema)", () => {
     const mock = genMockObject(defs, "VehicleType");
     const xml = buildXmlString("VehicleType", mock);
     expect(xml).toContain('version=');
+  });
+});
+
+// ── x-netex-refTarget annotation stamp ──────────────────────────────────────
+
+describe("x-netex-refTarget annotation", () => {
+  it("TransportTypeRef has stamp pointing to TransportType", () => {
+    expect(defs["TransportTypeRef"]["x-netex-refTarget"]).toBe("TransportType");
+  });
+
+  it("TransportTypeRefStructure has stamp pointing to TransportType", () => {
+    expect(defs["TransportTypeRefStructure"]["x-netex-refTarget"]).toBe("TransportType");
+  });
+
+  it("at least 160 reference-role defs have the stamp", () => {
+    const stamped = Object.entries(defs).filter(
+      ([, d]) => d["x-netex-refTarget"] !== undefined,
+    );
+    expect(stamped.length).toBeGreaterThanOrEqual(160);
+  });
+
+  it("framework refs like VersionOfObjectRef have no stamp", () => {
+    expect(defs["VersionOfObjectRef"]?.["x-netex-refTarget"]).toBeUndefined();
+  });
+});
+
+// ── resolveRefEntity — real schema ──────────────────────────────────────────
+
+describe("resolveRefEntity — real schema", () => {
+  it("TransportTypeRef resolves to TransportType entity", () => {
+    expect(resolveRefEntity(defs, "TransportTypeRef")).toBe("TransportType");
+  });
+
+  it("VehicleModelRef resolves to VehicleModel entity", () => {
+    expect(resolveRefEntity(defs, "VehicleModelRef")).toBe("VehicleModel");
+  });
+
+  it("OrganisationRef resolves to concrete entity sg-members (abstract expansion)", () => {
+    const result = resolveRefEntity(defs, "OrganisationRef");
+    expect(Array.isArray(result)).toBe(true);
+    expect((result as string[]).length).toBeGreaterThan(0);
+    // Every result should be an entity
+    for (const name of result as string[]) {
+      expect(defRole(defs[name])).toBe("entity");
+    }
+  });
+
+  it("VersionOfObjectRef returns null (framework ref)", () => {
+    expect(resolveRefEntity(defs, "VersionOfObjectRef")).toBeNull();
+  });
+});
+
+// ── collectRefProps — real schema ───────────────────────────────────────────
+
+describe("collectRefProps — real schema", () => {
+  it("Vehicle_VersionStructure has ref props including TransportTypeRef", () => {
+    const result = collectRefProps(defs, "Vehicle_VersionStructure");
+    expect(result.length).toBeGreaterThanOrEqual(3);
+    const names = result.map((r) => r.propName);
+    expect(names).toContain("TransportTypeRef");
+    expect(names).toContain("VehicleModelRef");
+  });
+
+  it("all returned target entities have entity role", () => {
+    const result = collectRefProps(defs, "Vehicle_VersionStructure");
+    for (const entry of result) {
+      for (const e of entry.targetEntities) {
+        expect(defRole(defs[e])).toBe("entity");
+      }
+    }
+  });
+});
+
+// ── collectExtraProps — real schema ─────────────────────────────────────────
+
+describe("collectExtraProps — real schema", () => {
+  it("TransportType at TransportType_VersionStructure base has no extras", () => {
+    expect(collectExtraProps(defs, "TransportType", "TransportType_VersionStructure")).toEqual([]);
+  });
+
+  it("VehicleType at TransportType_VersionStructure base has ~19 extras", () => {
+    const extras = collectExtraProps(defs, "VehicleType", "TransportType_VersionStructure");
+    expect(extras.length).toBeGreaterThanOrEqual(15);
+    expect(extras).toContain("LowFloor");
+    expect(extras).toContain("Length");
+    expect(extras).toContain("ClassifiedAsRef");
+  });
+
+  it("SimpleVehicleType at TransportType_VersionStructure base has ~11 extras", () => {
+    const extras = collectExtraProps(defs, "SimpleVehicleType", "TransportType_VersionStructure");
+    expect(extras.length).toBeGreaterThanOrEqual(8);
+    expect(extras).toContain("VehicleCategory");
+    expect(extras).toContain("NumberOfWheels");
+    expect(extras).toContain("Portable");
+  });
+
+  it("VehicleType extras do not include TransportMode (ancestor prop)", () => {
+    const extras = collectExtraProps(defs, "VehicleType", "TransportType_VersionStructure");
+    expect(extras).not.toContain("TransportMode");
+  });
+});
+
+// ── VehicleType_VersionStructure end-to-end relations ───────────────────────
+
+describe("VehicleType_VersionStructure — relations end-to-end", () => {
+  it("collectRefProps finds at least 4 ref props", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    expect(refs.length).toBeGreaterThanOrEqual(4);
+    const names = refs.map((r) => r.propName);
+    expect(names).toContain("BrandingRef");
+    expect(names).toContain("ClassifiedAsRef");
+    expect(names).toContain("DeckPlanRef");
+    expect(names).toContain("IncludedIn");
+  });
+
+  it("ClassifiedAsRef resolves to VehicleModel entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const classified = refs.find((r) => r.propName === "ClassifiedAsRef");
+    expect(classified).toBeDefined();
+    expect(classified!.targetEntities).toContain("VehicleModel");
+  });
+
+  it("DeckPlanRef resolves to DeckPlan entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const dp = refs.find((r) => r.propName === "DeckPlanRef");
+    expect(dp).toBeDefined();
+    expect(dp!.targetEntities).toContain("DeckPlan");
+  });
+
+  it("IncludedIn resolves to VehicleType entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const inc = refs.find((r) => r.propName === "IncludedIn");
+    expect(inc).toBeDefined();
+    expect(inc!.targetEntities).toContain("VehicleType");
+  });
+
+  it("BrandingRef resolves to Branding entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const br = refs.find((r) => r.propName === "BrandingRef");
+    expect(br).toBeDefined();
+    expect(br!.targetEntities).toContain("Branding");
+  });
+
+  it("findTransitiveEntityUsers finds VehicleType, Train, and CompoundTrain", () => {
+    const reverseIndex = buildReverseIndex(defs);
+    const entities = findTransitiveEntityUsers(
+      "VehicleType_VersionStructure",
+      reverseIndex,
+      (n) => defRole(defs[n]) === "entity",
+    );
+    expect(entities).toContain("VehicleType");
+    expect(entities).toContain("Train");
+    expect(entities).toContain("CompoundTrain");
+    // SimpleVehicleType does NOT extend VehicleType_VersionStructure
+    expect(entities).not.toContain("SimpleVehicleType");
+  });
+
+  it("VehicleType has no extra props at VehicleType_VersionStructure base", () => {
+    expect(collectExtraProps(defs, "VehicleType", "VehicleType_VersionStructure")).toEqual([]);
+  });
+
+  it("Train has TrainSize and components as extras beyond VehicleType_VersionStructure", () => {
+    const extras = collectExtraProps(defs, "Train", "VehicleType_VersionStructure");
+    expect(extras).toContain("TrainSize");
+    expect(extras).toContain("components");
+  });
+
+  it("CompoundTrain has components as extra beyond VehicleType_VersionStructure", () => {
+    const extras = collectExtraProps(defs, "CompoundTrain", "VehicleType_VersionStructure");
+    expect(extras).toContain("components");
+  });
+
+  it("Train extras do not include VehicleType_VersionStructure props", () => {
+    const extras = collectExtraProps(defs, "Train", "VehicleType_VersionStructure");
+    // These are on VehicleType_VersionStructure itself, not on intermediate levels
+    expect(extras).not.toContain("LowFloor");
+    expect(extras).not.toContain("Length");
+    expect(extras).not.toContain("PropulsionTypes");
   });
 });

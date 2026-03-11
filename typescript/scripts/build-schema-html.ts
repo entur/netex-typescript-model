@@ -169,6 +169,9 @@ function buildViewerFnsScript(): string {
     function serializeValue(obj) { return _viewerBundle.serializeValue(obj); }
     function genMockObject(n) { return _viewerBundle.genMockObject(defs, n); }
     function buildXmlString(n, obj) { return _viewerBundle.buildXmlString(n, obj); }
+    function collectRefProps(name) { return _viewerBundle.collectRefProps(defs, name); }
+    function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(defs, entityName, baseStructure); }
+    function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(defs, refDefName); }
     var _reverseIdx = null;
     function buildReverseIndex() {
       if (!_reverseIdx) _reverseIdx = _viewerBundle.buildReverseIndex(defs);
@@ -243,7 +246,8 @@ ${sections}
     <p class="explorer-subtitle" id="explorerSubtitle"></p>
     <div class="explorer-tabs">
       <button class="explorer-tab active" data-tab="props">Properties</button>
-      <button class="explorer-tab" data-tab="graph">Graph</button>
+      <button class="explorer-tab" data-tab="graph">Inheritance</button>
+      <button class="explorer-tab" data-tab="relations">Relations</button>
       <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">XML Mapping</button>
       <button class="explorer-tab" data-tab="utils">Utilities</button>
@@ -251,6 +255,7 @@ ${sections}
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
+    <div class="explorer-tab-content" id="explorerRelations"><div class="relations-container" id="relationsContainer"></div></div>
     <label class="iface-toggle" id="ifaceToggleLabel" style="display:none"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>

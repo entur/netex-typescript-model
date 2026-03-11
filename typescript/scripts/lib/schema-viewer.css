@@ -514,11 +514,20 @@
     .explorer-tab:hover { color: var(--fg); }
     .explorer-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
     .explorer-tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-    .explorer-tab-content.active { display: block; }
+    .explorer-tab-content.active { display: flex; flex-direction: column; }
+    #explorerSample .interface-block,
+    #explorerIface .interface-block { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
     .graph-container { width: 100%; }
     .graph-container svg { display: block; }
     .graph-node { cursor: pointer; }
     .graph-node:hover rect { opacity: 0.8; }
+
+    /* Relations tab */
+    .relations-container { width: 100%; }
+    .relations-controls { padding: 8px 12px 4px; }
+    .relations-select { font-size: 12px; padding: 2px 6px; border: 1px solid var(--card-border); border-radius: 4px; background: var(--card-bg); color: var(--fg); }
+    .relations-svg-container { width: 100%; overflow-y: auto; overflow-x: auto; }
+    .relations-svg-container svg { display: block; }
 
     /* Interface tab */
     .iface-toggle {
@@ -644,7 +653,7 @@
     .utils-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); }
 
     /* Sample data pill toggle */
-    .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; position: sticky; top: 0; z-index: 10; background: var(--sidebar-bg); }
+    .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; flex-shrink: 0; }
     .sample-pill { padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; background: var(--card-bg); color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
     .sample-pill.active { background: var(--accent); color: #fff; }
     .sample-pill input[type="radio"] { display: none; }

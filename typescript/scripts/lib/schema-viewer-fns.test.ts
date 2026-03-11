@@ -23,6 +23,9 @@ import {
   canonicalPropName,
   serializeValue,
   genMockObject,
+  resolveRefEntity,
+  collectRefProps,
+  collectExtraProps,
   type Defs,
   type ViaHop,
 } from "./schema-viewer-fns.js";
@@ -704,6 +707,161 @@ describe("findTransitiveEntityUsers", () => {
     };
     const idx = buildReverseIndex(defs);
     expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityX", "EntityY"]);
+  });
+});
+
+// ── resolveRefEntity ─────────────────────────────────────────────────────────
+
+describe("resolveRefEntity", () => {
+  it("resolves direct entity target via stamp", () => {
+    const defs: Defs = {
+      FooRef: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
+      Foo: { "x-netex-role": "entity" },
+    };
+    expect(resolveRefEntity(defs, "FooRef")).toBe("Foo");
+  });
+
+  it("expands abstract target to concrete entity sg-members", () => {
+    const defs: Defs = {
+      BarRef: { "x-netex-role": "reference", "x-netex-refTarget": "Bar" },
+      Bar: { "x-netex-role": "abstract", "x-netex-sg-members": ["Baz", "Qux"] },
+      BazRef: { "x-netex-role": "reference", "x-netex-refTarget": "Baz" },
+      Baz: { "x-netex-role": "entity" },
+      QuxRef: { "x-netex-role": "reference", "x-netex-refTarget": "Qux" },
+      Qux: { "x-netex-role": "structure" },
+    };
+    expect(resolveRefEntity(defs, "BarRef")).toEqual(["Baz"]);
+  });
+
+  it("falls back to name stripping when no stamp", () => {
+    const defs: Defs = {
+      FooRef: { "x-netex-role": "reference" },
+      Foo: { "x-netex-role": "entity" },
+    };
+    expect(resolveRefEntity(defs, "FooRef")).toBe("Foo");
+  });
+
+  it("returns null when no target found", () => {
+    const defs: Defs = {
+      UnknownRef: { "x-netex-role": "reference" },
+    };
+    expect(resolveRefEntity(defs, "UnknownRef")).toBeNull();
+  });
+
+  it("handles RefStructure suffix via stamp", () => {
+    const defs: Defs = {
+      Foo_RefStructure: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
+      Foo: { "x-netex-role": "entity" },
+    };
+    expect(resolveRefEntity(defs, "Foo_RefStructure")).toBe("Foo");
+  });
+});
+
+// ── collectRefProps ──────────────────────────────────────────────────────────
+
+describe("collectRefProps", () => {
+  it("finds ref-typed properties with resolved targets", () => {
+    const defs: Defs = {
+      MyStruct: {
+        properties: {
+          FooRef: { $ref: "#/definitions/FooRef" },
+          name: { type: "string" },
+          BarRef: { allOf: [{ $ref: "#/definitions/BarRef" }] },
+        },
+      },
+      FooRef: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
+      Foo: { "x-netex-role": "entity" },
+      BarRef: { "x-netex-role": "reference", "x-netex-refTarget": "Bar" },
+      Bar: { "x-netex-role": "entity" },
+    };
+    const result = collectRefProps(defs, "MyStruct");
+    expect(result).toHaveLength(2);
+    expect(result[0].propName).toBe("FooRef");
+    expect(result[0].targetEntities).toEqual(["Foo"]);
+    expect(result[1].propName).toBe("BarRef");
+    expect(result[1].targetEntities).toEqual(["Bar"]);
+  });
+
+  it("walks allOf chain to find inherited ref props", () => {
+    const defs: Defs = {
+      Child: { allOf: [{ $ref: "#/definitions/Parent" }, { properties: { ChildRef: { $ref: "#/definitions/ChildRef" } } }] },
+      Parent: { properties: { ParentRef: { $ref: "#/definitions/ParentRef" } } },
+      ChildRef: { "x-netex-role": "reference", "x-netex-refTarget": "ChildEntity" },
+      ChildEntity: { "x-netex-role": "entity" },
+      ParentRef: { "x-netex-role": "reference", "x-netex-refTarget": "ParentEntity" },
+      ParentEntity: { "x-netex-role": "entity" },
+    };
+    const result = collectRefProps(defs, "Child");
+    expect(result).toHaveLength(2);
+    expect(result.map(r => r.propName).sort()).toEqual(["ChildRef", "ParentRef"]);
+  });
+
+  it("excludes unresolvable refs", () => {
+    const defs: Defs = {
+      MyStruct: { properties: { BadRef: { $ref: "#/definitions/BadRef" } } },
+      BadRef: { "x-netex-role": "reference" },
+    };
+    const result = collectRefProps(defs, "MyStruct");
+    expect(result).toEqual([]);
+  });
+
+  it("returns empty for no ref props", () => {
+    const defs: Defs = {
+      MyStruct: { properties: { name: { type: "string" }, count: { type: "number" } } },
+    };
+    expect(collectRefProps(defs, "MyStruct")).toEqual([]);
+  });
+});
+
+// ── collectExtraProps ────────────────────────────────────────────────────────
+
+describe("collectExtraProps", () => {
+  it("returns empty when entity maps directly to base structure", () => {
+    const defs: Defs = {
+      MyEntity: { $ref: "#/definitions/Base_VersionStructure", "x-netex-role": "entity" },
+      Base_VersionStructure: { properties: { a: { type: "string" } } },
+    };
+    expect(collectExtraProps(defs, "MyEntity", "Base_VersionStructure")).toEqual([]);
+  });
+
+  it("collects props from one intermediate level", () => {
+    const defs: Defs = {
+      DerivedEntity: { $ref: "#/definitions/Derived_VersionStructure", "x-netex-role": "entity" },
+      Derived_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Base_VersionStructure" }, { properties: { x: { type: "string" }, y: { type: "number" }, z: { type: "boolean" } } }],
+      },
+      Base_VersionStructure: { properties: { a: { type: "string" } } },
+    };
+    expect(collectExtraProps(defs, "DerivedEntity", "Base_VersionStructure")).toEqual(["x", "y", "z"]);
+  });
+
+  it("collects props from two intermediate levels", () => {
+    const defs: Defs = {
+      DeepEntity: { $ref: "#/definitions/Deep_VersionStructure", "x-netex-role": "entity" },
+      Deep_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Mid_VersionStructure" }, { properties: { d1: { type: "string" } } }],
+      },
+      Mid_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Base_VersionStructure" }, { properties: { m1: { type: "string" }, m2: { type: "number" } } }],
+      },
+      Base_VersionStructure: { properties: { a: { type: "string" } } },
+    };
+    const extras = collectExtraProps(defs, "DeepEntity", "Base_VersionStructure");
+    expect(extras).toContain("d1");
+    expect(extras).toContain("m1");
+    expect(extras).toContain("m2");
+    expect(extras).toHaveLength(3);
+  });
+
+  it("handles $ref alias entities (common NeTEx pattern)", () => {
+    const defs: Defs = {
+      AliasEntity: { $ref: "#/definitions/Alias_VersionStructure", "x-netex-role": "entity" },
+      Alias_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Base_VS" }, { properties: { extra: { type: "string" } } }],
+      },
+      Base_VS: { properties: { base: { type: "string" } } },
+    };
+    expect(collectExtraProps(defs, "AliasEntity", "Base_VS")).toEqual(["extra"]);
   });
 });
 
