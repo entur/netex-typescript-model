@@ -68,8 +68,18 @@ function fakeRef(defs: Defs, targetName: string): Record<string, unknown> {
       } else if (propName.startsWith("$")) {
         // Other XML attributes — use sensible defaults
         const shape = classifySchema(p.schema);
-        if (shape.kind === "primitive") {
-          if (shape.type === "boolean") result[propName] = false;
+        if (shape.kind === "enum") {
+          // For nameOfRefClass, derive from the ref target name
+          if (propName === "$nameOfRefClass") {
+            result[propName] = clean || shape.values[0] || "string";
+          } else {
+            result[propName] = shape.values[0] ?? "string";
+          }
+        } else if (shape.kind === "primitive") {
+          if (shape.format === "date-time") result[propName] = "2025-01-01T00:00:00";
+          else if (shape.format === "date") result[propName] = "2025-01-01";
+          else if (shape.format === "time") result[propName] = "00:00:00";
+          else if (shape.type === "boolean") result[propName] = false;
           else result[propName] = "string";
         }
       }
@@ -98,6 +108,10 @@ function tryFakeShallow(defs: Defs, typeName: string): Record<string, unknown> |
     if (shape.kind === "primitive") {
       if (shape.type === "boolean") result[propName] = false;
       else if (shape.type === "number" || shape.type === "integer") result[propName] = 0;
+      else if (shape.format === "date-time") result[propName] = "2025-01-01T00:00:00";
+      else if (shape.format === "date") result[propName] = "2025-01-01";
+      else if (shape.format === "time") result[propName] = "00:00:00";
+      else if (shape.format === "duration") result[propName] = "PT1H";
       else result[propName] = "string";
     } else if (shape.kind === "enum") {
       result[propName] = shape.values[0] ?? "string";
@@ -111,6 +125,73 @@ function tryFakeShallow(defs: Defs, typeName: string): Record<string, unknown> |
     }
   }
   return result;
+}
+
+/**
+ * Resolve an abstract element head to the first concrete substitution group member.
+ * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
+ * Returns the original name unchanged if not abstract.
+ */
+function resolveConcreteElement(defs: Defs, name: string): string {
+  const visited = new Set<string>();
+  let current = name;
+  while (!visited.has(current)) {
+    visited.add(current);
+    const d = defs[current];
+    if (!d) break;
+    const members = d["x-netex-sg-members"] as string[] | undefined;
+    if (!members || members.length === 0) break;
+    current = members[0];
+  }
+  return current;
+}
+
+/** Follow $ref / allOf-single-ref chains to find the terminal definition name. */
+function resolveRefTarget(defs: Defs, name: string): string {
+  const visited = new Set<string>();
+  let current = name;
+  while (!visited.has(current)) {
+    visited.add(current);
+    const d = defs[current];
+    if (!d) break;
+    if (d.$ref) {
+      current = d.$ref.replace("#/definitions/", "");
+      continue;
+    }
+    if (d.allOf) {
+      const refs = d.allOf.filter((e: Def) => e.$ref);
+      const hasOwnProps = d.allOf.some((e: Def) => e.properties);
+      if (refs.length === 1 && !hasOwnProps && !d.properties) {
+        current = refs[0].$ref.replace("#/definitions/", "");
+        continue;
+      }
+    }
+    break;
+  }
+  return current;
+}
+
+/**
+ * Build a fake for an unannotated collection wrapper (e.g. KeyListStructure).
+ *
+ * These wrappers have a single array property whose items are ref-typed.
+ * Returns an object with one key (the child element name) mapped to a
+ * one-element array containing a fake child, or null if the pattern doesn't match.
+ */
+function fakeCollectionWrapper(defs: Defs, structName: string): Record<string, unknown> | null {
+  const def = defs[structName];
+  if (!def?.properties) return null;
+  const keys = Object.keys(def.properties);
+  if (keys.length !== 1) return null;
+  const childSchema = def.properties[keys[0]];
+  if (childSchema.type !== "array" || !childSchema.items) return null;
+  // Resolve the item type
+  const itemShape = classifySchema(childSchema.items);
+  if (itemShape.kind !== "ref" && itemShape.kind !== "refArray") return null;
+  const itemTarget = itemShape.kind === "ref" ? itemShape.target : itemShape.target;
+  const shallow = tryFakeShallow(defs, itemTarget);
+  if (shallow) return { [keys[0]]: [shallow] };
+  return null;
 }
 
 /**
@@ -172,19 +253,49 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
         result[propName] = fakeRef(defs, shape.target);
         continue;
       }
+      if (role === "abstract" && targetDef?.["x-netex-sg-members"]) {
+        const concrete = resolveConcreteElement(defs, shape.target);
+        result[propName] = fakeRef(defs, concrete);
+        continue;
+      }
       if (role === "collection") {
         result[propName] = [];
         continue;
       }
+
+      // Empty-object types (e.g. Extensions — xsd:any wrapper, no properties)
+      const resolvedTarget = resolveRefTarget(defs, shape.target);
+      const resolvedDef = defs[resolvedTarget];
+      if (resolvedDef && resolvedDef.type === "object" && !resolvedDef.properties && !resolvedDef.allOf) {
+        // Skip — emitting content for an element-only empty type causes validation errors
+        continue;
+      }
+
+      // Unannotated collection wrapper (e.g. keyList → KeyListStructure, privateCodes → PrivateCodesStructure)
+      // Single array property, no role/atom — emit one child element
+      if (resolvedDef && !resolvedDef["x-netex-role"] && !resolvedDef["x-netex-atom"]) {
+        const child = fakeCollectionWrapper(defs, resolvedTarget);
+        if (child) {
+          result[propName] = child;
+          continue;
+        }
+      }
+
       // Atom types (simpleObj)
       const atom = resolveAtom(defs, shape.target);
       if (atom === "simpleObj") {
         result[propName] = tryFakeShallow(defs, shape.target) ?? {};
         continue;
       }
-      // Single-prop atom collapses to primitive
+      // Single-prop atom collapses to primitive — check format on terminal def
       if (atom && atom !== "array") {
-        if (atom === "string") result[propName] = "string";
+        const terminalName = resolveRefTarget(defs, shape.target);
+        const fmt = defs[terminalName]?.format;
+        if (fmt === "duration") result[propName] = "PT1H";
+        else if (fmt === "date-time") result[propName] = "2025-01-01T00:00:00";
+        else if (fmt === "date") result[propName] = "2025-01-01";
+        else if (fmt === "time") result[propName] = "00:00:00";
+        else if (atom === "string") result[propName] = "string";
         else if (atom === "number" || atom === "integer") result[propName] = 0;
         else if (atom === "boolean") result[propName] = false;
         else result[propName] = "string";
@@ -213,6 +324,10 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
       }
       if (ts.includes("/* time */")) {
         result[propName] = "00:00:00";
+        continue;
+      }
+      if (ts.includes("/* duration */")) {
+        result[propName] = "PT1H";
         continue;
       }
       // Fixed literal (single quoted value, no union)
@@ -370,19 +485,31 @@ export function toXmlShape(
 
     const shape = classifySchema(p.schema);
 
+    // Abstract element substitution: replace abstract head with first concrete member
+    let xmlName = canonName;
+    let refTarget = shape.kind === "ref" ? shape.target : shape.kind === "refArray" ? shape.target : undefined;
+    if (refTarget) {
+      const targetDef = defs[refTarget];
+      if (targetDef?.["x-netex-role"] === "abstract" && targetDef?.["x-netex-sg-members"]) {
+        const concrete = resolveConcreteElement(defs, refTarget);
+        xmlName = concrete;
+        refTarget = concrete;
+      }
+    }
+
     if (typeof val === "boolean") {
-      out[canonName] = String(val);
+      out[xmlName] = String(val);
     } else if (Array.isArray(val)) {
       if (shape.kind === "refArray") {
-        out[canonName] = val.map((item) =>
+        out[xmlName] = val.map((item) =>
           typeof item === "object" && item !== null
-            ? toXmlShape(defs, shape.target, item as Record<string, unknown>)
+            ? toXmlShape(defs, refTarget!, item as Record<string, unknown>)
             : typeof item === "boolean"
               ? String(item)
               : item,
         );
       } else {
-        out[canonName] = val.map((item) =>
+        out[xmlName] = val.map((item) =>
           typeof item === "object" && item !== null
             ? toXmlShapePlain(item as Record<string, unknown>)
             : typeof item === "boolean"
@@ -392,16 +519,16 @@ export function toXmlShape(
       }
     } else if (typeof val === "object" && val !== null) {
       if (shape.kind === "ref") {
-        out[canonName] = toXmlShape(
+        out[xmlName] = toXmlShape(
           defs,
-          shape.target,
+          refTarget!,
           val as Record<string, unknown>,
         );
       } else {
-        out[canonName] = toXmlShapePlain(val as Record<string, unknown>);
+        out[xmlName] = toXmlShapePlain(val as Record<string, unknown>);
       }
     } else {
-      out[canonName] = val;
+      out[xmlName] = val;
     }
   }
 
