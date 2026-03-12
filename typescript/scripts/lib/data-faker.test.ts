@@ -2,10 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   defaultForType,
   fake,
-  buildXmlString,
+  buildXml,
   toXmlShape,
   serialize,
-  serializeValue,
   type Defs,
 } from "./data-faker.js";
 
@@ -198,51 +197,20 @@ describe("fake", () => {
   });
 });
 
-// ── serializeValue ──────────────────────────────────────────────────────────
+// ── buildXml ────────────────────────────────────────────────────────────────
 
-describe("serializeValue", () => {
-  it("renames $-prefixed keys to @_-prefixed", () => {
-    const result = serializeValue({ $id: "foo", $version: "1" });
-    expect(result).toEqual({ "@_id": "foo", "@_version": "1" });
-  });
-
-  it("stringifies boolean values in $-prefixed keys", () => {
-    const result = serializeValue({ $dataSourceRef: true });
-    expect(result).toEqual({ "@_dataSourceRef": "true" });
-  });
-
-  it("stringifies boolean values in regular keys", () => {
-    const result = serializeValue({ LowFloor: true, HasLiftOrRamp: false });
-    expect(result).toEqual({ LowFloor: "true", HasLiftOrRamp: "false" });
-  });
-
-  it("recurses into objects", () => {
-    const result = serializeValue({ Ref: { value: "x", $ref: "y" } });
-    expect(result).toEqual({ Ref: { value: "x", "@_ref": "y" } });
-  });
-
-  it("recurses into arrays", () => {
-    const result = serializeValue({ items: [{ $id: "a" }, { $id: "b" }] });
-    expect(result).toEqual({ items: [{ "@_id": "a" }, { "@_id": "b" }] });
-  });
-
-  it("passes through primitive array items unchanged", () => {
-    const result = serializeValue({ tags: ["a", "b", 1] });
-    expect(result).toEqual({ tags: ["a", "b", 1] });
-  });
-
-  it("skips undefined values", () => {
-    const result = serializeValue({ a: "x", b: undefined, c: 0 });
-    expect(result).toEqual({ a: "x", c: 0 });
-  });
-
-  it("passes through strings and numbers unchanged", () => {
-    const result = serializeValue({ Name: "test", Count: 42 });
-    expect(result).toEqual({ Name: "test", Count: 42 });
+describe("buildXml", () => {
+  it("produces XML from pre-transformed input", () => {
+    const xmlShape = { "@_id": "1", Name: "test" };
+    const xml = buildXml("Foo", xmlShape);
+    expect(xml).toContain("<Foo");
+    expect(xml).toContain('id="1"');
+    expect(xml).toContain("<Name>test</Name>");
+    expect(xml).toContain("</Foo>");
   });
 });
 
-// ── toXmlShape (née toValidNested) ──────────────────────────────────────────
+// ── toXmlShape ──────────────────────────────────────────────────────────────
 
 describe("toXmlShape", () => {
   it("renames $-prefixed keys to @_-prefixed", () => {

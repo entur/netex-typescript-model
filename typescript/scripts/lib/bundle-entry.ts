@@ -27,15 +27,13 @@ export {
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
-  serializeValue,
 } from "./fns.js";
 
 export {
   fake,
   fake as genMockObject,
   defaultForType,
-  buildXmlString,
+  buildXml,
   toXmlShape,
-  toXmlShape as toValidNested,
   serialize,
 } from "./data-faker.js";

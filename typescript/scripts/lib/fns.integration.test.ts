@@ -12,7 +12,7 @@ import {
   unwrapMixed,
   inlineSingleRefs,
   genMockObject,
-  buildXmlString,
+  serialize,
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
@@ -933,22 +933,22 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 });
 
-describe("buildXmlString — VehicleType (real schema)", () => {
+describe("serialize — VehicleType (real schema)", () => {
   it("produces XML starting with <VehicleType", () => {
     const mock = genMockObject(defs, "VehicleType");
-    const xml = buildXmlString("VehicleType", mock);
+    const xml = serialize(defs, "VehicleType", mock);
     expect(xml).toContain("<VehicleType");
   });
 
   it("contains id= attribute", () => {
     const mock = genMockObject(defs, "VehicleType");
-    const xml = buildXmlString("VehicleType", mock);
+    const xml = serialize(defs, "VehicleType", mock);
     expect(xml).toContain('id=');
   });
 
   it("contains version= attribute", () => {
     const mock = genMockObject(defs, "VehicleType");
-    const xml = buildXmlString("VehicleType", mock);
+    const xml = serialize(defs, "VehicleType", mock);
     expect(xml).toContain('version=');
   });
 });

@@ -5,7 +5,7 @@
  * bundle-entry.ts) into an IIFE for the HTML page. Bound wrappers close over
  * a page-level `defs` variable instead of taking `defs` as a parameter.
  *
- * Data generation functions (`fake`, `buildXmlString`, `toXmlShape`, `serialize`)
+ * Data generation functions (`fake`, `buildXml`, `toXmlShape`, `serialize`)
  * live in `data-faker.ts` and are re-exported here for backward compatibility.
  *
  * ## Explorer tabs and their entry functions
@@ -31,7 +31,7 @@
  * `resolvePropertyType` for type-guard checks, `refTarget` for outgoing refs,
  * `buildReverseIndex` for incoming "used by" links.
  *
- * **Sample data** — see `data-faker.ts` (`fake`, `buildXmlString`, `serialize`).
+ * **Sample data** — see `data-faker.ts` (`fake`, `toXmlShape`, `buildXml`, `serialize`).
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -857,9 +857,7 @@ export {
   fake as genMockObject,
   fake,
   defaultForType,
-  buildXmlString,
-  serializeValue,
-  toXmlShape as toValidNested,
+  buildXml,
   toXmlShape,
   serialize,
 } from "./data-faker.js";

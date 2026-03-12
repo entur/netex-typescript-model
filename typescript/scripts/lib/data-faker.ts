@@ -265,53 +265,19 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
 }
 
 /**
- * Build a formatted XML string from a fake object.
+ * Build a formatted XML string from a pre-transformed XML-ready object.
  *
- * Applies `serializeValue` to convert canonical `$`-prefixed attribute names
- * to `@_`-prefixed names, then uses `fast-xml-parser`'s `XMLBuilder`.
+ * Takes the output of `toXmlShape` (with `@_`-prefixed attributes, `#text`
+ * for simpleContent, correct property ordering) and wraps it in an XMLBuilder
+ * call. This is a thin formatting layer — no schema awareness.
  */
-export function buildXmlString(name: string, obj: Record<string, unknown>): string {
-  const serialized = serializeValue(obj);
+export function buildXml(name: string, xmlShape: Record<string, unknown>): string {
   const builder = new XMLBuilder({
     format: true,
     indentBy: "  ",
     ignoreAttributes: false,
   });
-  return builder.build({ [name]: serialized }) as string;
-}
-
-// ── serializeValue (kept here — used by buildXmlString and host app) ────────
-
-/**
- * Convert canonical prop names to fast-xml-parser shape.
- *
- * - `$`-prefixed keys → `@_` prefix (XML attributes), booleans stringified
- * - Arrays: map items recursively
- * - Objects: recurse
- * - Booleans: stringify (XML text nodes must be strings)
- * - `undefined` values: skip
- */
-export function serializeValue(obj: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (val === undefined) continue;
-    if (key.startsWith("$")) {
-      out[`@_${key.slice(1)}`] = typeof val === "boolean" ? String(val) : val;
-    } else if (Array.isArray(val)) {
-      out[key] = val.map((item) =>
-        typeof item === "object" && item !== null
-          ? serializeValue(item as Record<string, unknown>)
-          : item,
-      );
-    } else if (typeof val === "object" && val !== null) {
-      out[key] = serializeValue(val as Record<string, unknown>);
-    } else if (typeof val === "boolean") {
-      out[key] = String(val);
-    } else {
-      out[key] = val;
-    }
-  }
-  return out;
+  return builder.build({ [name]: xmlShape }) as string;
 }
 
 // ── Schema-aware XML transform ──────────────────────────────────────────────
@@ -469,9 +435,9 @@ export function toXmlShape(
 /**
  * Serialize a stem object to formatted XML.
  *
- * Applies `toXmlShape` (schema-aware transform) then builds XML via
- * fast-xml-parser's `XMLBuilder`. This is the recommended single-call API
- * for producing valid XML from `fake` output.
+ * Composes `toXmlShape` (schema-aware transform) and `buildXml` (XMLBuilder
+ * formatting). This is the recommended single-call API for producing valid
+ * XML from `fake` output.
  *
  * @param defs  JSON Schema definitions.
  * @param name  Definition name (root element name in XML).
@@ -482,11 +448,5 @@ export function serialize(
   name: string,
   obj: Record<string, unknown>,
 ): string {
-  const nested = toXmlShape(defs, name, obj);
-  const builder = new XMLBuilder({
-    format: true,
-    indentBy: "  ",
-    ignoreAttributes: false,
-  });
-  return builder.build({ [name]: nested }) as string;
+  return buildXml(name, toXmlShape(defs, name, obj));
 }

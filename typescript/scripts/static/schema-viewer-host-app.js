@@ -992,7 +992,8 @@
     // ── Sample data tab ──────────────────────────────────────────────────
 
     const explorerSample = document.getElementById('explorerSample');
-    var _cachedSampleObj = null;
+    var _cachedSampleStem = null;
+    var _cachedSampleNested = null;
     var _cachedSampleName = null;
 
     /** Syntax-highlight a JSON string for display. */
@@ -1010,14 +1011,17 @@
         .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="if-prim">$1</span>');
     }
 
-    /** Render the Sample data tab content for a given format ('js' or 'xml'). */
+    /** Render the Sample data tab content for a given format ('js', 'nested', or 'xml'). */
     function renderSampleContent(format) {
       var html = '';
 
       // Pill toggle
       html += '<div class="sample-toggle">';
       html += '<label class="sample-pill' + (format === 'js' ? ' active' : '') + '">';
-      html += '<input type="radio" name="sampleFmt" value="js"' + (format === 'js' ? ' checked' : '') + '> JS Object';
+      html += '<input type="radio" name="sampleFmt" value="js"' + (format === 'js' ? ' checked' : '') + '> JS Simple';
+      html += '</label>';
+      html += '<label class="sample-pill' + (format === 'nested' ? ' active' : '') + '">';
+      html += '<input type="radio" name="sampleFmt" value="nested"' + (format === 'nested' ? ' checked' : '') + '> JS Nested';
       html += '</label>';
       html += '<label class="sample-pill' + (format === 'xml' ? ' active' : '') + '">';
       html += '<input type="radio" name="sampleFmt" value="xml"' + (format === 'xml' ? ' checked' : '') + '> XML';
@@ -1026,11 +1030,11 @@
 
       html += '<div class="interface-block">';
       if (format === 'js') {
-        var jsonStr = JSON.stringify(_cachedSampleObj, null, 2);
-        html += highlightJsonStr(jsonStr);
+        html += highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2));
+      } else if (format === 'nested') {
+        html += highlightJsonStr(JSON.stringify(_cachedSampleNested, null, 2));
       } else {
-        var xmlStr = buildXmlString(_cachedSampleName, _cachedSampleObj);
-        html += esc(xmlStr);
+        html += esc(buildXml(_cachedSampleName, _cachedSampleNested));
       }
       html += '<button class="copy-btn">Copy</button></div>';
 
@@ -1039,7 +1043,8 @@
 
     /** Generate and render sample data for a definition. */
     function renderSampleData(name) {
-      _cachedSampleObj = genMockObject(name);
+      _cachedSampleStem = genMockObject(name);
+      _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
       _cachedSampleName = name;
       renderSampleContent('js');
     }

@@ -113,12 +113,12 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
 
 /** Read the extracted CSS for the schema viewer page. */
 function buildCss(): string {
-  return readFileSync(resolve(import.meta.dirname, "lib/schema-viewer.css"), "utf-8");
+  return readFileSync(resolve(import.meta.dirname, "static/schema-viewer.css"), "utf-8");
 }
 
 /** Read the extracted app script and splice in the transpiled viewer functions. */
 function buildAppScript(): string {
-  const raw = readFileSync(resolve(import.meta.dirname, "lib/schema-viewer-host-app.js"), "utf-8");
+  const raw = readFileSync(resolve(import.meta.dirname, "static/schema-viewer-host-app.js"), "utf-8");
   const viewerFns = buildViewerFnsScript();
   return raw.replace("/*@@VIEWER_FNS@@*/", viewerFns).trimEnd();
 }
@@ -128,7 +128,7 @@ function buildAppScript(): string {
  *
  * esbuild bundles the entry point (which re-exports all public functions)
  * into a single IIFE with `globalName: "_viewerBundle"`. This also bundles
- * fast-xml-parser so `buildXmlString` works in-browser.
+ * fast-xml-parser so `buildXml` works in-browser.
  *
  * The util functions take `defs` as an explicit first parameter. The browser
  * wrappers close over the page-level `defs` variable and bind it automatically.
@@ -166,10 +166,10 @@ function buildViewerFnsScript(): string {
     function canonicalPropName(n, s) { return _viewerBundle.canonicalPropName(n, s); }
     function defRole(name) { return _viewerBundle.defRole(defs[name]); }
     function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(defs, n); }
-    function serializeValue(obj) { return _viewerBundle.serializeValue(obj); }
     function fake(n) { return _viewerBundle.fake(defs, n); }
     function genMockObject(n) { return _viewerBundle.fake(defs, n); }
-    function buildXmlString(n, obj) { return _viewerBundle.buildXmlString(n, obj); }
+    function toXmlShape(n, obj) { return _viewerBundle.toXmlShape(defs, n, obj); }
+    function buildXml(n, obj) { return _viewerBundle.buildXml(n, obj); }
     function collectRefProps(name) { return _viewerBundle.collectRefProps(defs, name); }
     function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(defs, entityName, baseStructure); }
     function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(defs, refDefName); }
