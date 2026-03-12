@@ -51,8 +51,9 @@ docs: $(GEN)/$(OUT_NAME)/docs/index.html
 # ── Schema HTML viewer ────────────────────────────────────────────────────────
 
 SCHEMA_HTML_SRCS := typescript/scripts/build-schema-html.ts \
-	typescript/scripts/lib/schema-viewer-fns.ts \
-	typescript/scripts/lib/schema-viewer-bundle-entry.ts \
+	typescript/scripts/lib/fns.ts \
+	typescript/scripts/lib/data-faker.ts \
+	typescript/scripts/lib/bundle-entry.ts \
 	typescript/scripts/lib/schema-viewer-host-app.js \
 	typescript/scripts/lib/schema-viewer.css
 

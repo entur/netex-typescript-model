@@ -148,8 +148,9 @@ typescript/                           # Node.js/TypeScript tooling
     build-docs-index.ts               # docs-site/ welcome page
     lib/
       config.ts                       # shared configuration (Config class, part resolution)
-      schema-viewer-fns.ts            # pure functions for the schema HTML viewer (bundled via esbuild)
-      schema-viewer-bundle-entry.ts   # esbuild entry point (re-exports schema-viewer-fns)
+      fns.ts                          # schema introspection functions (bundled via esbuild)
+      data-faker.ts                   # data generation: fake(), serialize, toXmlShape (bundled via esbuild)
+      bundle-entry.ts                 # esbuild entry point (re-exports fns + data-faker)
       schema-viewer-host-app.js       # browser-side controller (embedded in HTML)
       schema-viewer.css               # viewer CSS (embedded in HTML)
 json-schema/                          # Java DOM pipeline

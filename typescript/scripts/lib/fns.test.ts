@@ -10,7 +10,6 @@ import {
   resolveAtom,
   buildReverseIndex,
   findTransitiveEntityUsers,
-  defaultForType,
   lcFirst,
   unwrapMixed,
   defRole,
@@ -21,14 +20,12 @@ import {
   buildInheritanceChain,
   inlineSingleRefs,
   canonicalPropName,
-  serializeValue,
-  genMockObject,
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
   type Defs,
   type ViaHop,
-} from "./schema-viewer-fns.js";
+} from "./fns.js";
 
 // ── resolveType ──────────────────────────────────────────────────────────────
 
@@ -865,42 +862,6 @@ describe("collectExtraProps", () => {
   });
 });
 
-// ── defaultForType ───────────────────────────────────────────────────────────
-
-describe("defaultForType", () => {
-  it('returns "string" for string', () => {
-    expect(defaultForType("string")).toBe('"string"');
-  });
-
-  it("returns 0 for number", () => {
-    expect(defaultForType("number")).toBe("0");
-  });
-
-  it("returns 0 for integer", () => {
-    expect(defaultForType("integer")).toBe("0");
-  });
-
-  it("returns false for boolean", () => {
-    expect(defaultForType("boolean")).toBe("false");
-  });
-
-  it("returns [] for arrays", () => {
-    expect(defaultForType("string[]")).toBe("[]");
-  });
-
-  it("returns first literal for unions", () => {
-    expect(defaultForType('"a" | "b"')).toBe('"a"');
-  });
-
-  it('returns "string" for string with format', () => {
-    expect(defaultForType("string /* date-time */")).toBe('"string"');
-  });
-
-  it("returns cast for complex types", () => {
-    expect(defaultForType("MyType")).toBe("{} as MyType");
-  });
-});
-
 // ── lcFirst ──────────────────────────────────────────────────────────────────
 
 describe("lcFirst", () => {
@@ -1455,199 +1416,4 @@ describe("inlineSingleRefs", () => {
   });
 });
 
-// ── serializeValue ──────────────────────────────────────────────────────────
 
-describe("serializeValue", () => {
-  it("renames $-prefixed keys to @_-prefixed", () => {
-    const result = serializeValue({ $id: "foo", $version: "1" });
-    expect(result).toEqual({ "@_id": "foo", "@_version": "1" });
-  });
-
-  it("stringifies boolean values in $-prefixed keys", () => {
-    const result = serializeValue({ $dataSourceRef: true });
-    expect(result).toEqual({ "@_dataSourceRef": "true" });
-  });
-
-  it("stringifies boolean values in regular keys", () => {
-    const result = serializeValue({ LowFloor: true, HasLiftOrRamp: false });
-    expect(result).toEqual({ LowFloor: "true", HasLiftOrRamp: "false" });
-  });
-
-  it("recurses into objects", () => {
-    const result = serializeValue({ Ref: { value: "x", $ref: "y" } });
-    expect(result).toEqual({ Ref: { value: "x", "@_ref": "y" } });
-  });
-
-  it("recurses into arrays", () => {
-    const result = serializeValue({ items: [{ $id: "a" }, { $id: "b" }] });
-    expect(result).toEqual({ items: [{ "@_id": "a" }, { "@_id": "b" }] });
-  });
-
-  it("passes through primitive array items unchanged", () => {
-    const result = serializeValue({ tags: ["a", "b", 1] });
-    expect(result).toEqual({ tags: ["a", "b", 1] });
-  });
-
-  it("skips undefined values", () => {
-    const result = serializeValue({ a: "x", b: undefined, c: 0 });
-    expect(result).toEqual({ a: "x", c: 0 });
-  });
-
-  it("passes through strings and numbers unchanged", () => {
-    const result = serializeValue({ Name: "test", Count: 42 });
-    expect(result).toEqual({ Name: "test", Count: 42 });
-  });
-});
-
-// ── genMockObject ───────────────────────────────────────────────────────────
-
-describe("genMockObject", () => {
-  const syntheticDefs: Defs = {
-    MyEntity: {
-      allOf: [
-        { $ref: "#/definitions/BaseStruct" },
-        {
-          properties: {
-            Name: { type: "string" },
-            Active: { type: "boolean" },
-            Count: { type: "integer" },
-            Mode: { allOf: [{ $ref: "#/definitions/ModeEnum" }] },
-            ThingRef: { allOf: [{ $ref: "#/definitions/ThingRefStructure" }] },
-            items: { allOf: [{ $ref: "#/definitions/items_RelStructure" }] },
-          },
-        },
-      ],
-    },
-    BaseStruct: {
-      type: "object",
-      properties: {
-        id: { type: "string", xml: { attribute: true } },
-        version: { type: "string", xml: { attribute: true } },
-        nameOfClass: {
-          allOf: [{ $ref: "#/definitions/NameOfClass" }],
-          "x-fixed-single-enum": "NameOfClass",
-        },
-      },
-    },
-    NameOfClass: {
-      type: "string",
-      enum: ["MyEntity", "Other"],
-      "x-netex-role": "enumeration",
-    },
-    ModeEnum: {
-      type: "string",
-      enum: ["bus", "rail", "tram"],
-      "x-netex-role": "enumeration",
-    },
-    ThingRefStructure: {
-      type: "object",
-      "x-netex-role": "reference",
-      properties: {
-        value: { type: "string" },
-        ref: { type: "string", xml: { attribute: true } },
-      },
-    },
-    items_RelStructure: {
-      type: "object",
-      "x-netex-role": "collection",
-      properties: {
-        Item: { type: "array", items: { $ref: "#/definitions/ItemStruct" } },
-      },
-    },
-    ItemStruct: {
-      type: "object",
-      properties: { label: { type: "string" } },
-    },
-  };
-
-  it("fills $id with entity name pattern", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.$id).toBe("ENT:MyEntity:1");
-  });
-
-  it("fills $version with '1'", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.$version).toBe("1");
-  });
-
-  it("fills nameOfClass with context name via x-fixed-single-enum", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.nameOfClass).toBe("MyEntity");
-  });
-
-  it("fills string properties with \"string\" default", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.Name).toBe("string");
-  });
-
-  it("fills boolean properties with false", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.Active).toBe(false);
-  });
-
-  it("fills integer properties with 0", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.Count).toBe(0);
-  });
-
-  it("fills enum properties with first enum value", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.Mode).toBe("bus");
-  });
-
-  it("fills reference properties with ref mock object", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    const ref = result.ThingRef as Record<string, unknown>;
-    expect(ref).toBeDefined();
-    expect(typeof ref.value).toBe("string");
-    expect(typeof ref.$ref).toBe("string");
-  });
-
-  it("fills collection properties with empty array", () => {
-    const result = genMockObject(syntheticDefs, "MyEntity");
-    expect(result.items).toEqual([]);
-  });
-
-  it("fills shallow-complex ref as nested object", () => {
-    const defsWithShallow: Defs = {
-      Parent: {
-        type: "object",
-        properties: {
-          Detail: { allOf: [{ $ref: "#/definitions/DetailStruct" }] },
-        },
-      },
-      DetailStruct: {
-        type: "object",
-        properties: {
-          Label: { type: "string" },
-          Count: { type: "integer" },
-        },
-      },
-    };
-    const result = genMockObject(defsWithShallow, "Parent");
-    expect(result.Detail).toEqual({ Label: "string", Count: 0 });
-  });
-
-  it("fills shallow-complex array ref as one-element array", () => {
-    const defsWithArray: Defs = {
-      Parent: {
-        type: "object",
-        properties: {
-          Items: { type: "array", items: { $ref: "#/definitions/ItemType" } },
-        },
-      },
-      ItemType: {
-        type: "object",
-        "x-netex-atom": "simpleObj",
-        properties: {
-          value: { type: "string" },
-          lang: { type: "string", xml: { attribute: true } },
-        },
-      },
-    };
-    const result = genMockObject(defsWithArray, "Parent");
-    // ItemType is simpleObj so atom path handles it before shallow-complex,
-    // but either way the array should be populated
-    expect(Array.isArray(result.Items)).toBe(true);
-  });
-});

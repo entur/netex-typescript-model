@@ -18,7 +18,7 @@ import {
   collectExtraProps,
   type Defs,
   type ViaHop,
-} from "./schema-viewer-fns.js";
+} from "./fns.js";
 
 const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
 

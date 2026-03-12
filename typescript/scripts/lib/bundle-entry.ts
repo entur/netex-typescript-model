@@ -1,7 +1,7 @@
 /**
  * esbuild entry point for the schema viewer IIFE bundle.
  *
- * Re-exports all public functions from schema-viewer-fns.ts.
+ * Re-exports all public functions from fns.ts and data-faker.ts.
  * esbuild bundles this into a single IIFE with `globalName: "_viewerBundle"`,
  * embedding fast-xml-parser and all viewer functions in the HTML page.
  */
@@ -17,7 +17,6 @@ export {
   buildReverseIndex,
   findTransitiveEntityUsers,
   defRole,
-  defaultForType,
   lcFirst,
   buildInheritanceChain,
   inlineSingleRefs,
@@ -29,6 +28,14 @@ export {
   collectRefProps,
   collectExtraProps,
   serializeValue,
-  genMockObject,
+} from "./fns.js";
+
+export {
+  fake,
+  fake as genMockObject,
+  defaultForType,
   buildXmlString,
-} from "./schema-viewer-fns.js";
+  toXmlShape,
+  toXmlShape as toValidNested,
+  serialize,
+} from "./data-faker.js";

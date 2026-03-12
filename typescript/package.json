@@ -7,7 +7,7 @@
     "generate:ts": "tsx scripts/generate.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.*'",
-    "test:integration": "vitest run scripts/lib/schema-viewer-fns.integration.test.ts",
+    "test:integration": "vitest run scripts/lib/fns.integration.test.ts",
     "validate:jsonschema": "tsx scripts/validate-generated-schemas.ts",
     "docs": "tsx scripts/generate-docs.ts"
   },

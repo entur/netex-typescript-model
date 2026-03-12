@@ -1,9 +1,12 @@
 /**
- * Pure functions used by the schema HTML viewer's explorer panel (pane 3).
+ * Schema introspection functions used by the schema HTML viewer's explorer panel.
  *
- * These are the canonical implementations — the inline JS in the `<script>` tag
- * of build-schema-html.ts mirrors them, closing over a page-level `defs` variable
- * instead of taking `defs` as a parameter. Keep both in sync.
+ * These are the canonical implementations — bundled via esbuild (through
+ * bundle-entry.ts) into an IIFE for the HTML page. Bound wrappers close over
+ * a page-level `defs` variable instead of taking `defs` as a parameter.
+ *
+ * Data generation functions (`fake`, `buildXmlString`, `toXmlShape`, `serialize`)
+ * live in `data-faker.ts` and are re-exported here for backward compatibility.
  *
  * ## Explorer tabs and their entry functions
  *
@@ -26,15 +29,10 @@
  *
  * **Utilities** — `flattenAllOf` + `collectRequired` for factory defaults,
  * `resolvePropertyType` for type-guard checks, `refTarget` for outgoing refs,
- * `buildReverseIndex` for incoming "used by" links, and `defaultForType` for
- * factory default-value literals.
+ * `buildReverseIndex` for incoming "used by" links.
  *
- * **Sample data** — `genMockObject` builds a fully populated example from
- * JSON Schema defs, `serializeValue` converts canonical props to
- * fast-xml-parser shape, and `buildXmlString` produces formatted XML.
+ * **Sample data** — see `data-faker.ts` (`fake`, `buildXmlString`, `serialize`).
  */
-
-import { XMLBuilder } from "fast-xml-parser";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -122,7 +120,7 @@ function allOfRef(allOf: Def[]): string | null {
 }
 
 /** Discriminated shape of a JSON Schema property node. */
-type SchemaShape =
+export type SchemaShape =
   | { kind: "ref"; target: string }
   | { kind: "enum"; values: unknown[] }
   | { kind: "refArray"; target: string }
@@ -132,7 +130,7 @@ type SchemaShape =
   | { kind: "unknown" };
 
 /** Classify a property schema into a discriminated shape (single pass). */
-function classifySchema(prop: Def): SchemaShape {
+export function classifySchema(prop: Def): SchemaShape {
   if (!prop || typeof prop !== "object") return { kind: "unknown" };
   if (prop.$ref) return { kind: "ref", target: deref(prop.$ref) };
   if (prop.allOf) {
@@ -765,27 +763,6 @@ export function presentRoles(
 
 // ── Code generation helpers ──────────────────────────────────────────────────
 
-/** Return a sensible default value literal for a resolved TypeScript type string. */
-export function defaultForType(ts: string): string {
-  if ((ts.startsWith('"') || ts.startsWith("'")) && ts.indexOf("|") === -1) return ts;
-  if (ts === "string") return '"string"';
-  if (ts === "number" || ts === "integer") return "0";
-  if (ts === "boolean") return "false";
-  if (ts.endsWith("[]")) return "[]";
-  if (ts.indexOf("|") !== -1) {
-    const first = ts.split("|")[0].trim();
-    if (first.startsWith('"')) return first;
-    return '"string"';
-  }
-  if (ts.indexOf("/*") !== -1) {
-    const base = ts.slice(0, ts.indexOf(" /*")).trim();
-    if (base === "string") return '"string"';
-    if (base === "number" || base === "integer") return "0";
-    return '"string"';
-  }
-  return "{} as " + ts;
-}
-
 /** Lowercase the first character of a property name (NeTEx props are PascalCase, TS conventions use camelCase). */
 export function lcFirst(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
@@ -874,271 +851,15 @@ export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatPropert
   return result;
 }
 
-// ── Sample data generation ──────────────────────────────────────────────────
+// ── Re-exports from data-faker.ts ───────────────────────────────────────────
 
-/**
- * Convert canonical prop names to fast-xml-parser shape.
- *
- * - `$`-prefixed keys → `@_` prefix (XML attributes), booleans stringified
- * - Arrays: map items recursively
- * - Objects: recurse
- * - Booleans: stringify (XML text nodes must be strings)
- * - `undefined` values: skip
- */
-export function serializeValue(obj: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (val === undefined) continue;
-    if (key.startsWith("$")) {
-      out[`@_${key.slice(1)}`] = typeof val === "boolean" ? String(val) : val;
-    } else if (Array.isArray(val)) {
-      out[key] = val.map((item) =>
-        typeof item === "object" && item !== null
-          ? serializeValue(item as Record<string, unknown>)
-          : item,
-      );
-    } else if (typeof val === "object" && val !== null) {
-      out[key] = serializeValue(val as Record<string, unknown>);
-    } else if (typeof val === "boolean") {
-      out[key] = String(val);
-    } else {
-      out[key] = val;
-    }
-  }
-  return out;
-}
-
-/** Build a mock ref object: `{ value: "XXX:Name:1", $ref: "XXX:Name:1" }`. */
-function genRefMock(defs: Defs, targetName: string): Record<string, unknown> {
-  // Strip trailing "Ref", "RefStructure", "_RefStructure" to get a readable entity name
-  const clean = targetName
-    .replace(/_?RefStructure$/, "")
-    .replace(/Ref$/, "");
-  const id = `XXX:${clean || targetName}:1`;
-  // Walk the ref target's props to include any attributes
-  const def = defs[targetName];
-  if (def) {
-    const props = flattenAllOf(defs, targetName);
-    const result: Record<string, unknown> = {};
-    for (const p of props) {
-      const propName = p.prop[1];
-      if (propName === "value") {
-        result.value = id;
-      } else if (propName === "$ref") {
-        result.$ref = id;
-      } else if (propName === "$version") {
-        result.$version = "1";
-      } else if (propName.startsWith("$")) {
-        // Other XML attributes — use sensible defaults
-        const shape = classifySchema(p.schema);
-        if (shape.kind === "primitive") {
-          if (shape.type === "boolean") result[propName] = false;
-          else result[propName] = "string";
-        }
-      }
-    }
-    if (!("value" in result)) result.value = id;
-    if (!("$ref" in result)) result.$ref = id;
-    return result;
-  }
-  return { value: id, $ref: id };
-}
-
-/**
- * Try to build a mock for a shallow-complex type (all props are non-complex).
- * Calls `flattenAllOf` once — returns null if any property is complex or there are no props.
- * Used both for the simpleObj atom path and for shallow-complex array/ref handling.
- */
-function tryGenShallowMock(defs: Defs, typeName: string): Record<string, unknown> | null {
-  const props = flattenAllOf(defs, typeName);
-  if (props.length === 0) return null;
-  const result: Record<string, unknown> = {};
-  for (const p of props) {
-    const r = resolvePropertyType(defs, p.schema);
-    if (r.complex) return null;
-    const propName = p.prop[1];
-    const shape = classifySchema(p.schema);
-    if (shape.kind === "primitive") {
-      if (shape.type === "boolean") result[propName] = false;
-      else if (shape.type === "number" || shape.type === "integer") result[propName] = 0;
-      else result[propName] = "string";
-    } else if (shape.kind === "enum") {
-      result[propName] = shape.values[0] ?? "string";
-    } else if (shape.kind === "ref") {
-      const innerDef = defs[shape.target];
-      if (innerDef?.enum) {
-        result[propName] = innerDef.enum[0] ?? "string";
-      } else {
-        result[propName] = "string";
-      }
-    }
-  }
-  return result;
-}
-
-/**
- * Generate a fully populated mock object from JSON Schema definitions.
- *
- * Uses `flattenAllOf` (pre-inline) to collect all properties, then fills
- * each with a sensible default value based on its resolved type.
- */
-export function genMockObject(defs: Defs, name: string): Record<string, unknown> {
-  const props = flattenAllOf(defs, name);
-  const result: Record<string, unknown> = {};
-
-  for (const p of props) {
-    const propName = p.prop[1];
-    const schema = p.schema;
-
-    // x-fixed-single-enum: use the context-resolved value
-    if (typeof schema["x-fixed-single-enum"] === "string") {
-      result[propName] = name;
-      continue;
-    }
-
-    // $id attribute
-    if (propName === "$id") {
-      result[propName] = `ENT:${name}:1`;
-      continue;
-    }
-    // $version attribute
-    if (propName === "$version") {
-      result[propName] = "1";
-      continue;
-    }
-
-    const resolved = resolvePropertyType(defs, schema, name);
-
-    // Enum name (stamped enumeration)
-    if (resolved.via && resolved.via.length > 0) {
-      const lastHop = resolved.via[resolved.via.length - 1];
-      if (lastHop.rule === "enum") {
-        const enumDef = defs[lastHop.name];
-        if (enumDef?.enum) {
-          // Enum list (x-netex-atom:array)
-          if (resolved.ts.endsWith("[]")) {
-            result[propName] = [enumDef.enum[0]];
-          } else {
-            result[propName] = enumDef.enum[0];
-          }
-          continue;
-        }
-      }
-    }
-
-    // Reference type
-    const shape = classifySchema(schema);
-    if (shape.kind === "ref") {
-      const targetDef = defs[shape.target];
-      const role = defRole(targetDef);
-      if (role === "reference") {
-        result[propName] = genRefMock(defs, shape.target);
-        continue;
-      }
-      if (role === "collection") {
-        result[propName] = [];
-        continue;
-      }
-      // Atom types (simpleObj)
-      const atom = resolveAtom(defs, shape.target);
-      if (atom === "simpleObj") {
-        result[propName] = tryGenShallowMock(defs, shape.target) ?? {};
-        continue;
-      }
-      // Single-prop atom collapses to primitive
-      if (atom && atom !== "array") {
-        if (atom === "string") result[propName] = "string";
-        else if (atom === "number" || atom === "integer") result[propName] = 0;
-        else if (atom === "boolean") result[propName] = false;
-        else result[propName] = "string";
-        continue;
-      }
-    }
-
-    // Primitives
-    if (!resolved.complex) {
-      const ts = resolved.ts;
-      if (ts === "boolean") {
-        result[propName] = false;
-        continue;
-      }
-      if (ts === "number" || ts === "integer") {
-        result[propName] = 0;
-        continue;
-      }
-      if (ts.includes("/* date-time */")) {
-        result[propName] = "2025-01-01T00:00:00";
-        continue;
-      }
-      if (ts.includes("/* date */")) {
-        result[propName] = "2025-01-01";
-        continue;
-      }
-      if (ts.includes("/* time */")) {
-        result[propName] = "00:00:00";
-        continue;
-      }
-      // Fixed literal (single quoted value, no union)
-      if (ts.startsWith('"') && !ts.includes("|")) {
-        result[propName] = JSON.parse(ts);
-        continue;
-      }
-      if (ts === "string" || ts.startsWith('"')) {
-        result[propName] = "string";
-        continue;
-      }
-      if (ts.endsWith("[]")) {
-        result[propName] = [];
-        continue;
-      }
-      result[propName] = "string";
-      continue;
-    }
-
-    // Shallow-complex: all inner props are non-complex — fill with tryGenShallowMock
-    if (resolved.complex) {
-      if (resolved.ts.endsWith("[]")) {
-        // Array type (e.g. TextType[], KeyValueStructure[]) — one-element sample
-        const itemType = resolved.ts.slice(0, -2);
-        const shallow = defs[itemType] ? tryGenShallowMock(defs, itemType) : null;
-        if (shallow) {
-          result[propName] = [shallow];
-          continue;
-        }
-      } else if (shape.kind === "ref") {
-        // Single ref (e.g. PassengerCapacity → PassengerCapacityStructure)
-        const shallow = defs[shape.target] ? tryGenShallowMock(defs, shape.target) : null;
-        if (shallow) {
-          result[propName] = shallow;
-          continue;
-        }
-      }
-    }
-
-    // Non-shallow refArray — empty array fallback
-    if (shape.kind === "refArray") {
-      result[propName] = [];
-      continue;
-    }
-
-    // Complex types with nested complexity — omit to keep mock shallow
-  }
-
-  return result;
-}
-
-/**
- * Build a formatted XML string from a mock object.
- *
- * Applies `serializeValue` to convert canonical `$`-prefixed attribute names
- * to `@_`-prefixed names, then uses `fast-xml-parser`'s `XMLBuilder`.
- */
-export function buildXmlString(name: string, obj: Record<string, unknown>): string {
-  const serialized = serializeValue(obj);
-  const builder = new XMLBuilder({
-    format: true,
-    indentBy: "  ",
-    ignoreAttributes: false,
-  });
-  return builder.build({ [name]: serialized }) as string;
-}
+export {
+  fake as genMockObject,
+  fake,
+  defaultForType,
+  buildXmlString,
+  serializeValue,
+  toXmlShape as toValidNested,
+  toXmlShape,
+  serialize,
+} from "./data-faker.js";

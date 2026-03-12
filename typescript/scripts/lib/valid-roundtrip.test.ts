@@ -3,7 +3,7 @@ import { readFileSync, existsSync, readdirSync, writeFileSync, mkdtempSync, rmSy
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { genMockObject, buildXmlString, defRole, type Defs } from "./schema-viewer-fns.js";
+import { genMockObject, buildXmlString, serialize, defRole, type Defs } from "./fns.js";
 
 // ── Schema loading (eager — needed at describe.each time) ────────────────────
 
@@ -85,14 +85,52 @@ function validateWithXmllint(xml: string): { valid: boolean; stderr: string } {
   }
 }
 
+/** Count validation errors by category, excluding keyref (test-isolation issue). */
+function countErrors(stderr: string): { total: number; simpleContent: number; ordering: number } {
+  const lines = stderr.split("\n").filter((l) => l.includes("Schemas validity error"));
+  const keyref = lines.filter((l) => l.includes("cvc-identity-constraint")).length;
+  const simpleContent = lines.filter((l) => l.includes("Element content is not allowed, because the content type is a simple type")).length;
+  const ordering = lines.filter((l) => l.includes("This element is not expected. Expected is")).length;
+  return { total: lines.length - keyref, simpleContent, ordering };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe.each(TEST_ENTITIES)("$name (role: $role)", ({ name }) => {
-  it("validates against NeTEx XSD", () => {
+  it("validates against NeTEx XSD (buildXmlString)", () => {
     const mock = genMockObject(defs, name);
     const xml = buildXmlString(name, mock);
     const full = wrapInPublicationDelivery(name, xml);
     const { valid, stderr } = validateWithXmllint(full);
     expect(valid, `xmllint errors for ${name}:\n${stderr}`).toBe(true);
+  });
+
+  it("serialize produces fewer errors than buildXmlString", () => {
+    const mock = genMockObject(defs, name);
+
+    const xmlOld = buildXmlString(name, mock);
+    const fullOld = wrapInPublicationDelivery(name, xmlOld);
+    const { stderr: stderrOld } = validateWithXmllint(fullOld);
+    const oldErrors = countErrors(stderrOld);
+
+    const xmlNew = serialize(defs, name, mock);
+    const fullNew = wrapInPublicationDelivery(name, xmlNew);
+    const { stderr: stderrNew } = validateWithXmllint(fullNew);
+    const newErrors = countErrors(stderrNew);
+
+    // serialize (toValidNested) should fix simpleContent errors (value→#text)
+    expect(
+      newErrors.simpleContent,
+      `serialize should have fewer simpleContent errors than buildXmlString for ${name}.\n` +
+        `buildXmlString: ${oldErrors.simpleContent}, serialize: ${newErrors.simpleContent}`,
+    ).toBeLessThanOrEqual(oldErrors.simpleContent);
+
+    // Overall error count should not increase
+    expect(
+      newErrors.total,
+      `serialize should not produce more errors than buildXmlString for ${name}.\n` +
+        `buildXmlString: ${oldErrors.total}, serialize: ${newErrors.total}\n` +
+        stderrNew,
+    ).toBeLessThanOrEqual(oldErrors.total);
   });
 });

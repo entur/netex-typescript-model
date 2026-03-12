@@ -22,7 +22,7 @@ Tested entities: `VehicleType`, `Vehicle`, `DeckPlan` (all role: `entity`).
 
 **Symptom:** Attributes and child elements appear at the wrong nesting level.
 
-**Mechanism:** `resolveDefType` (schema-viewer-fns.ts:282) has two unwrapping branches designed for TypeScript type display that erase structurally significant XML wrapper levels:
+**Mechanism:** `resolveDefType` (fns.ts) has two unwrapping branches designed for TypeScript type display that erase structurally significant XML wrapper levels:
 
 **"array-unwrap" (line 378–393):** When a type has exactly one property that is an array of atom-stamped items, `resolveDefType` collapses the wrapper and returns the item type directly.
 
