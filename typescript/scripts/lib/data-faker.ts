@@ -203,10 +203,19 @@ function fakeCollectionWrapper(defs: Defs, structName: string): Record<string, u
 export function fake(defs: Defs, name: string): Record<string, unknown> {
   const props = flattenAllOf(defs, name);
   const result: Record<string, unknown> = {};
+  const usedChoiceGroups = new Set<string>();
 
   for (const p of props) {
     const propName = p.prop[1];
     const schema = p.schema;
+
+    // xsd:choice — only emit the first alternative from each choice group
+    const choiceGroup = schema["x-netex-choice"] as string[] | undefined;
+    if (choiceGroup) {
+      const groupKey = choiceGroup.join(",");
+      if (usedChoiceGroups.has(groupKey)) continue;
+      usedChoiceGroups.add(groupKey);
+    }
 
     // x-fixed-single-enum: use the context-resolved value
     if (typeof schema["x-fixed-single-enum"] === "string") {

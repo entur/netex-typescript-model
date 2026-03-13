@@ -211,7 +211,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
     expect(refsByOrigin).toEqual({
       DataManagedObjectStructure: ["BrandingRef"],
-      TransportType_VersionStructure: ["PrivateCode", "DeckPlanRef", "PassengerCapacity"],
+      TransportType_VersionStructure: ["PrivateCode", "PassengerCapacity", "DeckPlanRef"],
       VehicleType_VersionStructure: ["IncludedIn", "ClassifiedAsRef"],
     });
   });
@@ -892,19 +892,25 @@ describe("genMockObject — VehicleType (real schema)", () => {
     expect(Array.isArray(mock.Description)).toBe(true);
   });
 
-  it("fills keyList as KeyValueStructure[] with Key and Value props", () => {
+  it("fills keyList as wrapper with KeyValue child array", () => {
     const mock = genMockObject(defs, "VehicleType");
-    expect(Array.isArray(mock.keyList)).toBe(true);
-    const item = (mock.keyList as Record<string, unknown>[])[0];
+    const wrapper = mock.keyList as Record<string, unknown>;
+    expect(wrapper).toBeDefined();
+    expect(typeof wrapper).toBe("object");
+    expect(Array.isArray(wrapper.KeyValue)).toBe(true);
+    const item = (wrapper.KeyValue as Record<string, unknown>[])[0];
     expect(item).toBeDefined();
     expect("Key" in item).toBe(true);
     expect("Value" in item).toBe(true);
   });
 
-  it("fills privateCodes as PrivateCodeStructure[] with value and $type", () => {
+  it("fills privateCodes as wrapper with PrivateCode child array", () => {
     const mock = genMockObject(defs, "VehicleType");
-    expect(Array.isArray(mock.privateCodes)).toBe(true);
-    const item = (mock.privateCodes as Record<string, unknown>[])[0];
+    const wrapper = mock.privateCodes as Record<string, unknown>;
+    expect(wrapper).toBeDefined();
+    expect(typeof wrapper).toBe("object");
+    expect(Array.isArray(wrapper.PrivateCode)).toBe(true);
+    const item = (wrapper.PrivateCode as Record<string, unknown>[])[0];
     expect(item).toBeDefined();
     expect("value" in item).toBe(true);
   });

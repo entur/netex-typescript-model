@@ -1011,48 +1011,61 @@
         .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="if-prim">$1</span>');
     }
 
-    /** Render the Sample data tab content for a given format ('js', 'nested', or 'xml'). */
-    function renderSampleContent(format) {
-      var html = '';
+    /** Show the given sample format, hiding the others (no DOM rebuild). */
+    function showSampleFormat(format) {
+      var panels = explorerSample.querySelectorAll('.sample-panel');
+      for (var i = 0; i < panels.length; i++) {
+        panels[i].style.display = panels[i].dataset.fmt === format ? '' : 'none';
+      }
+      var pills = explorerSample.querySelectorAll('.sample-pill');
+      for (var i = 0; i < pills.length; i++) {
+        var input = pills[i].querySelector('input');
+        var isActive = input && input.value === format;
+        pills[i].classList.toggle('active', isActive);
+        if (input) input.checked = isActive;
+      }
+    }
 
+    /** Build all three sample panels once, then show the requested format. */
+    function renderSampleData(name) {
+      _cachedSampleStem = genMockObject(name);
+      _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
+      _cachedSampleName = name;
+
+      var html = '';
       // Pill toggle
       html += '<div class="sample-toggle">';
-      html += '<label class="sample-pill' + (format === 'js' ? ' active' : '') + '">';
-      html += '<input type="radio" name="sampleFmt" value="js"' + (format === 'js' ? ' checked' : '') + '> JS Simple';
+      html += '<label class="sample-pill active">';
+      html += '<input type="radio" name="sampleFmt" value="js" checked> JS Simple';
       html += '</label>';
-      html += '<label class="sample-pill' + (format === 'nested' ? ' active' : '') + '">';
-      html += '<input type="radio" name="sampleFmt" value="nested"' + (format === 'nested' ? ' checked' : '') + '> JS Nested';
+      html += '<label class="sample-pill">';
+      html += '<input type="radio" name="sampleFmt" value="nested"> JS Nested';
       html += '</label>';
-      html += '<label class="sample-pill' + (format === 'xml' ? ' active' : '') + '">';
-      html += '<input type="radio" name="sampleFmt" value="xml"' + (format === 'xml' ? ' checked' : '') + '> XML';
+      html += '<label class="sample-pill">';
+      html += '<input type="radio" name="sampleFmt" value="xml"> XML';
       html += '</label>';
       html += '</div>';
 
-      html += '<div class="interface-block">';
-      if (format === 'js') {
-        html += highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2));
-      } else if (format === 'nested') {
-        html += highlightJsonStr(JSON.stringify(_cachedSampleNested, null, 2));
-      } else {
-        html += esc(buildXml(_cachedSampleName, _cachedSampleNested));
-      }
+      // Pre-render all three panels
+      html += '<div class="sample-panel interface-block" data-fmt="js">';
+      html += highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2));
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      html += '<div class="sample-panel interface-block" data-fmt="nested" style="display:none">';
+      html += highlightJsonStr(JSON.stringify(_cachedSampleNested, null, 2));
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      html += '<div class="sample-panel interface-block" data-fmt="xml" style="display:none">';
+      html += esc(buildXml(_cachedSampleName, _cachedSampleNested));
       html += '<button class="copy-btn">Copy</button></div>';
 
       explorerSample.innerHTML = html;
     }
 
-    /** Generate and render sample data for a definition. */
-    function renderSampleData(name) {
-      _cachedSampleStem = genMockObject(name);
-      _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
-      _cachedSampleName = name;
-      renderSampleContent('js');
-    }
-
-    // Toggle handler for sample format pills
+    // Toggle handler for sample format pills — just toggle visibility
     explorerSample.addEventListener('change', function(e) {
       if (e.target.name === 'sampleFmt') {
-        renderSampleContent(e.target.value);
+        showSampleFormat(e.target.value);
       }
     });
 

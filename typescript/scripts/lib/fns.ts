@@ -301,16 +301,11 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
         (def.properties && Object.keys(def.properties).length > 0) ||
         def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
       if (!hasOwnProps) {
-        return withHop(
-          resolveDefType(defs, target, visited),
-          name,
-          "allOf-passthrough",
-        );
+        return withHop(resolveDefType(defs, target, visited), name, "allOf-passthrough");
       }
       // Speculatively follow parent — use result if primitive
       const parentResult = resolveDefType(defs, target, new Set(visited));
-      if (!parentResult.complex)
-        return withHop(parentResult, name, "allOf-speculative");
+      if (!parentResult.complex) return withHop(parentResult, name, "allOf-speculative");
     }
   }
 
@@ -496,7 +491,8 @@ export function buildInheritanceChain(defs: Defs, name: string): InheritanceNode
       for (const entry of def.allOf as Def[]) {
         if (entry.$ref) parent = deref(entry.$ref);
         else if (entry.properties) {
-          for (const [k, v] of Object.entries(entry.properties)) ownProps.push({ name: k, schema: v as Record<string, unknown> });
+          for (const [k, v] of Object.entries(entry.properties))
+            ownProps.push({ name: k, schema: v as Record<string, unknown> });
         }
       }
     }
@@ -692,7 +688,8 @@ export function collectExtraProps(defs: Defs, entityName: string, baseStructure:
     }
     for (const ao of d.allOf ?? []) {
       if (ao.properties) {
-        for (const k of Object.keys(ao.properties)) extras.push(canonicalPropName(k, ao.properties[k]));
+        for (const k of Object.keys(ao.properties))
+          extras.push(canonicalPropName(k, ao.properties[k]));
       }
     }
     // Move up: find allOf $ref parent
@@ -854,7 +851,7 @@ export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatPropert
 // ── Re-exports from data-faker.ts ───────────────────────────────────────────
 
 export {
-  fake as genMockObject,
+  fake as genMockObject, // TODO: remove this, fix host-app.js refs
   fake,
   defaultForType,
   buildXml,

@@ -579,23 +579,29 @@ class XsdToJsonSchema {
   }
 
   processContainer(container, properties, required) {
-    for (const el of getChildren(container, XSD_NS, "element")) {
-      this.processElement(el, properties, required);
-    }
-
-    for (const g of getChildren(container, XSD_NS, "group")) {
-      const ref = attr(g, "ref");
-      if (ref) this.inlineGroup(ref, properties, required);
-    }
-
-    // Nested choice inside sequence (elements are optional)
-    for (const ch of getChildren(container, XSD_NS, "choice")) {
-      this.processContainer(ch, properties, []);
-    }
-
-    // Nested sequence inside choice
-    for (const sq of getChildren(container, XSD_NS, "sequence")) {
-      this.processContainer(sq, properties, required);
+    const children = container.getChildNodes();
+    for (let i = 0; i < children.getLength(); i++) {
+      const c = children.item(i);
+      if (c.getNodeType() !== NodeConst.ELEMENT_NODE) continue;
+      if (c.getNamespaceURI() !== XSD_NS) continue;
+      const tag = c.getLocalName();
+      if (tag === "element") {
+        this.processElement(c, properties, required);
+      } else if (tag === "group") {
+        const ref = attr(c, "ref");
+        if (ref) this.inlineGroup(ref, properties, required);
+      } else if (tag === "choice") {
+        const before = new Set(Object.keys(properties));
+        this.processContainer(c, properties, []);
+        const choiceProps = Object.keys(properties).filter(k => !before.has(k));
+        if (choiceProps.length > 1) {
+          for (const k of choiceProps) {
+            properties[k]["x-netex-choice"] = choiceProps;
+          }
+        }
+      } else if (tag === "sequence") {
+        this.processContainer(c, properties, required);
+      }
     }
   }
 
