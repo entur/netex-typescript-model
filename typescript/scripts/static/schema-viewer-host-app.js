@@ -153,6 +153,7 @@
     function renderExplorer(name) {
       currentIsAlias = false;
       const props = flattenAllOf(defs, name);
+      const required = collectRequired(defs, name);
       explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
       explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
@@ -184,9 +185,9 @@
       explorerUtils.innerHTML = '<div class="spinner"></div>';
       explorerSample.innerHTML = '<div class="spinner"></div>';
       setTimeout(function() {
-        renderInterface(name);
-        renderMappingGuide(name);
-        renderUtils(name);
+        renderInterface(name, props);
+        renderMappingGuide(name, props);
+        renderUtils(name, props, required);
         renderSampleData(name);
       }, 0);
       currentExplored = name;
@@ -525,8 +526,8 @@
      * @param {string} name  Definition name.
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
-    function renderInterfaceHtml(name) {
-      var flat = flattenAllOf(defs, name);
+    function renderInterfaceHtml(name, preProps) {
+      var flat = preProps || flattenAllOf(defs, name);
 
       // If no properties, try to render as a type alias
       if (flat.length === 0) {
@@ -686,17 +687,14 @@
     });
 
     /** Render the TypeScript tab into its container element. */
-    function renderInterface(name) {
-      var result = renderInterfaceHtml(name);
+    function renderInterface(name, props) {
+      var result = renderInterfaceHtml(name, props);
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
       inlineRefsCheck.checked = inlineRefsEnabled;
-      // Hide inline-refs toggle for type aliases (no properties to inline)
-      if (currentIsAlias) {
-        ifaceToggleLabel.style.display = 'none';
-      } else {
-        ifaceToggleLabel.style.display = '';
-      }
+      // Only show inline-refs toggle when iface tab is active and not a type alias
+      var ifaceActive = explorerIface.classList.contains('active');
+      ifaceToggleLabel.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
     }
 
     // Copy-to-clipboard: shared handler for all tabs with .copy-btn inside .interface-block
@@ -771,91 +769,33 @@
     const explorerMapping = document.getElementById('explorerMapping');
 
     /**
-     * Build the XML Mapping tab HTML: a serialize function for fast-xml-parser.
-     *
-     * Convention: PascalCase = XML elements, `$` prefix = XML attributes.
-     * The serialize function renames `$`-prefixed props to `@_` for fast-xml-parser,
-     * stringifies booleans, and recurses into nested objects.
+     * Build the XML Mapping tab HTML: a generated per-entity projection
+     * function from `makeInlineCodeBlock`.
      *
      * @param {string} name  Definition name.
-     * @returns {string} HTML with intro text and a serialize code block.
+     * @returns {string} HTML with a code block containing the generated JS.
      */
-    function renderMappingHtml(name) {
-      var html = '';
-      html += '<p class="mapping-intro">';
-      html += 'Serialize <code>' + esc(name) + '</code> to XML via ';
-      html += '<a href="https://github.com/NaturalIntelligence/fast-xml-parser" target="_blank">fast-xml-parser</a>. ';
-      html += 'Convention: PascalCase = XML elements, <code>$</code> prefix = XML attributes.';
-      html += '</p>';
+    function renderMappingHtml(name, props) {
+      var raw = makeInlineCodeBlock(name, props);
+      var comment = '/*\n'
+        + ' * Project ' + name + ' to fast-xml-parser XMLBuilder shape.\n'
+        + ' * Renames $-prefixed attrs to @_, stringifies booleans,\n'
+        + ' * and delegates complex children via reshapeComplex.\n'
+        + ' */\n';
 
+      var html = '';
       html += '<div class="mapping-section"><h3>Serialize</h3>';
       html += '<div class="interface-block">';
-      html += renderSerializeCode(name);
+      // TODO: syntax-highlight the generated JS (highlightJs)
+      html += esc(comment + raw);
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       return html;
     }
 
-    /**
-     * Generate serialize code for fast-xml-parser XMLBuilder.
-     *
-     * Emits a generic recursive `serializeValue` that handles `$`→`@_`
-     * renaming, boolean stringification, arrays, and nested objects —
-     * matching the proven Hathor pattern. No per-property enumeration.
-     *
-     * @param {string} name  Definition name.
-     * @returns {string} Syntax-highlighted HTML code block.
-     */
-    function renderSerializeCode(name) {
-      var kw = 'if-kw', lit = 'if-lit', prim = 'if-prim', ref = 'if-ref', prop = 'if-prop', cmt = 'if-cmt';
-      var lines = [];
-      lines.push('<span class="' + kw + '">import</span> { XMLBuilder } <span class="' + kw + '">from</span> <span class="' + lit + '">"fast-xml-parser"</span>;');
-      lines.push('');
-      lines.push('<span class="' + kw + '">const</span> builder = <span class="' + kw + '">new</span> XMLBuilder({');
-      lines.push('  format: <span class="' + lit + '">true</span>,');
-      lines.push('  indentBy: <span class="' + lit + '">"  "</span>,');
-      lines.push('  ignoreAttributes: <span class="' + lit + '">false</span>,');
-      lines.push('});');
-      lines.push('');
-      lines.push('<span class="' + cmt + '">/** Recursively convert canonical props to fast-xml-parser shape. */</span>');
-      lines.push('<span class="' + kw + '">function</span> serializeValue(');
-      lines.push('  obj: Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;');
-      lines.push('): Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt; {');
-      lines.push('  <span class="' + kw + '">const</span> out: Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt; = {};');
-      lines.push('  <span class="' + kw + '">for</span> (<span class="' + kw + '">const</span> [key, val] <span class="' + kw + '">of</span> Object.entries(obj)) {');
-      lines.push('    <span class="' + kw + '">if</span> (val === <span class="' + lit + '">undefined</span>) <span class="' + kw + '">continue</span>;');
-      lines.push('    <span class="' + kw + '">if</span> (key.startsWith(<span class="' + lit + '">"$"</span>)) {');
-      lines.push('      out[<span class="' + lit + '">`@_${key.slice(1)}`</span>] = <span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"boolean"</span> ? String(val) : val;');
-      lines.push('    } <span class="' + kw + '">else if</span> (Array.isArray(val)) {');
-      lines.push('      out[key] = val.map(item =&gt;');
-      lines.push('        <span class="' + kw + '">typeof</span> item === <span class="' + lit + '">"object"</span> &amp;&amp; item !== <span class="' + lit + '">null</span>');
-      lines.push('          ? serializeValue(item <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;)');
-      lines.push('          : item');
-      lines.push('      );');
-      lines.push('    } <span class="' + kw + '">else if</span> (<span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"object"</span> &amp;&amp; val !== <span class="' + lit + '">null</span>) {');
-      lines.push('      out[key] = serializeValue(val <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;);');
-      lines.push('    } <span class="' + kw + '">else if</span> (<span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"boolean"</span>) {');
-      lines.push('      out[key] = String(val);');
-      lines.push('    } <span class="' + kw + '">else</span> {');
-      lines.push('      out[key] = val;');
-      lines.push('    }');
-      lines.push('  }');
-      lines.push('  <span class="' + kw + '">return</span> out;');
-      lines.push('}');
-      lines.push('');
-      lines.push('<span class="' + kw + '">export function</span> serialize(');
-      lines.push('  obj: Partial&lt;<span class="' + ref + ' explorer-type-link" href="#' + esc(name) + '">' + esc(name) + '</span>&gt;');
-      lines.push('): <span class="' + prim + '">string</span> {');
-      lines.push('  <span class="' + kw + '">const</span> xmlObj = serializeValue(obj <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;);');
-      lines.push('  <span class="' + kw + '">return</span> builder.build({ <span class="' + prop + '">' + esc(name) + '</span>: xmlObj }) <span class="' + kw + '">as</span> <span class="' + prim + '">string</span>;');
-      lines.push('}');
-
-      return lines.join('\n');
-    }
-
     /** Render the XML Mapping tab into its container element. */
-    function renderMappingGuide(name) {
-      explorerMapping.innerHTML = renderMappingHtml(name);
+    function renderMappingGuide(name, props) {
+      explorerMapping.innerHTML = renderMappingHtml(name, props);
     }
 
     // ── Utilities tab ─────────────────────────────────────────────────
@@ -873,9 +813,9 @@
      * @param {string} name  Definition name.
      * @returns {string} Three `.mapping-section` divs with code blocks and Copy buttons.
      */
-    function renderUtilsHtml(name) {
-      var props = flattenAllOf(defs, name);
-      var required = collectRequired(defs, name);
+    function renderUtilsHtml(name, preProps, preRequired) {
+      var props = preProps || flattenAllOf(defs, name);
+      var required = preRequired || collectRequired(defs, name);
 
       var html = '';
 
@@ -985,8 +925,8 @@
     }
 
     /** Render the Utilities tab into its container element. */
-    function renderUtils(name) {
-      explorerUtils.innerHTML = renderUtilsHtml(name);
+    function renderUtils(name, props, required) {
+      explorerUtils.innerHTML = renderUtilsHtml(name, props, required);
     }
 
     // ── Sample data tab ──────────────────────────────────────────────────
@@ -1036,10 +976,10 @@
       // Pill toggle
       html += '<div class="sample-toggle">';
       html += '<label class="sample-pill active">';
-      html += '<input type="radio" name="sampleFmt" value="js" checked> JS Simple';
+      html += '<input type="radio" name="sampleFmt" value="js" checked> Flat';
       html += '</label>';
       html += '<label class="sample-pill">';
-      html += '<input type="radio" name="sampleFmt" value="nested"> JS Nested';
+      html += '<input type="radio" name="sampleFmt" value="nested"> XmlShaped';
       html += '</label>';
       html += '<label class="sample-pill">';
       html += '<input type="radio" name="sampleFmt" value="xml"> XML';

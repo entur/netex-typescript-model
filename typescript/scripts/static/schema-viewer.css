@@ -513,10 +513,14 @@
     }
     .explorer-tab:hover { color: var(--fg); }
     .explorer-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .explorer-tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+    .explorer-tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
     .explorer-tab-content.active { display: flex; flex-direction: column; }
+    .explorer-tab-content.active > * { flex-shrink: 0; }
     #explorerSample .interface-block,
-    #explorerIface .interface-block { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+    #explorerIface .interface-block,
+    #explorerMapping .interface-block { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+    #explorerMapping .mapping-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #explorerUtils .interface-block { max-height: 60vh; overflow-y: auto; overflow-x: auto; }
     .graph-container { width: 100%; }
     .graph-container svg { display: block; }
     .graph-node { cursor: pointer; }
@@ -653,7 +657,7 @@
     .utils-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); }
 
     /* Sample data pill toggle */
-    .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; flex-shrink: 0; }
+    .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; position: sticky; top: 0; z-index: 1; background: var(--sidebar-bg); }
     .sample-pill { padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; background: var(--card-bg); color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
     .sample-pill.active { background: var(--accent); color: #fff; }
     .sample-pill input[type="radio"] { display: none; }

@@ -120,7 +120,7 @@ function buildCss(): string {
 function buildAppScript(): string {
   const raw = readFileSync(resolve(import.meta.dirname, "static/schema-viewer-host-app.js"), "utf-8");
   const viewerFns = buildViewerFnsScript();
-  return raw.replace("/*@@VIEWER_FNS@@*/", viewerFns).trimEnd();
+  return raw.replace("/*@@VIEWER_FNS@@*/", () => viewerFns).trimEnd();
 }
 
 /**
@@ -170,6 +170,8 @@ function buildViewerFnsScript(): string {
     function genMockObject(n) { return _viewerBundle.fake(defs, n); }
     function toXmlShape(n, obj) { return _viewerBundle.toXmlShape(defs, n, obj); }
     function buildXml(n, obj) { return _viewerBundle.buildXml(n, obj); }
+    function makeInlinedToXmlShape(n, props) { return _viewerBundle.makeInlinedToXmlShape(defs, n, props ? { props: props } : undefined); }
+    function makeInlineCodeBlock(n, props) { return _viewerBundle.makeInlineCodeBlock(defs, n, props ? { props: props } : undefined); }
     function collectRefProps(name) { return _viewerBundle.collectRefProps(defs, name); }
     function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(defs, entityName, baseStructure); }
     function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(defs, refDefName); }
@@ -251,8 +253,8 @@ ${sections}
       <button class="explorer-tab" data-tab="relations">Relations</button>
       <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">XML Mapping</button>
-      <button class="explorer-tab" data-tab="utils">Utilities</button>
       <button class="explorer-tab" data-tab="sample">Sample data</button>
+      <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
@@ -260,8 +262,8 @@ ${sections}
     <label class="iface-toggle" id="ifaceToggleLabel" style="display:none"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
-    <div class="explorer-tab-content" id="explorerUtils"></div>
     <div class="explorer-tab-content" id="explorerSample"></div>
+    <div class="explorer-tab-content" id="explorerUtils"></div>
   </aside>
 
   <div class="role-help-overlay" id="roleHelpOverlay">

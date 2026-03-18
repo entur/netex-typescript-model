@@ -37,3 +37,5 @@ export {
   toXmlShape,
   serialize,
 } from "./data-faker.js";
+
+export { makeInlinedToXmlShape, makeInlineCodeBlock } from "./to-xml-shape.js";
