@@ -766,29 +766,20 @@
     /** Build chip label showing rendered count and optional total complexity. */
     function depChipLabel(shown, total, expanded) {
       var prefix = expanded ? '\u25BC ' : '+';
-      var label = prefix + shown + ' type' + (shown !== 1 ? 's' : '');
-      if (total > shown) label += ' (' + total + ' total)';
+      var label = prefix + shown + ' supporter' + (shown !== 1 ? 's' : '');
+      if (total > shown) label += ' (' + total + ' in schema)';
       return label;
     }
 
     /** Lazily render compact interface blocks for all transitive dependency types. */
     function renderDepInterfaces(container, chip, names, totalUnique) {
-      var html = '<button class="copy-btn dep-copy-all">Copy all</button>';
+      var html = '';
       for (var i = 0; i < names.length; i++) {
         var result = renderInterfaceHtml(names[i], null, true);
         html += result.html;
       }
       container.innerHTML = html;
       chip.textContent = depChipLabel(names.length, totalUnique, true);
-      var copyBtn = container.querySelector('.dep-copy-all');
-      copyBtn.addEventListener('click', function() {
-        var blocks = container.querySelectorAll('.dep-block');
-        var text = Array.prototype.map.call(blocks, function(b) { return b.innerText; }).join('\n\n');
-        navigator.clipboard.writeText(text).then(function() {
-          copyBtn.textContent = 'Copied!';
-          setTimeout(function() { copyBtn.textContent = 'Copy all'; }, 1500);
-        });
-      });
     }
 
     // Copy-to-clipboard: shared handler for all tabs with .copy-btn inside .interface-block
@@ -798,6 +789,15 @@
         var block = e.target.closest('.interface-block');
         if (!block) return;
         var plain = block.innerText.replace(/Copy$/, '').trimEnd();
+        // Include expanded dep blocks if present
+        var depDiv = container.querySelector('#ifaceDepBlocks');
+        if (depDiv && depDiv.style.display !== 'none') {
+          var depBlocks = depDiv.querySelectorAll('.dep-block');
+          if (depBlocks.length > 0) {
+            var depText = Array.prototype.map.call(depBlocks, function(b) { return b.innerText; }).join('\n\n');
+            plain += '\n\n' + depText;
+          }
+        }
         navigator.clipboard.writeText(plain).then(function() {
           var btn = e.target.closest('.copy-btn');
           btn.textContent = 'Copied!';

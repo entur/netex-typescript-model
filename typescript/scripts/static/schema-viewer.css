@@ -595,6 +595,38 @@
       color: var(--muted);
     }
     .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
+
+    /* "+N more types" expansion chip */
+    .deps-expand-chip {
+      display: inline-block;
+      margin: 0.5rem 0;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.8rem;
+      font-family: ui-monospace, monospace;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.25rem;
+      color: var(--link-color);
+      cursor: pointer;
+    }
+    .deps-expand-chip:hover {
+      border-color: var(--accent);
+      background: var(--card-bg);
+    }
+    .deps-expand-chip.expanded {
+      border-color: var(--accent);
+    }
+    #ifaceDepBlocks .interface-block {
+      margin-top: 0.5rem;
+    }
+    /* Compact dep blocks — smaller than full interface blocks */
+    #ifaceDepBlocks .dep-block {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      line-height: 1.5;
+    }
+
+
     .spinner {
       width: 24px; height: 24px; margin: 2rem auto;
       border: 3px solid var(--card-border); border-top-color: var(--accent);
