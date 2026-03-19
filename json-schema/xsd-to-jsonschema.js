@@ -24,6 +24,12 @@ const NodeConst = Java.type("org.w3c.dom.Node");
 
 const XSD_NS = "http://www.w3.org/2001/XMLSchema";
 
+const REF_PREFIX = "#/definitions/";
+
+function deref(ref) {
+  return ref.startsWith(REF_PREFIX) ? ref.substring(REF_PREFIX.length) : ref;
+}
+
 // When true, frame-registry entries get a distinct "frameMember" role instead of
 // falling through to "entity".  Currently false — all DMO-based concrete elements
 // are classified as entity, and x-netex-frames is stamped independently of role.
@@ -164,6 +170,7 @@ class XsdToJsonSchema {
     this.elementMeta = {}; // name → { abstract, substitutionGroup }
     this.sgMembers = {}; // head name → [member names]
 
+    this.allDefs = null;
     this.converted = false;
     this.warnings = [];
     this.frameRegistry = {}; // entity name → [frame names], populated externally
@@ -306,6 +313,9 @@ class XsdToJsonSchema {
     // Pass 3: build substitution group reverse map
     this.buildSubstitutionGroupRegistry();
 
+    // Build combined definition map (types + elements, schema only)
+    this.allDefs = this.buildAllDefs();
+
     // Pass 4: classify definitions by role
     this.classifyDefinitions();
 
@@ -384,18 +394,7 @@ class XsdToJsonSchema {
     if (attr(ct, "mixed") === "true") result["x-netex-mixed"] = true;
     const { properties, required } = this.extractProperties(ct);
 
-    for (const a of getChildren(ct, XSD_NS, "attribute")) {
-      const name = attr(a, "name");
-      if (name) {
-        const schema = this.withDescription(
-          this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-          this.extractDescription(a),
-        );
-        schema.xml = { attribute: true };
-        properties[name] = schema;
-      }
-    }
-
+    this.processAttributes(ct, properties);
     this.inlineAttributeGroups(ct, properties);
 
     if (Object.keys(properties).length > 0) result.properties = properties;
@@ -411,17 +410,7 @@ class XsdToJsonSchema {
       const baseRef = this.resolveTypeRef(base);
       const { properties, required } = this.extractProperties(ext);
 
-      for (const a of getChildren(ext, XSD_NS, "attribute")) {
-        const name = attr(a, "name");
-        if (name) {
-          const schema = this.withDescription(
-            this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-            this.extractDescription(a),
-          );
-          schema.xml = { attribute: true };
-          properties[name] = schema;
-        }
-      }
+      this.processAttributes(ext, properties);
       this.inlineAttributeGroups(ext, properties);
 
       const additional = {};
@@ -450,17 +439,7 @@ class XsdToJsonSchema {
       const baseSchema = this.resolveTypeRef(base);
 
       const properties = { value: baseSchema };
-      for (const a of getChildren(ext, XSD_NS, "attribute")) {
-        const name = attr(a, "name");
-        if (name) {
-          const schema = this.withDescription(
-            this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-            this.extractDescription(a),
-          );
-          schema.xml = { attribute: true };
-          properties[name] = schema;
-        }
-      }
+      this.processAttributes(ext, properties);
       this.inlineAttributeGroups(ext, properties);
 
       return { type: "object", properties };
@@ -634,7 +613,7 @@ class XsdToJsonSchema {
       if (isRequired) required.push(name);
     } else if (ref) {
       const refName = this.stripNs(ref);
-      const refSchema = { $ref: `#/definitions/${refName}` };
+      const refSchema = { $ref: `${REF_PREFIX}${refName}` };
       properties[refName] = isArray
         ? this.withDescription({ type: "array", items: refSchema }, desc)
         : this.withDescription(refSchema, desc);
@@ -660,16 +639,20 @@ class XsdToJsonSchema {
       const groupDef = this.attrGroups[localName];
       if (!groupDef) continue;
 
-      for (const a of getChildren(groupDef.schema, XSD_NS, "attribute")) {
-        const name = attr(a, "name");
-        if (name) {
-          const schema = this.withDescription(
-            this.resolveTypeRef(attr(a, "type") || "xsd:string"),
-            this.extractDescription(a),
-          );
-          schema.xml = { attribute: true };
-          properties[name] = schema;
-        }
+      this.processAttributes(groupDef.schema, properties);
+    }
+  }
+
+  processAttributes(node, properties) {
+    for (const a of getChildren(node, XSD_NS, "attribute")) {
+      const name = attr(a, "name");
+      if (name) {
+        const schema = this.withDescription(
+          this.resolveTypeRef(attr(a, "type") || "xsd:string"),
+          this.extractDescription(a),
+        );
+        schema.xml = { attribute: true };
+        properties[name] = schema;
       }
     }
   }
@@ -685,19 +668,13 @@ class XsdToJsonSchema {
     if (XSD_TYPE_MAP[localName]) return { ...XSD_TYPE_MAP[localName] };
 
     // Reference to a user-defined type
-    return { $ref: `#/definitions/${localName}` };
+    return { $ref: `${REF_PREFIX}${localName}` };
   }
 
   // ── Atom annotation ────────────────────────────────────────────────────────
 
   annotateAtoms() {
-    const allDefs = {};
-    for (const [name, entry] of Object.entries(this.types)) {
-      allDefs[name] = entry.schema;
-    }
-    for (const [name, entry] of Object.entries(this.elements)) {
-      if (!allDefs[name]) allDefs[name] = entry.schema;
-    }
+    const allDefs = this.allDefs;
 
     // Pass 1: simpleContent wrappers (types with a lowercase "value" property)
     for (const [name, schema] of Object.entries(allDefs)) {
@@ -741,13 +718,7 @@ class XsdToJsonSchema {
    * display context to produce a string literal.
    */
   annotateFixedEnumProperties() {
-    const allDefs = {};
-    for (const [name, entry] of Object.entries(this.types)) {
-      allDefs[name] = entry.schema;
-    }
-    for (const [name, entry] of Object.entries(this.elements)) {
-      if (!allDefs[name]) allDefs[name] = entry.schema;
-    }
+    const allDefs = this.allDefs;
 
     for (const [, schema] of Object.entries(allDefs)) {
       const props = schema.properties;
@@ -767,11 +738,11 @@ class XsdToJsonSchema {
   /** Extract the $ref target name from a property schema (direct $ref or allOf[{$ref}]). */
   extractRefTarget(propSchema) {
     if (propSchema.$ref) {
-      return propSchema.$ref.replace("#/definitions/", "");
+      return deref(propSchema.$ref);
     }
     if (propSchema.allOf) {
       for (const entry of propSchema.allOf) {
-        if (entry.$ref) return entry.$ref.replace("#/definitions/", "");
+        if (entry.$ref) return deref(entry.$ref);
       }
     }
     return null;
@@ -786,7 +757,7 @@ class XsdToJsonSchema {
 
     // $ref alias
     if (def.$ref) {
-      return this.resolveValueAtom(def.$ref.replace("#/definitions/", ""), allDefs, visited);
+      return this.resolveValueAtom(deref(def.$ref), allDefs, visited);
     }
 
     // allOf: check parent
@@ -794,7 +765,7 @@ class XsdToJsonSchema {
       for (const entry of def.allOf) {
         if (entry.$ref) {
           const result = this.resolveValueAtom(
-            entry.$ref.replace("#/definitions/", ""),
+            deref(entry.$ref),
             allDefs,
             visited,
           );
@@ -815,7 +786,7 @@ class XsdToJsonSchema {
 
     // value → $ref
     if (vp.$ref) {
-      const target = vp.$ref.replace("#/definitions/", "");
+      const target = deref(vp.$ref);
       const inner = this.resolveValueAtom(target, allDefs, visited);
       if (inner) return inner;
       const targetDef = allDefs[target];
@@ -858,6 +829,17 @@ class XsdToJsonSchema {
     }
   }
 
+  buildAllDefs() {
+    const allDefs = {};
+    for (const [name, entry] of Object.entries(this.types)) {
+      allDefs[name] = entry.schema;
+    }
+    for (const [name, entry] of Object.entries(this.elements)) {
+      if (!allDefs[name]) allDefs[name] = entry.schema;
+    }
+    return allDefs;
+  }
+
   // ── Role classification ──────────────────────────────────────────────────
 
   loadFrameRegistry(jsonPath) {
@@ -878,14 +860,7 @@ class XsdToJsonSchema {
   }
 
   extendsDataManagedObject(name) {
-    const allDefs = {};
-    for (const [n, entry] of Object.entries(this.types)) {
-      allDefs[n] = entry.schema;
-    }
-    for (const [n, entry] of Object.entries(this.elements)) {
-      if (!allDefs[n]) allDefs[n] = entry.schema;
-    }
-    return this._chainHasAncestor(name, allDefs, "DataManagedObjectStructure", {});
+    return this._chainHasAncestor(name, this.allDefs, "DataManagedObjectStructure", {});
   }
 
   _chainHasAncestor(name, allDefs, target, visited) {
@@ -899,7 +874,7 @@ class XsdToJsonSchema {
     // $ref alias
     if (def.$ref) {
       return this._chainHasAncestor(
-        def.$ref.replace("#/definitions/", ""),
+        deref(def.$ref),
         allDefs,
         target,
         visited,
@@ -912,7 +887,7 @@ class XsdToJsonSchema {
         if (entry.$ref) {
           if (
             this._chainHasAncestor(
-              entry.$ref.replace("#/definitions/", ""),
+              deref(entry.$ref),
               allDefs,
               target,
               visited,
@@ -927,17 +902,8 @@ class XsdToJsonSchema {
   }
 
   classifyDefinitions() {
-    // Build combined definition map
-    const allDefs = {};
-    for (const [name, entry] of Object.entries(this.types)) {
-      allDefs[name] = entry;
-    }
-    for (const [name, entry] of Object.entries(this.elements)) {
-      if (!allDefs[name]) allDefs[name] = entry;
-    }
-
-    for (const [name, entry] of Object.entries(allDefs)) {
-      const schema = entry.schema;
+    for (const [name, schema] of Object.entries(this.allDefs)) {
+      // Role classification
       let role = null;
 
       // 1. Structure suffixes (highest priority — structural classification)
@@ -989,38 +955,28 @@ class XsdToJsonSchema {
       if (role) {
         schema["x-netex-role"] = role;
       }
-    }
 
-    // Stamp frame membership (independent of role — any classified def benefits)
-    for (const [name, entry] of Object.entries(allDefs)) {
-      const schema = entry.schema;
+      // Frame membership (independent of role)
       if (this.frameRegistry[name]) {
         schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
       }
-    }
 
-    // Stamp x-netex-refTarget on reference-role definitions
-    for (const [name, entry] of Object.entries(allDefs)) {
-      const schema = entry.schema;
-      if (schema["x-netex-role"] !== "reference") continue;
-
-      // Try stripping Ref / _RefStructure / RefStructure suffix to find target element
-      let target = null;
-      if (name.endsWith("Ref")) {
-        target = name.slice(0, -3);
-      } else if (name.endsWith("_RefStructure")) {
-        target = name.slice(0, -13);
-      } else if (name.endsWith("RefStructure")) {
-        target = name.slice(0, -12);
+      // Ref target (for reference-role definitions)
+      if (role === "reference") {
+        let refTarget = null;
+        if (name.endsWith("Ref")) {
+          refTarget = name.slice(0, -3);
+        } else if (name.endsWith("_RefStructure")) {
+          refTarget = name.slice(0, -13);
+        } else if (name.endsWith("RefStructure")) {
+          refTarget = name.slice(0, -12);
+        }
+        if (refTarget && (this.elements[refTarget] || this.types[refTarget])) {
+          schema["x-netex-refTarget"] = refTarget;
+        }
       }
-      if (target && (this.elements[target] || this.types[target])) {
-        schema["x-netex-refTarget"] = target;
-      }
-    }
 
-    // Stamp substitution group annotations
-    for (const [name, def] of Object.entries(allDefs)) {
-      const schema = def.schema || def;
+      // Substitution group annotations
       const meta = this.elementMeta[name];
       if (meta?.substitutionGroup) {
         schema["x-netex-substitutionGroup"] = meta.substitutionGroup;
@@ -1072,8 +1028,8 @@ class XsdToJsonSchema {
       if (typeof obj !== "object" || obj === null) continue;
 
       for (const [key, val] of Object.entries(obj)) {
-        if (key === "$ref" && typeof val === "string" && val.startsWith("#/definitions/")) {
-          const refName = val.substring("#/definitions/".length);
+        if (key === "$ref" && typeof val === "string" && val.startsWith(REF_PREFIX)) {
+          const refName = deref(val);
           if (!definitions[refName]) {
             definitions[refName] = {};
           }
@@ -1168,8 +1124,8 @@ function pruneToSubGraph(schema, rootName) {
       if (visited.has(obj)) continue;
       visited.add(obj);
       for (const [key, val] of Object.entries(obj)) {
-        if (key === "$ref" && typeof val === "string" && val.startsWith("#/definitions/")) {
-          const target = val.substring("#/definitions/".length);
+        if (key === "$ref" && typeof val === "string" && val.startsWith(REF_PREFIX)) {
+          const target = deref(val);
           if (!reachable.has(target)) queue.push(target);
         }
         if (typeof val === "object" && val !== null) objQueue.push(val);
@@ -1216,16 +1172,16 @@ function isTransparent(def) {
   }
 
   // Pattern 1: direct $ref
-  if (def.$ref && typeof def.$ref === "string" && def.$ref.startsWith("#/definitions/")) {
-    return def.$ref.substring("#/definitions/".length);
+  if (def.$ref && typeof def.$ref === "string" && def.$ref.startsWith(REF_PREFIX)) {
+    return deref(def.$ref);
   }
 
   // Pattern 2: allOf with a single $ref entry and no structural entries
   if (Array.isArray(def.allOf)) {
     const refs = [];
     for (const entry of def.allOf) {
-      if (entry.$ref && typeof entry.$ref === "string" && entry.$ref.startsWith("#/definitions/")) {
-        refs.push(entry.$ref.substring("#/definitions/".length));
+      if (entry.$ref && typeof entry.$ref === "string" && entry.$ref.startsWith(REF_PREFIX)) {
+        refs.push(deref(entry.$ref));
       } else {
         // Non-$ref entry — check for structural content
         for (const key of STRUCTURAL_KEYS) {
@@ -1254,8 +1210,8 @@ function buildRefCounts(defs) {
       if (visited.has(obj)) continue;
       visited.add(obj);
       for (const [key, val] of Object.entries(obj)) {
-        if (key === "$ref" && typeof val === "string" && val.startsWith("#/definitions/")) {
-          const target = val.substring("#/definitions/".length);
+        if (key === "$ref" && typeof val === "string" && val.startsWith(REF_PREFIX)) {
+          const target = deref(val);
           counts[target] = (counts[target] || 0) + 1;
         }
         if (typeof val === "object" && val !== null) queue.push(val);
