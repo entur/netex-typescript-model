@@ -19,6 +19,7 @@ import {
   type FlatProperty,
   type ResolvedType,
 } from "./fns.js";
+import { escHtml } from "./codegens.js";
 
 /**
  * Resolve an abstract element head to the first concrete substitution group member.
@@ -67,11 +68,25 @@ export interface InlineOptions {
   callbackName?: string;
   /** If false, callback is a free variable, not a function parameter (default: true). */
   callbackAsParam?: boolean;
+  /** Emit `<span class="if-*">` syntax-highlighting tags (default: false). */
+  html?: boolean;
 }
 
 /** Format a JS property key — unquoted if valid identifier, single-quoted otherwise. */
 function propKey(key: string): string {
   return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `'${key}'`;
+}
+
+/** Syntax-highlight tag helpers — return identity functions when html is false. */
+function makeTaggers(html: boolean) {
+  const e = html ? escHtml : (s: string) => s;
+  return {
+    e,
+    kw: (s: string) => (html ? `<span class="if-kw">${s}</span>` : s),
+    lit: (s: string) => (html ? `<span class="if-lit">${e(s)}</span>` : s),
+    prop: (s: string) => (html ? `<span class="if-prop">${e(s)}</span>` : s),
+    cmt: (s: string) => (html ? `<span class="if-cmt">${e(s)}</span>` : s),
+  };
 }
 
 /**
@@ -96,6 +111,10 @@ export function makeInlinedToXmlShape(
   const isSimpleContent = resolveAtom(defs, name) === "simpleObj";
   const fnName = lcFirst(name) + "ToXmlShape";
 
+  // ── Syntax-highlighting helpers ─────────────────────────────────────────
+
+  const { e: esc, kw, lit, prop: propTag, cmt } = makeTaggers(opts?.html ?? false);
+
   // ── Phase 1: classify every property ──────────────────────────────────────
 
   const cb = opts?.callbackName ?? "toXmlShape";
@@ -108,7 +127,7 @@ export function makeInlinedToXmlShape(
   }
 
   const boolStr = (prop: string): string =>
-    `typeof obj['${prop}'] === 'boolean' ? String(obj['${prop}']) : obj['${prop}']`;
+    `${kw("typeof")} obj[${lit("'" + prop + "'")}] === ${lit("'boolean'")} ? String(obj[${lit("'" + prop + "'")}]) : obj[${lit("'" + prop + "'")}]`;
 
   const entries: PropEmit[] = [];
   const processed = new Set<string>();
@@ -134,7 +153,7 @@ export function makeInlinedToXmlShape(
       entries.push({
         canonName,
         xmlName: "#text",
-        expr: `obj['value']`,
+        expr: `obj[${lit("'value'")}]`,
         isOverride: false,
       });
       continue;
@@ -169,19 +188,19 @@ export function makeInlinedToXmlShape(
 
       if (isMixed && resolved.ts.endsWith("[]")) {
         const innerType = resolved.ts.slice(0, -2);
-        expr = `obj['${canonName}'].map(function(item) { return ${cb}('${innerType}', item); })`;
+        expr = `obj[${lit("'" + canonName + "'")}].map(${kw("function")}(item) { ${kw("return")} ${cb}(${lit("'" + innerType + "'")}, item); })`;
         isOverride = true;
       } else if (!shouldDirectAssign(defs, refTarget, resolved)) {
-        expr = `${cb}('${refTarget}', obj['${canonName}'])`;
+        expr = `${cb}(${lit("'" + refTarget + "'")}, obj[${lit("'" + canonName + "'")}])`;
         isOverride = true;
       } else if (xmlName !== canonName) {
-        expr = `obj['${canonName}']`;
+        expr = `obj[${lit("'" + canonName + "'")}]`;
         isOverride = true;
       } else {
         expr = boolStr(canonName);
       }
     } else if (shape.kind === "refArray" && refTarget) {
-      expr = `obj['${canonName}'].map(function(item) { return ${cb}('${refTarget}', item); })`;
+      expr = `obj[${lit("'" + canonName + "'")}].map(${kw("function")}(item) { ${kw("return")} ${cb}(${lit("'" + refTarget + "'")}, item); })`;
       isOverride = true;
     } else {
       expr = boolStr(canonName);
@@ -194,42 +213,42 @@ export function makeInlinedToXmlShape(
 
   const lines: string[] = [];
   const cbParam = (opts?.callbackAsParam ?? true) ? `, ${cb}` : "";
-  lines.push(`function ${fnName}(obj${cbParam}) {`);
+  lines.push(`${kw("function")} ${fnName}(obj${cbParam}) {`);
 
   const helperName = isSimpleContent ? opts?.baseSimpleCall : opts?.baseCall;
 
+  /** Format a spread entry: `...(obj['x'] !== undefined && { key: expr })` */
+  const spreadEntry = (canonName: string, xmlName: string, expr: string): string =>
+    `    ...(obj[${lit("'" + canonName + "'")}] !== ${kw("undefined")} && { ${propTag(propKey(xmlName))}: ${expr} }),`;
+
   if (helperName) {
     // baseCall mode: spread base helper + override-only entries
-    const overrides = entries.filter((e) => e.isOverride);
-    const renames = overrides.filter((e) => e.xmlName !== e.canonName);
+    const overrides = entries.filter((en) => en.isOverride);
+    const renames = overrides.filter((en) => en.xmlName !== en.canonName);
 
     if (renames.length > 0) {
       const drops = renames.map((r, i) => `${r.canonName}: _drop${i}`).join(", ");
-      lines.push(`  const { ${drops}, ...baseRest } = ${helperName}(obj);`);
-      lines.push(`  const out = {`);
+      lines.push(`  ${kw("const")} { ${drops}, ...baseRest } = ${helperName}(obj);`);
+      lines.push(`  ${kw("const")} out = {`);
       lines.push(`    ...baseRest,`);
     } else {
-      lines.push(`  const out = {`);
+      lines.push(`  ${kw("const")} out = {`);
       lines.push(`    ...${helperName}(obj),`);
     }
 
     for (const ov of overrides) {
-      lines.push(
-        `    ...(obj['${ov.canonName}'] !== undefined && { ${propKey(ov.xmlName)}: ${ov.expr} }),`,
-      );
+      lines.push(spreadEntry(ov.canonName, ov.xmlName, ov.expr));
     }
   } else {
     // Standalone mode: per-property spread entries
-    lines.push(`  const out = {`);
-    for (const e of entries) {
-      lines.push(
-        `    ...(obj['${e.canonName}'] !== undefined && { ${propKey(e.xmlName)}: ${e.expr} }),`,
-      );
+    lines.push(`  ${kw("const")} out = {`);
+    for (const en of entries) {
+      lines.push(spreadEntry(en.canonName, en.xmlName, en.expr));
     }
   }
 
   lines.push(`  };`);
-  lines.push(`  return out;`);
+  lines.push(`  ${kw("return")} out;`);
   lines.push(`}`);
 
   return lines.join("\n");
@@ -246,9 +265,11 @@ export function makeInlinedToXmlShape(
 export function makeInlineCodeBlock(
   defs: Defs,
   name: string,
-  opts?: { props?: FlatProperty[] },
+  opts?: { props?: FlatProperty[]; html?: boolean },
 ): string {
   const props = opts?.props ?? flattenAllOf(defs, name);
+  const html = opts?.html ?? false;
+  const { kw, lit, cmt } = makeTaggers(html);
 
   // Collect ref targets that need delegation (same classification as Phase 1)
   const targets: string[] = [];
@@ -291,24 +312,35 @@ export function makeInlineCodeBlock(
     }
   }
 
+  // Build comment header
+  const comment = cmt(
+    "/*\n" +
+      " * Project " + name + " to fast-xml-parser XMLBuilder shape.\n" +
+      " * Renames $-prefixed attrs to @_, stringifies booleans,\n" +
+      " * and delegates complex children via reshapeComplex.\n" +
+      " */",
+  );
+
   if (targets.length === 0) {
     // Leaf entity — no dispatch, no callback
-    return makeInlinedToXmlShape(defs, name, {
+    const entityFn = makeInlinedToXmlShape(defs, name, {
       props,
       callbackName: "reshapeComplex",
       callbackAsParam: false,
+      html,
     });
+    return comment + "\n" + entityFn;
   }
 
   // Build dispatch function
   const dispatchLines: string[] = [];
-  dispatchLines.push("function reshapeComplex(name, obj) {");
-  dispatchLines.push("  switch (name) {");
+  dispatchLines.push(`${kw("function")} reshapeComplex(name, obj) {`);
+  dispatchLines.push(`  ${kw("switch")} (name) {`);
   for (const t of targets) {
     const fn = lcFirst(t) + "ToXmlShape";
-    dispatchLines.push(`    case '${t}': return ${fn}(obj, reshapeComplex);`);
+    dispatchLines.push(`    ${kw("case")} ${lit("'" + t + "'")}: ${kw("return")} ${fn}(obj, reshapeComplex);`);
   }
-  dispatchLines.push("    default: return obj;");
+  dispatchLines.push(`    ${kw("default")}: ${kw("return")} obj;`);
   dispatchLines.push("  }");
   dispatchLines.push("}");
 
@@ -316,7 +348,8 @@ export function makeInlineCodeBlock(
     props,
     callbackName: "reshapeComplex",
     callbackAsParam: false,
+    html,
   });
 
-  return dispatchLines.join("\n") + "\n\n" + entityFn;
+  return comment + "\n" + dispatchLines.join("\n") + "\n\n" + entityFn;
 }

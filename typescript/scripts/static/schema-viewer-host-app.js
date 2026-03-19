@@ -723,18 +723,12 @@
      * @returns {string} HTML with a code block containing the generated JS.
      */
     function renderMappingHtml(name, props) {
-      var raw = makeInlineCodeBlock(name, props);
-      var comment = '/*\n'
-        + ' * Project ' + name + ' to fast-xml-parser XMLBuilder shape.\n'
-        + ' * Renames $-prefixed attrs to @_, stringifies booleans,\n'
-        + ' * and delegates complex children via reshapeComplex.\n'
-        + ' */\n';
+      var highlighted = makeInlineCodeBlock(name, props, { html: true });
 
       var html = '';
       html += '<div class="mapping-section"><h3>Serialize</h3>';
       html += '<div class="interface-block">';
-      // TODO: syntax-highlight the generated JS (highlightJs)
-      html += esc(comment + raw);
+      html += highlighted;
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       return html;

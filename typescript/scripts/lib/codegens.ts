@@ -25,7 +25,7 @@ import { defaultForType } from "./data-faker.js";
 // ── Escaping ────────────────────────────────────────────────────────────────
 
 /** HTML-escape `<>&"` characters. */
-function escHtml(s: string): string {
+export function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 

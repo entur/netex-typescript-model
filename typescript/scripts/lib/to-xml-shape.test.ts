@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { makeInlinedToXmlShape } from "./to-xml-shape.js";
+import { makeInlinedToXmlShape, makeInlineCodeBlock } from "./to-xml-shape.js";
 import { fake, toXmlShape as dataFakerToXmlShape } from "./data-faker.js";
 import { lcFirst, type Defs } from "./fns.js";
 
@@ -78,5 +78,60 @@ describe("makeInlinedToXmlShape", () => {
         dataFakerToXmlShape(defs, n, obj);
       expect(fn(stem, cb)).toEqual(dataFakerToXmlShape(defs, name, stem));
     });
+  });
+});
+
+// ── HTML syntax-highlighting tests ──────────────────────────────────────────
+
+describe("makeInlinedToXmlShape html mode", () => {
+  it("Contact: plain mode has no span tags", () => {
+    const plain = makeInlinedToXmlShape(defs, "Contact");
+    expect(plain).not.toContain("<span");
+    expect(plain).not.toContain("</span>");
+  });
+
+  it("Contact: html mode contains span tags with if-* classes", () => {
+    const html = makeInlinedToXmlShape(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-kw">');
+    expect(html).toContain('<span class="if-lit">');
+    expect(html).toContain('<span class="if-prop">');
+  });
+
+  it("Contact: html mode highlights function and return keywords", () => {
+    const html = makeInlinedToXmlShape(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-kw">function</span>');
+    expect(html).toContain('<span class="if-kw">return</span>');
+    expect(html).toContain('<span class="if-kw">const</span>');
+  });
+});
+
+describe("makeInlineCodeBlock html mode", () => {
+  it("Contact: plain mode has no span tags", () => {
+    const plain = makeInlineCodeBlock(defs, "Contact");
+    expect(plain).not.toContain("<span");
+  });
+
+  it("Contact: html mode contains highlighted comment", () => {
+    const html = makeInlineCodeBlock(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-cmt">');
+    expect(html).toContain("Project Contact");
+  });
+
+  it("Contact: html mode includes highlighted keywords", () => {
+    const html = makeInlineCodeBlock(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-kw">function</span>');
+  });
+
+  it("Vehicle: html mode highlights dispatch function keywords", () => {
+    const html = makeInlineCodeBlock(defs, "Vehicle", { html: true });
+    expect(html).toContain('<span class="if-kw">switch</span>');
+    expect(html).toContain('<span class="if-kw">case</span>');
+    expect(html).toContain('<span class="if-kw">default</span>');
+  });
+
+  it("plain mode includes comment header", () => {
+    const plain = makeInlineCodeBlock(defs, "Contact");
+    expect(plain).toContain("/*");
+    expect(plain).toContain("Project Contact");
   });
 });

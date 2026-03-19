@@ -47,4 +47,5 @@ export {
   generateTypeGuard,
   generateFactory,
   toConstName,
+  escHtml,
 } from "./codegens.js";

@@ -171,7 +171,7 @@ function buildViewerFnsScript(): string {
     function toXmlShape(n, obj) { return _viewerBundle.toXmlShape(defs, n, obj); }
     function buildXml(n, obj) { return _viewerBundle.buildXml(n, obj); }
     function makeInlinedToXmlShape(n, props) { return _viewerBundle.makeInlinedToXmlShape(defs, n, props ? { props: props } : undefined); }
-    function makeInlineCodeBlock(n, props) { return _viewerBundle.makeInlineCodeBlock(defs, n, props ? { props: props } : undefined); }
+    function makeInlineCodeBlock(n, props, opts) { return _viewerBundle.makeInlineCodeBlock(defs, n, Object.assign({}, opts || {}, props ? { props: props } : {})); }
     function collectRefProps(name) { return _viewerBundle.collectRefProps(defs, name); }
     function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(defs, entityName, baseStructure); }
     function collectDependencyTree(name) { return _viewerBundle.collectDependencyTree(defs, name); }
