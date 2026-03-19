@@ -359,8 +359,9 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
 
   // Primitive (no properties)
   if (def.type && !def.properties && typeof def.type === "string" && def.type !== "object") {
+    const tsType = def.type === "integer" ? "number" : def.type;
     const fmt = def.format ? " /* " + def.format + " */" : "";
-    return { ts: def.type + fmt, complex: false, via: [{ name, rule: "primitive" }] };
+    return { ts: tsType + fmt, complex: false, via: [{ name, rule: "primitive" }] };
   }
 
   // Mixed-content wrapper — resolve as the inner element type array
@@ -386,7 +387,15 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   }
 
   // Empty object (no properties, no role) — e.g. ExtensionsStructure (xsd:any wrapper)
-  if (def.type === "object" && !def.properties && !def["x-netex-role"]) {
+  // Also catches completely empty schemas ({}) from unresolved XSD constructs
+  if (
+    (!def.type || def.type === "object") &&
+    !def.properties &&
+    !def["x-netex-role"] &&
+    !def.allOf &&
+    !def.anyOf &&
+    !def.enum
+  ) {
     return { ts: "any", complex: false, via: [{ name, rule: "empty-object" }] };
   }
 
@@ -424,8 +433,9 @@ export function resolvePropertyType(defs: Defs, schema: Def, context?: string): 
         complex: false,
       };
     case "primitive": {
+      const tsType = shape.type === "integer" ? "number" : shape.type;
       const fmt = shape.format ? " /* " + shape.format + " */" : "";
-      return { ts: shape.type + fmt, complex: false };
+      return { ts: tsType + fmt, complex: false };
     }
     case "unknown":
       return { ts: "unknown", complex: false };
@@ -874,15 +884,32 @@ export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode
   const emitted = new Set<string>();
   emitted.add(rootName);
 
-  /** Resolve pure $ref aliases to the underlying definition name. */
+  /** Resolve pure $ref aliases and allOf-passthrough wrappers to the underlying definition name. */
   function resolveAlias(name: string): string {
     const visited = new Set<string>();
     let current = name;
     while (!visited.has(current)) {
       visited.add(current);
       const def = defs[current];
-      if (!def || !def.$ref) break;
-      current = deref(def.$ref);
+      if (!def) break;
+      if (def.$ref) {
+        current = deref(def.$ref);
+        continue;
+      }
+      // allOf with single $ref and no own properties → passthrough
+      if (def.allOf) {
+        const refs = def.allOf.filter((e: Def) => e.$ref);
+        if (refs.length === 1) {
+          const hasOwnProps =
+            (def.properties && Object.keys(def.properties).length > 0) ||
+            def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
+          if (!hasOwnProps) {
+            current = deref(refs[0].$ref);
+            continue;
+          }
+        }
+      }
+      break;
     }
     return current;
   }
@@ -902,14 +929,44 @@ export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode
 
   /** Extract ref-typed property targets from a definition. */
   function refTargets(name: string): Array<{ target: string; via: string }> {
-    const props = flattenAllOf(defs, name);
+    const def = defs[name];
     const targets: Array<{ target: string; via: string }> = [];
+
+    // Walk properties for ref/refArray targets
+    const props = flattenAllOf(defs, name);
     for (const p of props) {
       const shape = classifySchema(p.schema);
       if (shape.kind === "ref" || shape.kind === "refArray") {
         targets.push({ target: resolveAlias(shape.target), via: p.prop[0] });
       }
+      // anyOf with $ref branches (union enums, abstract unions)
+      if (shape.kind === "unknown" || shape.kind === "object") {
+        if (p.schema.anyOf) {
+          for (const branch of p.schema.anyOf as Def[]) {
+            if (branch.$ref) {
+              targets.push({ target: resolveAlias(deref(branch.$ref)), via: p.prop[0] });
+            }
+          }
+        }
+      }
     }
+
+    // If the def itself is an array with ref items (e.g. list-of-enums wrapper), follow items
+    if (def && def.type === "array" && def.items) {
+      const itemShape = classifySchema(def.items);
+      if (itemShape.kind === "ref") {
+        targets.push({ target: resolveAlias(itemShape.target), via: name });
+      }
+    }
+    // If the def itself has anyOf branches (union type), follow each ref branch
+    if (def && def.anyOf) {
+      for (const branch of def.anyOf as Def[]) {
+        if (branch.$ref) {
+          targets.push({ target: resolveAlias(deref(branch.$ref)), via: name });
+        }
+      }
+    }
+
     return targets;
   }
 
@@ -928,9 +985,28 @@ export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode
       continue;
     }
     emitted.add(name);
+    const leaf = isLeaf(name);
     result.push({ name, via, depth, duplicate: false });
 
-    if (isLeaf(name)) continue;
+    if (leaf) {
+      // Even for leaves, follow array items and anyOf branches on the def itself
+      // (e.g. list-of-enum wrappers need their item type collected)
+      const def = defs[name];
+      if (def && def.type === "array" && def.items) {
+        const itemShape = classifySchema(def.items);
+        if (itemShape.kind === "ref") {
+          queue.push({ name: resolveAlias(itemShape.target), via: name, depth: depth + 1 });
+        }
+      }
+      if (def && def.anyOf) {
+        for (const branch of def.anyOf as Def[]) {
+          if (branch.$ref) {
+            queue.push({ name: resolveAlias(deref(branch.$ref)), via: name, depth: depth + 1 });
+          }
+        }
+      }
+      continue;
+    }
 
     for (const { target, via: childVia } of refTargets(name)) {
       queue.push({ name: target, via: childVia, depth: depth + 1 });

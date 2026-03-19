@@ -214,7 +214,7 @@ describe("resolveDefType", () => {
       Inner: { type: "integer" },
     };
     expect(resolveDefType(defs, "Wrapper")).toEqual({
-      ts: "integer",
+      ts: "number",
       complex: false,
       via: [
         { name: "Wrapper", rule: "allOf-passthrough" },
@@ -1559,5 +1559,78 @@ describe("collectDependencyTree", () => {
     expect(tree).toHaveLength(1);
     expect(tree[0].name).toBe("ItemType");
     expect(tree[0].via).toBe("Items");
+  });
+
+  it("resolves allOf-passthrough wrappers to the underlying definition", () => {
+    const defs: Defs = {
+      Root: {
+        properties: {
+          Code: { $ref: "#/definitions/PrivateCode" },
+        },
+        "x-netex-role": "entity",
+      },
+      // allOf with single $ref, no own properties → passthrough alias
+      PrivateCode: {
+        allOf: [{ $ref: "#/definitions/PrivateCodeStructure" }],
+      },
+      PrivateCodeStructure: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+          type: { type: "string", xml: { attribute: true } },
+        },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    // Should collect PrivateCodeStructure (the resolved target), not PrivateCode (the wrapper)
+    const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
+    expect(names).toContain("PrivateCodeStructure");
+    expect(names).not.toContain("PrivateCode");
+  });
+
+  it("collects enumeration targets from anyOf union properties", () => {
+    const defs: Defs = {
+      Root: {
+        properties: {
+          Category: {
+            anyOf: [
+              { $ref: "#/definitions/FooEnumeration" },
+              { $ref: "#/definitions/BarEnumeration" },
+            ],
+          },
+        },
+        "x-netex-role": "entity",
+      },
+      FooEnumeration: { enum: ["a", "b"], "x-netex-role": "enumeration" },
+      BarEnumeration: { enum: ["x", "y"], "x-netex-role": "enumeration" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
+    expect(names).toContain("FooEnumeration");
+    expect(names).toContain("BarEnumeration");
+  });
+
+  it("collects enumeration targets from array-of-enum list wrappers", () => {
+    const defs: Defs = {
+      Root: {
+        properties: {
+          Facilities: { $ref: "#/definitions/FacilityList" },
+        },
+        "x-netex-role": "entity",
+      },
+      FacilityList: {
+        allOf: [{ $ref: "#/definitions/FacilityListOfEnumerations" }],
+      },
+      FacilityListOfEnumerations: {
+        type: "array",
+        items: { $ref: "#/definitions/FacilityEnumeration" },
+        "x-netex-atom": "array",
+      },
+      FacilityEnumeration: { enum: ["wifi", "power"], "x-netex-role": "enumeration" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
+    expect(names).toContain("FacilityEnumeration");
   });
 });

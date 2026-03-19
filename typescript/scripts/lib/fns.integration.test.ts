@@ -385,7 +385,7 @@ describe("resolvePropertyType — uncovered shape kinds", () => {
     const schema = defs["OrderedVersionOfObjectRefStructure"]?.properties?.["order"];
     expect(schema).toBeDefined();
     const result = resolvePropertyType(defs, schema);
-    expect(result).toEqual({ ts: "integer", complex: false });
+    expect(result).toEqual({ ts: "number", complex: false });
   });
 
   it("number primitive: MeasureType.value", () => {

@@ -148,6 +148,12 @@ describe("generateInterface", () => {
     expect(text).toContain("Items?: Authority[];");
   });
 
+  it("maps JSON Schema integer to TypeScript number", () => {
+    const { text } = generateInterface(defs, "ComplexChild", { html: false });
+    expect(text).toContain("Extra?: number;");
+    expect(text).not.toContain("integer");
+  });
+
   it("compact mode skips JSDoc header", () => {
     const { text } = generateInterface(defs, "Authority", { html: false, compact: true });
     expect(text).toMatch(/^interface Authority \{/);

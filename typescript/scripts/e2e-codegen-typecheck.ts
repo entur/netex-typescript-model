@@ -54,9 +54,6 @@ function filterRenderableDeps(defs: Defs, rootName: string): string[] {
     if (!depResolved.complex && defRole(defs[depName]) !== "enumeration") continue;
     // Skip transparent wrappers (e.g. KeyListStructure → KeyValueStructure[])
     if (depResolved.complex && depResolved.ts !== depName) continue;
-    // Skip empty interfaces (no properties, resolves to self)
-    const depFlat = flattenAllOf(defs, depName);
-    if (depFlat.length === 0 && depResolved.complex && depResolved.ts === depName) continue;
     renderableNames.push(depName);
   }
   return renderableNames;
@@ -91,7 +88,7 @@ for (const name of TARGETS) {
 
   // Type-check
   try {
-    execSync(`npx tsc --noEmit --strict --target ES2022 ${outPath}`, {
+    execSync(`npx tsc --noEmit --strict --skipLibCheck --target ES2022 ${outPath}`, {
       stdio: "pipe",
       encoding: "utf-8",
     });
