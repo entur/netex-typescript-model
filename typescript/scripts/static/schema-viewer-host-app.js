@@ -526,7 +526,7 @@
      * @param {string} name  Definition name.
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
-    function renderInterfaceHtml(name, preProps) {
+    function renderInterfaceHtml(name, preProps, compact) {
       var flat = preProps || flattenAllOf(defs, name);
 
       // If no properties, try to render as a type alias
@@ -534,39 +534,43 @@
         var resolved = resolveDefType(name);
         var isAlias = !resolved.complex || resolved.ts !== name;
         if (isAlias) {
-          return renderTypeAliasHtml(name, resolved);
+          return renderTypeAliasHtml(name, resolved, compact);
         }
       }
 
-      var props = inlineRefsEnabled ? inlineSingleRefs(flat) : flat;
-      var origins = [];
-      var originSeen = {};
-      for (var oi = 0; oi < props.length; oi++) {
-        if (!originSeen[props[oi].origin]) { originSeen[props[oi].origin] = true; origins.push(props[oi].origin); }
-      }
-
+      var props = (!compact && inlineRefsEnabled) ? inlineSingleRefs(flat) : flat;
       var lines = [];
-      lines.push('<span class="if-cmt">/**');
-      lines.push(' * Suggested flat interface for ' + esc(name));
-      lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
-      lines.push(' */</span>');
+
+      if (!compact) {
+        var origins = [];
+        var originSeen = {};
+        for (var oi = 0; oi < props.length; oi++) {
+          if (!originSeen[props[oi].origin]) { originSeen[props[oi].origin] = true; origins.push(props[oi].origin); }
+        }
+        lines.push('<span class="if-cmt">/**');
+        lines.push(' * Suggested flat interface for ' + esc(name));
+        lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
+        lines.push(' */</span>');
+      }
       lines.push('<span class="if-kw">interface</span> ' + esc(name) + ' {');
 
       var lastOrigin = null;
       var lastInlinedFrom = null;
       for (var pi = 0; pi < props.length; pi++) {
         var p = props[pi];
-        if (p.origin !== lastOrigin) {
-          if (lastOrigin !== null) lines.push('');
-          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
-          lastOrigin = p.origin;
-          lastInlinedFrom = null;
-        }
-        if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
-          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.inlinedFrom) + ' (inlined) \u2500\u2500</span>');
-          lastInlinedFrom = p.inlinedFrom;
-        } else if (!p.inlinedFrom && lastInlinedFrom) {
-          lastInlinedFrom = null;
+        if (!compact) {
+          if (p.origin !== lastOrigin) {
+            if (lastOrigin !== null) lines.push('');
+            lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
+            lastOrigin = p.origin;
+            lastInlinedFrom = null;
+          }
+          if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
+            lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.inlinedFrom) + ' (inlined) \u2500\u2500</span>');
+            lastInlinedFrom = p.inlinedFrom;
+          } else if (!p.inlinedFrom && lastInlinedFrom) {
+            lastInlinedFrom = null;
+          }
         }
         var resolved = resolvePropertyType(p.schema, name);
         var typeHtml;
@@ -594,7 +598,7 @@
           typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
         }
         var viaAttr = '';
-        if (resolved.via && resolved.via.length > 0) {
+        if (!compact && resolved.via && resolved.via.length > 0) {
           viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
         }
         lines.push('  <span class="if-prop"' + viaAttr + '>' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
@@ -602,8 +606,10 @@
 
       lines.push('}');
 
-      var html = '<div class="interface-block">' + lines.join('\n');
-      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
+      var blockClass = compact ? 'interface-block dep-block' : 'interface-block';
+      var html = '<div class="' + blockClass + '">' + lines.join('\n');
+      if (!compact) html += '<button class="copy-btn">Copy</button>';
+      html += '</div>';
       return { html: html, isAlias: false };
     }
 
@@ -623,7 +629,7 @@
      * @param {{ts:string, complex:boolean, via?:Array}} resolved  Result from resolveDefType.
      * @returns {{html:string, isAlias:boolean}}
      */
-    function renderTypeAliasHtml(name, resolved) {
+    function renderTypeAliasHtml(name, resolved, compact) {
       // Find the enum values — walk through the via chain to find the def with .enum
       var enumValues = null;
       var def = defs[name];
@@ -637,13 +643,15 @@
       }
 
       var lines = [];
-      lines.push('<span class="if-cmt">/**');
-      lines.push(' * Type alias for ' + esc(name));
-      if (resolved.via && resolved.via.length > 0) {
-        var chain = resolved.via.map(function(hop) { return hop.name + ' \u2192 ' + hop.rule; }).join(' \u2192 ');
-        lines.push(' * Resolved via: ' + esc(chain));
+      if (!compact) {
+        lines.push('<span class="if-cmt">/**');
+        lines.push(' * Type alias for ' + esc(name));
+        if (resolved.via && resolved.via.length > 0) {
+          var chain = resolved.via.map(function(hop) { return hop.name + ' \u2192 ' + hop.rule; }).join(' \u2192 ');
+          lines.push(' * Resolved via: ' + esc(chain));
+        }
+        lines.push(' */</span>');
       }
-      lines.push(' */</span>');
 
       // Enum with values → const array + indexed type
       if (enumValues) {
@@ -675,8 +683,10 @@
         lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = ' + typeHtml + ';');
       }
 
-      var html = '<div class="interface-block">' + lines.join('\n');
-      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
+      var blockClass = compact ? 'interface-block dep-block' : 'interface-block';
+      var html = '<div class="' + blockClass + '">' + lines.join('\n');
+      if (!compact) html += '<button class="copy-btn">Copy</button>';
+      html += '</div>';
       return { html: html, isAlias: true };
     }
 
@@ -691,10 +701,94 @@
       var result = renderInterfaceHtml(name, props);
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
+
+      // "+N more types" chip — only for real interfaces
+      if (!result.isAlias) {
+        var depNodes = collectDependencyTree(name);
+        // Count all unique deps first (for total complexity display)
+        var seen = {};
+        var allUniqueNames = [];
+        for (var i = 0; i < depNodes.length; i++) {
+          if (!depNodes[i].duplicate && !seen[depNodes[i].name]) {
+            seen[depNodes[i].name] = true;
+            allUniqueNames.push(depNodes[i].name);
+          }
+        }
+        var totalUnique = allUniqueNames.length;
+
+        // Filter to renderable deps
+        var uniqueNames = [];
+        for (var i = 0; i < allUniqueNames.length; i++) {
+          var depName = allUniqueNames[i];
+          var depResolved = resolveDefType(depName);
+          // Skip primitive aliases (already shown as inline atom comments)
+          if (!depResolved.complex && defRole(defs[depName]) !== 'enumeration') continue;
+          // Skip transparent wrappers (e.g. KeyListStructure → KeyValueStructure[])
+          if (depResolved.complex && depResolved.ts !== depName) continue;
+          // Skip empty interfaces (no properties, resolves to self)
+          var depFlat = flattenAllOf(defs, depName);
+          if (depFlat.length === 0 && depResolved.complex && depResolved.ts === depName) continue;
+          uniqueNames.push(depName);
+        }
+        if (uniqueNames.length > 0) {
+          var chip = document.createElement('button');
+          chip.className = 'deps-expand-chip';
+          chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
+          explorerIface.appendChild(chip);
+
+          var depsDiv = document.createElement('div');
+          depsDiv.id = 'ifaceDepBlocks';
+          depsDiv.style.display = 'none';
+          explorerIface.appendChild(depsDiv);
+
+          chip.addEventListener('click', function() {
+            if (depsDiv.style.display !== 'none') {
+              depsDiv.style.display = 'none';
+              depsDiv.innerHTML = '';
+              chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
+              chip.classList.remove('expanded');
+              return;
+            }
+            chip.classList.add('expanded');
+            chip.textContent = 'Loading\u2026';
+            depsDiv.style.display = '';
+            depsDiv.innerHTML = '<div class="spinner"></div>';
+            setTimeout(function() { renderDepInterfaces(depsDiv, chip, uniqueNames, totalUnique); }, 0);
+          });
+        }
+      }
+
       inlineRefsCheck.checked = inlineRefsEnabled;
-      // Only show inline-refs toggle when iface tab is active and not a type alias
       var ifaceActive = explorerIface.classList.contains('active');
       ifaceToggleLabel.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
+    }
+
+    /** Build chip label showing rendered count and optional total complexity. */
+    function depChipLabel(shown, total, expanded) {
+      var prefix = expanded ? '\u25BC ' : '+';
+      var label = prefix + shown + ' type' + (shown !== 1 ? 's' : '');
+      if (total > shown) label += ' (' + total + ' total)';
+      return label;
+    }
+
+    /** Lazily render compact interface blocks for all transitive dependency types. */
+    function renderDepInterfaces(container, chip, names, totalUnique) {
+      var html = '<button class="copy-btn dep-copy-all">Copy all</button>';
+      for (var i = 0; i < names.length; i++) {
+        var result = renderInterfaceHtml(names[i], null, true);
+        html += result.html;
+      }
+      container.innerHTML = html;
+      chip.textContent = depChipLabel(names.length, totalUnique, true);
+      var copyBtn = container.querySelector('.dep-copy-all');
+      copyBtn.addEventListener('click', function() {
+        var blocks = container.querySelectorAll('.dep-block');
+        var text = Array.prototype.map.call(blocks, function(b) { return b.innerText; }).join('\n\n');
+        navigator.clipboard.writeText(text).then(function() {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(function() { copyBtn.textContent = 'Copy all'; }, 1500);
+        });
+      });
     }
 
     // Copy-to-clipboard: shared handler for all tabs with .copy-btn inside .interface-block
