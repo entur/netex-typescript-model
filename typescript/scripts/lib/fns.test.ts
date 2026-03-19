@@ -23,6 +23,7 @@ import {
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
+  collectDependencyTree,
   type Defs,
   type ViaHop,
 } from "./fns.js";
@@ -1416,4 +1417,147 @@ describe("inlineSingleRefs", () => {
   });
 });
 
+// ── collectDependencyTree ─────────────────────────────────────────────────────
 
+describe("collectDependencyTree", () => {
+  it("returns empty for an enumeration", () => {
+    const defs: Defs = {
+      MyEnum: { enum: ["a", "b"], "x-netex-role": "enumeration" },
+    };
+    expect(collectDependencyTree(defs, "MyEnum")).toHaveLength(0);
+  });
+
+  it("collects direct ref-typed dependencies", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Name: { $ref: "#/definitions/NameType" },
+              Code: { $ref: "#/definitions/CodeType" },
+            },
+          },
+        ],
+      },
+      NameType: { type: "string", "x-netex-atom": "string" },
+      CodeType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(2);
+    expect(tree.map((n) => n.name).sort()).toEqual(["CodeType", "NameType"]);
+    expect(tree.every((n) => n.depth === 0)).toBe(true);
+    expect(tree.every((n) => !n.duplicate)).toBe(true);
+  });
+
+  it("resolves $ref aliases before enqueuing", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{ properties: { Thing: { $ref: "#/definitions/Alias" } } }],
+      },
+      Alias: { $ref: "#/definitions/RealType" },
+      RealType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(1);
+    expect(tree[0].name).toBe("RealType");
+    expect(tree[0].via).toBe("Thing");
+  });
+
+  it("marks duplicate entries and skips recursion", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              A: { $ref: "#/definitions/Shared" },
+              B: { $ref: "#/definitions/Shared" },
+            },
+          },
+        ],
+      },
+      Shared: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(2);
+    const first = tree.find((n) => !n.duplicate)!;
+    const second = tree.find((n) => n.duplicate)!;
+    expect(first.name).toBe("Shared");
+    expect(second.name).toBe("Shared");
+    expect(second.duplicate).toBe(true);
+  });
+
+  it("recurses into complex types at increasing depth", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{ properties: { Child: { $ref: "#/definitions/ChildStruct" } } }],
+      },
+      ChildStruct: {
+        type: "object",
+        "x-netex-role": "structure",
+        allOf: [{ properties: { Leaf: { $ref: "#/definitions/LeafType" } } }],
+      },
+      LeafType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(2);
+    const child = tree.find((n) => n.name === "ChildStruct")!;
+    const leaf = tree.find((n) => n.name === "LeafType")!;
+    expect(child.depth).toBe(0);
+    expect(leaf.depth).toBe(1);
+  });
+
+  it("stops at references (x-netex-role: reference)", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Ref: { $ref: "#/definitions/ThingRef" },
+              Inner: { $ref: "#/definitions/InnerStruct" },
+            },
+          },
+        ],
+      },
+      ThingRef: {
+        "x-netex-role": "reference",
+        allOf: [{ properties: { Nested: { $ref: "#/definitions/Nested" } } }],
+      },
+      InnerStruct: { type: "string", "x-netex-atom": "string" },
+      Nested: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    // ThingRef is emitted but not recursed — Nested should NOT appear
+    expect(tree.find((n) => n.name === "ThingRef")).toBeDefined();
+    expect(tree.find((n) => n.name === "Nested")).toBeUndefined();
+  });
+
+  it("excludes root from output", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{ properties: { X: { $ref: "#/definitions/Leaf" } } }],
+      },
+      Leaf: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree.every((n) => n.name !== "Root")).toBe(true);
+  });
+
+  it("handles refArray properties", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Items: { type: "array", items: { $ref: "#/definitions/ItemType" } },
+            },
+          },
+        ],
+      },
+      ItemType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(1);
+    expect(tree[0].name).toBe("ItemType");
+    expect(tree[0].via).toBe("Items");
+  });
+});

@@ -27,6 +27,7 @@ export {
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
+  collectDependencyTree,
 } from "./fns.js";
 
 export {

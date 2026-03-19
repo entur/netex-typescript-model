@@ -16,6 +16,7 @@ import {
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
+  collectDependencyTree,
   type Defs,
   type ViaHop,
 } from "./fns.js";
@@ -1134,5 +1135,67 @@ describe("VehicleType_VersionStructure — relations end-to-end", () => {
     expect(extras).not.toContain("LowFloor");
     expect(extras).not.toContain("Length");
     expect(extras).not.toContain("PropulsionTypes");
+  });
+});
+
+// ── collectDependencyTree ───────────────────────────────────────────────────
+
+describe("collectDependencyTree", () => {
+  it("enum returns empty", () => {
+    expect(collectDependencyTree(defs, "ModificationEnumeration")).toHaveLength(0);
+  });
+
+  it("simple structure has expected deps", () => {
+    const tree = collectDependencyTree(defs, "ContactStructure");
+    const unique = tree.filter((n) => !n.duplicate);
+    expect(unique.length).toBeGreaterThanOrEqual(3);
+    const names = unique.map((n) => n.name);
+    expect(names).toContain("MultilingualString");
+    expect(names).toContain("PhoneType");
+    expect(names).toContain("EmailAddressType");
+  });
+
+  it("ContactStructure tree has duplicates for reused types", () => {
+    const tree = collectDependencyTree(defs, "ContactStructure");
+    const duplicates = tree.filter((n) => n.duplicate);
+    const dupNames = duplicates.map((n) => n.name);
+    // Phone and MultilingualString are used by multiple properties
+    expect(dupNames).toContain("PhoneType");
+    expect(dupNames).toContain("MultilingualString");
+  });
+
+  it("deep entity has many deps — Authority", () => {
+    const tree = collectDependencyTree(defs, "Authority");
+    const unique = tree.filter((n) => !n.duplicate);
+    const total = tree.length;
+    expect(unique.length).toBeGreaterThan(10);
+    expect(total).toBeGreaterThan(unique.length);
+  });
+
+  it("root excluded from output", () => {
+    const tree = collectDependencyTree(defs, "Authority");
+    // Authority itself should not appear; resolve its alias too
+    expect(tree.every((n) => n.name !== "Authority")).toBe(true);
+  });
+
+  it("via paths reference known property names", () => {
+    const tree = collectDependencyTree(defs, "ContactStructure");
+    const first = tree[0];
+    expect(first.via).toBeTruthy();
+    expect(typeof first.via).toBe("string");
+  });
+
+  it("BFS depth ordering — all depth-0 before depth-1", () => {
+    const tree = collectDependencyTree(defs, "Authority");
+    if (tree.length === 0) return;
+    let lastDepth0Idx = -1;
+    let firstDepth1Idx = Infinity;
+    for (let i = 0; i < tree.length; i++) {
+      if (tree[i].depth === 0) lastDepth0Idx = i;
+      if (tree[i].depth === 1 && i < firstDepth1Idx) firstDepth1Idx = i;
+    }
+    if (firstDepth1Idx < Infinity) {
+      expect(lastDepth0Idx).toBeLessThan(firstDepth1Idx);
+    }
   });
 });

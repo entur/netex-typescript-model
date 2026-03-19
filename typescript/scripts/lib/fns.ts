@@ -848,6 +848,98 @@ export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatPropert
   return result;
 }
 
+// ── Dependency tree ─────────────────────────────────────────────────────────
+
+/** A node in the BFS dependency tree returned by `collectDependencyTree`. */
+export interface DepTreeNode {
+  name: string;
+  via: string;
+  depth: number;
+  duplicate: boolean;
+}
+
+/**
+ * Collect all transitive type dependencies of a definition via BFS.
+ *
+ * Seeds the queue from the root's `flattenAllOf` properties — for each ref/refArray
+ * target, enqueues it at depth 0. Pure `$ref` aliases are resolved before enqueuing.
+ * Stops recursion at enumerations, references, atoms (non-simpleObj), and non-complex
+ * types (per `resolveDefType`). Duplicates are tracked: re-encountered types are
+ * emitted with `duplicate: true` but not recursed into.
+ *
+ * The root itself is excluded from the output.
+ */
+export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode[] {
+  const result: DepTreeNode[] = [];
+  const emitted = new Set<string>();
+  emitted.add(rootName);
+
+  /** Resolve pure $ref aliases to the underlying definition name. */
+  function resolveAlias(name: string): string {
+    const visited = new Set<string>();
+    let current = name;
+    while (!visited.has(current)) {
+      visited.add(current);
+      const def = defs[current];
+      if (!def || !def.$ref) break;
+      current = deref(def.$ref);
+    }
+    return current;
+  }
+
+  /** Should we stop recursion at this definition? */
+  function isLeaf(name: string): boolean {
+    const def = defs[name];
+    if (!def) return true;
+    const role = defRole(def);
+    if (role === "enumeration" || role === "reference") return true;
+    const atom = resolveAtom(defs, name);
+    if (atom && atom !== "simpleObj") return true;
+    const resolved = resolveDefType(defs, name);
+    if (!resolved.complex) return true;
+    return false;
+  }
+
+  /** Extract ref-typed property targets from a definition. */
+  function refTargets(name: string): Array<{ target: string; via: string }> {
+    const props = flattenAllOf(defs, name);
+    const targets: Array<{ target: string; via: string }> = [];
+    for (const p of props) {
+      const shape = classifySchema(p.schema);
+      if (shape.kind === "ref" || shape.kind === "refArray") {
+        targets.push({ target: resolveAlias(shape.target), via: p.prop[0] });
+      }
+    }
+    return targets;
+  }
+
+  // Seed from root
+  const queue: Array<{ name: string; via: string; depth: number }> = [];
+  for (const { target, via } of refTargets(resolveAlias(rootName))) {
+    queue.push({ name: target, via, depth: 0 });
+  }
+
+  // BFS
+  let head = 0;
+  while (head < queue.length) {
+    const { name, via, depth } = queue[head++];
+    if (emitted.has(name)) {
+      result.push({ name, via, depth, duplicate: true });
+      continue;
+    }
+    emitted.add(name);
+    result.push({ name, via, depth, duplicate: false });
+
+    if (isLeaf(name)) continue;
+
+    for (const { target, via: childVia } of refTargets(name)) {
+      queue.push({ name: target, via: childVia, depth: depth + 1 });
+    }
+  }
+
+  return result;
+}
+
 // ── Re-exports from data-faker.ts ───────────────────────────────────────────
 
 export {
