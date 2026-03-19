@@ -527,167 +527,17 @@
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name, preProps, compact) {
-      var flat = preProps || flattenAllOf(defs, name);
-
-      // If no properties, try to render as a type alias
-      if (flat.length === 0) {
-        var resolved = resolveDefType(name);
-        var isAlias = !resolved.complex || resolved.ts !== name;
-        if (isAlias) {
-          return renderTypeAliasHtml(name, resolved, compact);
-        }
-      }
-
-      var props = (!compact && inlineRefsEnabled) ? inlineSingleRefs(flat) : flat;
-      var lines = [];
-
-      if (!compact) {
-        var origins = [];
-        var originSeen = {};
-        for (var oi = 0; oi < props.length; oi++) {
-          if (!originSeen[props[oi].origin]) { originSeen[props[oi].origin] = true; origins.push(props[oi].origin); }
-        }
-        lines.push('<span class="if-cmt">/**');
-        lines.push(' * Suggested flat interface for ' + esc(name));
-        lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
-        lines.push(' */</span>');
-      }
-      lines.push('<span class="if-kw">interface</span> ' + esc(name) + ' {');
-
-      var lastOrigin = null;
-      var lastInlinedFrom = null;
-      for (var pi = 0; pi < props.length; pi++) {
-        var p = props[pi];
-        if (!compact) {
-          if (p.origin !== lastOrigin) {
-            if (lastOrigin !== null) lines.push('');
-            lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
-            lastOrigin = p.origin;
-            lastInlinedFrom = null;
-          }
-          if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
-            lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.inlinedFrom) + ' (inlined) \u2500\u2500</span>');
-            lastInlinedFrom = p.inlinedFrom;
-          } else if (!p.inlinedFrom && lastInlinedFrom) {
-            lastInlinedFrom = null;
-          }
-        }
-        var resolved = resolvePropertyType(p.schema, name);
-        var typeHtml;
-        if (resolved.complex) {
-          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          var suffix = resolved.ts.endsWith('[]') ? '[]' : '';
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-          var atom = resolveAtom(typeName);
-          if (atom && atom !== 'simpleObj') typeHtml += ' <span class="if-cmt">// \u2192 ' + esc(atom) + '</span>';
-        } else if (defs[resolved.ts]) {
-          // Named def resolved as non-complex (e.g. stamped enum) — still linkable
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(resolved.ts) + '">' + esc(resolved.ts) + '</a>';
-        } else if (resolved.ts.indexOf('|') !== -1) {
-          var parts = resolved.ts.split(' | ');
-          typeHtml = parts.map(function(part) {
-            part = part.trim();
-            if (part.charAt(0) === '"' || part.charAt(0) === "'") return '<span class="if-lit">' + esc(part) + '</span>';
-            return '<span class="if-prim">' + esc(part) + '</span>';
-          }).join(' | ');
-        } else if (resolved.ts.indexOf('/*') !== -1) {
-          var ci = resolved.ts.indexOf(' /*');
-          if (ci !== -1) typeHtml = '<span class="if-prim">' + esc(resolved.ts.slice(0, ci)) + '</span><span class="if-cmt">' + esc(resolved.ts.slice(ci)) + '</span>';
-          else typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        } else {
-          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        }
-        var viaAttr = '';
-        if (!compact && resolved.via && resolved.via.length > 0) {
-          viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
-        }
-        lines.push('  <span class="if-prop"' + viaAttr + '>' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
-      }
-
-      lines.push('}');
-
+      var result = generateInterface(defs, name, {
+        html: true,
+        compact: compact,
+        inlineRefs: !compact && inlineRefsEnabled,
+        preProps: preProps || undefined,
+      });
       var blockClass = compact ? 'interface-block dep-block' : 'interface-block';
-      var html = '<div class="' + blockClass + '">' + lines.join('\n');
+      var html = '<div class="' + blockClass + '">' + result.text;
       if (!compact) html += '<button class="copy-btn">Copy</button>';
       html += '</div>';
-      return { html: html, isAlias: false };
-    }
-
-    /**
-     * Convert a PascalCase type name to UPPER_SNAKE_CASE for a const array name.
-     * Strips trailing "Enumeration" suffix before converting.
-     * e.g. "AllPublicTransportModesEnumeration" → "ALL_PUBLIC_TRANSPORT_MODES"
-     */
-    function toConstName(name) {
-      var base = name.replace(/Enumeration$/, '');
-      return base.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toUpperCase();
-    }
-
-    /**
-     * Build type-alias HTML for definitions that resolve to a primitive or enum.
-     * @param {string} name  Definition name.
-     * @param {{ts:string, complex:boolean, via?:Array}} resolved  Result from resolveDefType.
-     * @returns {{html:string, isAlias:boolean}}
-     */
-    function renderTypeAliasHtml(name, resolved, compact) {
-      // Find the enum values — walk through the via chain to find the def with .enum
-      var enumValues = null;
-      var def = defs[name];
-      if (def && def.enum) {
-        enumValues = def.enum;
-      } else if (resolved.via) {
-        for (var vi = 0; vi < resolved.via.length; vi++) {
-          var hopDef = defs[resolved.via[vi].name];
-          if (hopDef && hopDef.enum) { enumValues = hopDef.enum; break; }
-        }
-      }
-
-      var lines = [];
-      if (!compact) {
-        lines.push('<span class="if-cmt">/**');
-        lines.push(' * Type alias for ' + esc(name));
-        if (resolved.via && resolved.via.length > 0) {
-          var chain = resolved.via.map(function(hop) { return hop.name + ' \u2192 ' + hop.rule; }).join(' \u2192 ');
-          lines.push(' * Resolved via: ' + esc(chain));
-        }
-        lines.push(' */</span>');
-      }
-
-      // Enum with values → const array + indexed type
-      if (enumValues) {
-        var constName = toConstName(name);
-        var litItems = enumValues.map(function(v) {
-          return '  <span class="if-lit">' + esc(JSON.stringify(v)) + '</span>';
-        });
-        lines.push('<span class="if-kw">const</span> ' + esc(constName) + ' = [');
-        lines.push(litItems.join(',\n'));
-        lines.push('] <span class="if-kw">as const</span>;');
-        lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = (<span class="if-kw">typeof</span> ' + esc(constName) + ')[<span class="if-prim">number</span>];');
-      } else {
-        // Non-enum type alias
-        var typeHtml;
-        if (resolved.complex) {
-          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          var suffix = resolved.ts.endsWith('[]') ? '[]' : '';
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-        } else if (resolved.ts.indexOf('|') !== -1) {
-          var parts = resolved.ts.split(' | ');
-          typeHtml = parts.map(function(part) {
-            part = part.trim();
-            if (part.charAt(0) === '"' || part.charAt(0) === "'") return '<span class="if-lit">' + esc(part) + '</span>';
-            return '<span class="if-prim">' + esc(part) + '</span>';
-          }).join(' | ');
-        } else {
-          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        }
-        lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = ' + typeHtml + ';');
-      }
-
-      var blockClass = compact ? 'interface-block dep-block' : 'interface-block';
-      var html = '<div class="' + blockClass + '">' + lines.join('\n');
-      if (!compact) html += '<button class="copy-btn">Copy</button>';
-      html += '</div>';
-      return { html: html, isAlias: true };
+      return { html: html, isAlias: result.isAlias };
     }
 
     // Wire inline-refs checkbox once
@@ -763,11 +613,14 @@
       ifaceToggleLabel.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
     }
 
-    /** Build chip label showing rendered count and optional total complexity. */
+    /** Build chip label showing rendered count and compaction percentage. */
     function depChipLabel(shown, total, expanded) {
       var prefix = expanded ? '\u25BC ' : '+';
-      var label = prefix + shown + ' supporter' + (shown !== 1 ? 's' : '');
-      if (total > shown) label += ' (' + total + ' in schema)';
+      var label = prefix + shown + ' subtype' + (shown !== 1 ? 's' : '');
+      if (total > shown) {
+        var pct = Math.round((1 - shown / total) * 100);
+        label += ' (' + pct + '% compaction)';
+      }
       return label;
     }
 
@@ -916,66 +769,13 @@
       // Type Guard
       html += '<div class="mapping-section"><h3>Type Guard</h3>';
       html += '<div class="interface-block">';
-      var lines = [];
-      lines.push('<span class="if-kw">function</span> is' + esc(name) + '(o: <span class="if-prim">unknown</span>): o <span class="if-kw">is</span> <span class="if-ref">' + esc(name) + '</span> {');
-      lines.push('  <span class="if-kw">if</span> (!o || <span class="if-kw">typeof</span> o !== <span class="if-lit">"object"</span>) <span class="if-kw">return false</span>;');
-      lines.push('  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;');
-      for (var gi = 0; gi < props.length; gi++) {
-        var p = props[gi];
-        var resolved = resolvePropertyType(p.schema, name);
-        var check = '';
-        if (resolved.ts.endsWith('[]')) {
-          check = '!Array.isArray(obj.' + p.prop[1] + ')';
-        } else if (resolved.complex) {
-          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"object"</span>';
-        } else {
-          var base = resolved.ts;
-          if (base.indexOf('/*') !== -1) base = base.slice(0, base.indexOf(' /*')).trim();
-          if (base.indexOf('|') !== -1) {
-            var firstPart = base.split('|')[0].trim();
-            if (firstPart.charAt(0) === '"' || firstPart.charAt(0) === "'") {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
-            } else {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
-            }
-          } else if (base === 'integer') {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
-          } else if (base.charAt(0) === '"' || base.charAt(0) === "'") {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
-          } else {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
-          }
-        }
-        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop[1]) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
-      }
-      lines.push('  <span class="if-kw">return true</span>;');
-      lines.push('}');
-      html += lines.join('\n');
+      html += generateTypeGuard(defs, name, { html: true, preProps: props });
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       // Factory
       html += '<div class="mapping-section"><h3>Factory</h3>';
       html += '<div class="interface-block">';
-      var flines = [];
-      flines.push('<span class="if-kw">function</span> create' + esc(name) + '(');
-      flines.push('  init?: Partial&lt;<span class="if-ref">' + esc(name) + '</span>&gt;');
-      flines.push('): <span class="if-ref">' + esc(name) + '</span> {');
-      if (required.size > 0) {
-        flines.push('  <span class="if-kw">return</span> {');
-        for (var fi = 0; fi < props.length; fi++) {
-          var fp = props[fi];
-          if (!required.has(fp.prop[0])) continue;
-          var fresolved = resolvePropertyType(fp.schema, name);
-          var defVal = defaultForType(fresolved.ts);
-          flines.push('    ' + esc(fp.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
-        }
-        flines.push('    ...init,');
-        flines.push('  };');
-      } else {
-        flines.push('  <span class="if-kw">return</span> { ...init } <span class="if-kw">as</span> <span class="if-ref">' + esc(name) + '</span>;');
-      }
-      flines.push('}');
-      html += flines.join('\n');
+      html += generateFactory(defs, name, { html: true, preProps: props, preRequired: required });
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       // References

@@ -54,6 +54,7 @@ SCHEMA_HTML_SRCS := typescript/scripts/build-schema-html.ts \
 	typescript/scripts/lib/fns.ts \
 	typescript/scripts/lib/data-faker.ts \
 	typescript/scripts/lib/to-xml-shape.ts \
+	typescript/scripts/lib/codegens.ts \
 	typescript/scripts/lib/bundle-entry.ts \
 	typescript/scripts/static/schema-viewer-host-app.js \
 	typescript/scripts/static/schema-viewer.css

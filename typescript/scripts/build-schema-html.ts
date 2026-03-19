@@ -174,7 +174,11 @@ function buildViewerFnsScript(): string {
     function makeInlineCodeBlock(n, props) { return _viewerBundle.makeInlineCodeBlock(defs, n, props ? { props: props } : undefined); }
     function collectRefProps(name) { return _viewerBundle.collectRefProps(defs, name); }
     function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(defs, entityName, baseStructure); }
+    function collectDependencyTree(name) { return _viewerBundle.collectDependencyTree(defs, name); }
     function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(defs, refDefName); }
+    var generateInterface = _viewerBundle.generateInterface;
+    var generateTypeGuard = _viewerBundle.generateTypeGuard;
+    var generateFactory = _viewerBundle.generateFactory;
     var _reverseIdx = null;
     function buildReverseIndex() {
       if (!_reverseIdx) _reverseIdx = _viewerBundle.buildReverseIndex(defs);
