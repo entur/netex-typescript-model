@@ -324,6 +324,9 @@ class XsdToJsonSchema {
 
     // Pass 6: mark "Fixed for" enum properties
     this.annotateFixedEnumProperties();
+
+    // Pass 7: propagate stamp through $ref alias chains
+    this.propagateFixedEnumStamp();
   }
 
   // ── Description extraction ─────────────────────────────────────────────────
@@ -717,13 +720,21 @@ class XsdToJsonSchema {
    * definition name (e.g. "NameOfClass"). The viewer combines this with the
    * display context to produce a string literal.
    */
+  /** Yield all property schemas from a def (top-level and inside allOf entries). */
+  *allPropSchemas(schema) {
+    if (schema.properties) yield* Object.values(schema.properties);
+    if (schema.allOf) {
+      for (const entry of schema.allOf) {
+        if (entry.properties) yield* Object.values(entry.properties);
+      }
+    }
+  }
+
   annotateFixedEnumProperties() {
     const allDefs = this.allDefs;
 
-    for (const [, schema] of Object.entries(allDefs)) {
-      const props = schema.properties;
-      if (!props) continue;
-      for (const [, propSchema] of Object.entries(props)) {
+    for (const schema of Object.values(allDefs)) {
+      for (const propSchema of this.allPropSchemas(schema)) {
         if (!propSchema.description || !/[Ff]ixed for/.test(propSchema.description)) continue;
         const refTarget = this.extractRefTarget(propSchema);
         if (!refTarget) continue;
@@ -733,6 +744,52 @@ class XsdToJsonSchema {
         }
       }
     }
+  }
+
+  /** Follow $ref alias chains to resolve the underlying def name. */
+  resolveRefAlias(name) {
+    const visited = new Set();
+    let cur = name;
+    while (!visited.has(cur)) {
+      visited.add(cur);
+      const d = this.allDefs[cur];
+      if (!d || !d.$ref) break;
+      cur = deref(d.$ref);
+    }
+    return cur;
+  }
+
+  /**
+   * Propagate x-fixed-single-enum through $ref alias chains.
+   * Only stamps properties whose immediate $ref target is a $ref alias def
+   * (not a direct enum reference), preventing over-stamping.
+   */
+  propagateFixedEnumStamp() {
+    const allDefs = this.allDefs;
+    const fixedTargets = new Set();
+    for (const schema of Object.values(allDefs)) {
+      for (const ps of this.allPropSchemas(schema)) {
+        if (ps["x-fixed-single-enum"]) fixedTargets.add(ps["x-fixed-single-enum"]);
+      }
+    }
+    if (fixedTargets.size === 0) return;
+
+    let count = 0;
+    for (const schema of Object.values(allDefs)) {
+      for (const ps of this.allPropSchemas(schema)) {
+        if (ps["x-fixed-single-enum"]) continue;
+        const ref = this.extractRefTarget(ps);
+        if (!ref) continue;
+        const refDef = allDefs[ref];
+        if (!refDef || !refDef.$ref) continue;
+        const resolved = this.resolveRefAlias(ref);
+        if (fixedTargets.has(resolved)) {
+          ps["x-fixed-single-enum"] = resolved;
+          count++;
+        }
+      }
+    }
+    if (count > 0) print("    stamped " + count + " alias properties as x-fixed-single-enum");
   }
 
   /** Extract the $ref target name from a property schema (direct $ref or allOf[{$ref}]). */

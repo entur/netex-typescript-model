@@ -16,9 +16,12 @@ import {
   inlineSingleRefs,
   refTarget,
   defRole,
+  collectDependencyTree,
   type Defs,
   type FlatProperty,
 } from "./fns.js";
+
+export type { Defs };
 
 import { defaultForType } from "./data-faker.js";
 
@@ -129,17 +132,20 @@ function renderTypeStr(
 export interface InterfaceOpts {
   /** Emit HTML tags (default: true). */
   html?: boolean;
-  /** Omit JSDoc/origin comments (default: false). */
-  compact?: boolean;
+  /** Include JSDoc/origin comments (default: true). */
+  metaComments?: boolean;
   /** Inline single-ref properties (default: false). */
   inlineRefs?: boolean;
   /** Pre-computed flat properties (avoids recomputing). */
   preProps?: FlatProperty[];
+  /** Prepend exclude-from-codegen checkboxes to each property line (HTML only). */
+  excludeCheckboxes?: boolean;
 }
 
 export interface TypeAliasOpts {
   html?: boolean;
-  compact?: boolean;
+  /** Include JSDoc/origin comments (default: true). */
+  metaComments?: boolean;
 }
 
 export interface TypeGuardOpts {
@@ -171,7 +177,7 @@ export function generateTypeAlias(
   opts?: TypeAliasOpts,
 ): { text: string; isAlias: boolean } {
   const html = opts?.html !== false;
-  const compact = opts?.compact ?? false;
+  const metaComments = opts?.metaComments ?? true;
   const e = escFn(html);
 
   // Find the enum values — walk through the via chain to find the def with .enum
@@ -190,7 +196,7 @@ export function generateTypeAlias(
   }
 
   const lines: string[] = [];
-  if (!compact) {
+  if (metaComments) {
     if (html) {
       lines.push('<span class="if-cmt">/**');
       lines.push(" * Type alias for " + e(name));
@@ -268,8 +274,9 @@ export function generateInterface(
   opts?: InterfaceOpts,
 ): { text: string; isAlias: boolean } {
   const html = opts?.html !== false;
-  const compact = opts?.compact ?? false;
+  const metaComments = opts?.metaComments ?? true;
   const inlineRefs = opts?.inlineRefs ?? false;
+  const excludeCb = html && (opts?.excludeCheckboxes ?? false);
   const e = escFn(html);
 
   let flat = opts?.preProps || flattenAllOf(defs, name);
@@ -279,14 +286,14 @@ export function generateInterface(
     const resolved = resolveDefType(defs, name);
     const isAlias = !resolved.complex || resolved.ts !== name;
     if (isAlias) {
-      return generateTypeAlias(defs, name, resolved, { html, compact });
+      return generateTypeAlias(defs, name, resolved, { html, metaComments });
     }
   }
 
-  const props = !compact && inlineRefs ? inlineSingleRefs(defs, flat) : flat;
+  const props = metaComments && inlineRefs ? inlineSingleRefs(defs, flat) : flat;
   const lines: string[] = [];
 
-  if (!compact) {
+  if (metaComments) {
     const originSeen: Record<string, boolean> = {};
     const origins: string[] = [];
     for (const p of props) {
@@ -329,7 +336,7 @@ export function generateInterface(
   let lastOrigin: string | null = null;
   let lastInlinedFrom: string | null = null;
   for (const p of props) {
-    if (!compact) {
+    if (metaComments) {
       if (p.origin !== lastOrigin) {
         if (lastOrigin !== null) lines.push("");
         if (html) {
@@ -360,12 +367,18 @@ export function generateInterface(
     const typeStr = renderTypeStr(defs, resolved, html, name);
     if (html) {
       let viaAttr = "";
-      if (!compact && resolved.via && resolved.via.length > 0) {
+      if (metaComments && resolved.via && resolved.via.length > 0) {
         viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
       }
-      lines.push(
-        '  <span class="if-prop"' + viaAttr + ">" + e(p.prop[1]) + "</span>?: " + typeStr + ";",
-      );
+      const propHtml =
+        '  <span class="if-prop"' + viaAttr + ">" + e(p.prop[1]) + "</span>?: " + typeStr + ";";
+      if (excludeCb) {
+        lines.push(
+          '<span class="if-line"><input type="checkbox" class="excl-cb">' + propHtml + "</span>",
+        );
+      } else {
+        lines.push(propHtml);
+      }
     } else {
       lines.push("  " + p.prop[1] + "?: " + typeStr + ";");
     }
@@ -552,4 +565,77 @@ export function generateFactory(
 
   lines.push("}");
   return lines.join("\n");
+}
+
+// ── Composite block generators ─────────────────────────────────────────────
+
+/**
+ * Generate the root interface block for a definition (with meta comments).
+ */
+export function generateRootDefBlock(
+  defs: Defs,
+  name: string,
+  opts?: { html?: boolean },
+): string {
+  return generateInterface(defs, name, { html: opts?.html ?? false }).text;
+}
+
+/**
+ * Collect the renderable (non-duplicate, non-alias, non-empty) dependency
+ * names for a definition. Extracted from the host-app's inline 3-filter logic
+ * so it can be tested and reused.
+ */
+export function collectRenderableDeps(defs: Defs, name: string, excludedMembers?: Set<string>): string[] {
+  const seen = new Set<string>();
+
+  return collectDependencyTree(defs, name, excludedMembers)
+    .filter((n) => !n.duplicate && !seen.has(n.name) && (seen.add(n.name), true))
+    .map((n) => ({ name: n.name, r: resolveDefType(defs, n.name) }))
+    .filter(({ name: n, r }) => {
+      // Skip primitive aliases (already shown as inline atom comments)
+      if (!r.complex && defRole(defs[n]) !== "enumeration") return false;
+      // Skip transparent wrappers (e.g. KeyListStructure → KeyValueStructure[])
+      if (r.complex && r.ts !== n) return false;
+      return true;
+    })
+    .map(({ name: n }) => n);
+}
+
+/** Collect enum names targeted by any x-fixed-single-enum stamp. */
+function collectFixedEnumTargets(defs: Defs): Set<string> {
+  const targets = new Set<string>();
+  for (const d of Object.values(defs)) {
+    for (const ao of [d, ...(d.allOf ?? [])]) {
+      if (!ao.properties) continue;
+      for (const ps of Object.values(ao.properties)) {
+        const t = (ps as Record<string, unknown>)["x-fixed-single-enum"];
+        if (typeof t === "string") targets.add(t);
+      }
+    }
+  }
+  return targets;
+}
+
+/**
+ * Generate compact interface blocks for all transitive subtypes of a
+ * definition, excluding the root itself.
+ */
+export function generateSubTypeDefsBlock(
+  defs: Defs,
+  name: string,
+  opts?: { html?: boolean; excludedMembers?: Set<string> },
+): string {
+  const html = opts?.html ?? false;
+  const fixedEnumTargets = collectFixedEnumTargets(defs);
+
+  return collectRenderableDeps(defs, name, opts?.excludedMembers)
+    .map((n) => {
+      if (fixedEnumTargets.has(n)) {
+        return html
+          ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
+          : `type ${n} = string;`;
+      }
+      return generateInterface(defs, n, { html, metaComments: false }).text;
+    })
+    .join("\n\n");
 }

@@ -28,6 +28,7 @@ export {
   collectRefProps,
   collectExtraProps,
   collectDependencyTree,
+  isDynNocRef,
 } from "./fns.js";
 
 export {
@@ -46,6 +47,9 @@ export {
   generateTypeAlias,
   generateTypeGuard,
   generateFactory,
+  generateRootDefBlock,
+  generateSubTypeDefsBlock,
+  collectRenderableDeps,
   toConstName,
   escHtml,
 } from "./codegens.js";

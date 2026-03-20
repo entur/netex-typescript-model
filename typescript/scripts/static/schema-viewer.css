@@ -564,6 +564,36 @@
     .if-cmt { color: var(--muted); font-style: italic; }
     .if-ref { color: var(--link-color); text-decoration: underline dotted; cursor: pointer; }
     .if-ref:hover { text-decoration-style: solid; }
+    /* Exclude-from-codegen checkbox */
+    .excl-cb {
+      appearance: none;
+      width: 0.7em; height: 0.7em;
+      border: 1px solid var(--muted);
+      border-radius: 2px;
+      vertical-align: middle;
+      cursor: pointer;
+      position: relative;
+      margin: 0 0.3em 0 0;
+    }
+    .excl-cb:checked::after {
+      content: '\00d7';
+      color: #e53e3e;
+      position: absolute;
+      top: -0.2em; left: 0.05em;
+      font-size: 0.75em;
+      font-weight: bold;
+      line-height: 1;
+    }
+    .if-line.excludeInCodeGen {
+      color: #aaa !important;
+      text-decoration: line-through;
+    }
+    .if-line.excludeInCodeGen .if-prop,
+    .if-line.excludeInCodeGen .if-ref,
+    .if-line.excludeInCodeGen .if-prim,
+    .if-line.excludeInCodeGen .if-lit {
+      color: #aaa !important;
+    }
     .via-popup {
       position: fixed;
       z-index: 1000;
@@ -633,6 +663,8 @@
       border-radius: 50%; animation: spin 0.6s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes chip-flash { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+    .chip-flash { animation: chip-flash .3s ease; }
 
     /* Loading overlay (shown until JS setup completes) */
     .loading-overlay {

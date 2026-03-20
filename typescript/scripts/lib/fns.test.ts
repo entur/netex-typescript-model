@@ -24,6 +24,7 @@ import {
   collectRefProps,
   collectExtraProps,
   collectDependencyTree,
+  isDynNocRef,
   type Defs,
   type ViaHop,
 } from "./fns.js";
@@ -575,6 +576,61 @@ describe("resolvePropertyType", () => {
     // No stamp → normal resolution regardless of context (stamped enum → name)
     expect(result.ts).toBe("MyEnum");
     expect(result.via).toEqual([{ name: "MyEnum", rule: "enum" }]);
+  });
+});
+
+// ── isDynNocRef ──────────────────────────────────────────────────────────────
+
+describe("isDynNocRef", () => {
+  it("returns true for direct $ref to NameOfClass", () => {
+    expect(isDynNocRef({ $ref: "#/definitions/NameOfClass" })).toBe(true);
+  });
+
+  it("returns true for allOf ref to NameOfClass", () => {
+    expect(isDynNocRef({ allOf: [{ $ref: "#/definitions/NameOfClass" }] })).toBe(true);
+  });
+
+  it("returns false when x-fixed-single-enum is set", () => {
+    expect(isDynNocRef({
+      allOf: [{ $ref: "#/definitions/NameOfClass" }],
+      "x-fixed-single-enum": "NameOfClass",
+    })).toBe(false);
+  });
+
+  it("returns false for other enum refs", () => {
+    expect(isDynNocRef({ $ref: "#/definitions/AllModesEnumeration" })).toBe(false);
+  });
+
+  it("returns false for primitives", () => {
+    expect(isDynNocRef({ type: "string" })).toBe(false);
+  });
+});
+
+// ── resolvePropertyType + isDynNocRef ────────────────────────────────────────
+
+describe("resolvePropertyType with dynamic NameOfClass", () => {
+  it("resolves dynamic NameOfClass ref as string", () => {
+    const defs: Defs = {
+      NameOfClass: { enum: ["A", "B"], "x-netex-role": "enumeration" },
+    };
+    const schema = { allOf: [{ $ref: "#/definitions/NameOfClass" }] };
+    const result = resolvePropertyType(defs, schema);
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([{ name: "NameOfClass", rule: "dyn-class" }]);
+  });
+
+  it("does not short-circuit when x-fixed-single-enum is set", () => {
+    const defs: Defs = {
+      NameOfClass: { enum: ["A", "B"], "x-netex-role": "enumeration" },
+    };
+    const schema = {
+      allOf: [{ $ref: "#/definitions/NameOfClass" }],
+      "x-fixed-single-enum": "NameOfClass",
+    };
+    const result = resolvePropertyType(defs, schema, "MyEntity");
+    expect(result.ts).toBe('"MyEntity"');
+    expect(result.via).toEqual([{ name: "MyEntity", rule: "fixed-for" }]);
   });
 });
 
@@ -1611,6 +1667,29 @@ describe("collectDependencyTree", () => {
     expect(names).toContain("BarEnumeration");
   });
 
+  it("skips x-fixed-single-enum refs in dependency tree", () => {
+    const defs: Defs = {
+      MyEntity: {
+        properties: {
+          nameOfClass: {
+            allOf: [{ $ref: "#/definitions/BigEnum" }],
+            "x-fixed-single-enum": "BigEnum",
+          },
+          mode: {
+            allOf: [{ $ref: "#/definitions/SmallEnum" }],
+          },
+        },
+        "x-netex-role": "entity",
+      },
+      BigEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" },
+      SmallEnum: { enum: ["x", "y"], "x-netex-role": "enumeration" },
+    };
+    const deps = collectDependencyTree(defs, "MyEntity");
+    const names = deps.map((d) => d.name);
+    expect(names).toContain("SmallEnum");
+    expect(names).not.toContain("BigEnum");
+  });
+
   it("collects enumeration targets from array-of-enum list wrappers", () => {
     const defs: Defs = {
       Root: {
@@ -1632,5 +1711,28 @@ describe("collectDependencyTree", () => {
     const tree = collectDependencyTree(defs, "Root");
     const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
     expect(names).toContain("FacilityEnumeration");
+  });
+
+  it("excludeRootProps skips matching seeds", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{
+          properties: {
+            A: { $ref: "#/definitions/OnlyViaA" },
+            B: { $ref: "#/definitions/Shared" },
+            C: { $ref: "#/definitions/Shared" },
+          },
+        }],
+      },
+      OnlyViaA: { type: "string", "x-netex-atom": "string" },
+      Shared: { type: "string", "x-netex-atom": "string" },
+    };
+    // Without exclusion: OnlyViaA + Shared (+ duplicate Shared)
+    const full = collectDependencyTree(defs, "Root");
+    expect(full.filter(n => !n.duplicate)).toHaveLength(2);
+
+    // Exclude A → OnlyViaA gone, Shared still reachable via B/C
+    const excl = collectDependencyTree(defs, "Root", new Set(["A"]));
+    expect(excl.filter(n => !n.duplicate).map(n => n.name)).toEqual(["Shared"]);
   });
 });

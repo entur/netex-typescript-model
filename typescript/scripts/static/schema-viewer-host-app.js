@@ -511,6 +511,7 @@
     const inlineRefsCheck = document.getElementById('inlineRefsCheck');
     var inlineRefsEnabled = false;
     var currentIsAlias = false;
+    var currentExcluded = {};
 
     /**
      * Build the "suggested flat interface" HTML for the TypeScript tab.
@@ -526,16 +527,17 @@
      * @param {string} name  Definition name.
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
-    function renderInterfaceHtml(name, preProps, compact) {
+    function renderInterfaceHtml(name, preProps, metaComments) {
       var result = generateInterface(defs, name, {
         html: true,
-        compact: compact,
-        inlineRefs: !compact && inlineRefsEnabled,
+        metaComments: metaComments,
+        inlineRefs: metaComments && inlineRefsEnabled,
         preProps: preProps || undefined,
+        excludeCheckboxes: metaComments,
       });
-      var blockClass = compact ? 'interface-block dep-block' : 'interface-block';
+      var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
       var html = '<div class="' + blockClass + '">' + result.text;
-      if (!compact) html += '<button class="copy-btn">Copy</button>';
+      if (metaComments) html += '<button class="copy-btn">Copy</button>';
       html += '</div>';
       return { html: html, isAlias: result.isAlias };
     }
@@ -548,69 +550,69 @@
 
     /** Render the TypeScript tab into its container element. */
     function renderInterface(name, props) {
-      var result = renderInterfaceHtml(name, props);
+      currentExcluded = {};
+      var result = renderInterfaceHtml(name, props, true);
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
-
-      // "+N more types" chip — only for real interfaces
-      if (!result.isAlias) {
-        var depNodes = collectDependencyTree(name);
-        // Count all unique deps first (for total complexity display)
-        var seen = {};
-        var allUniqueNames = [];
-        for (var i = 0; i < depNodes.length; i++) {
-          if (!depNodes[i].duplicate && !seen[depNodes[i].name]) {
-            seen[depNodes[i].name] = true;
-            allUniqueNames.push(depNodes[i].name);
-          }
-        }
-        var totalUnique = allUniqueNames.length;
-
-        // Filter to renderable deps
-        var uniqueNames = [];
-        for (var i = 0; i < allUniqueNames.length; i++) {
-          var depName = allUniqueNames[i];
-          var depResolved = resolveDefType(depName);
-          // Skip primitive aliases (already shown as inline atom comments)
-          if (!depResolved.complex && defRole(defs[depName]) !== 'enumeration') continue;
-          // Skip transparent wrappers (e.g. KeyListStructure → KeyValueStructure[])
-          if (depResolved.complex && depResolved.ts !== depName) continue;
-          // Skip empty interfaces (no properties, resolves to self)
-          var depFlat = flattenAllOf(defs, depName);
-          if (depFlat.length === 0 && depResolved.complex && depResolved.ts === depName) continue;
-          uniqueNames.push(depName);
-        }
-        if (uniqueNames.length > 0) {
-          var chip = document.createElement('button');
-          chip.className = 'deps-expand-chip';
-          chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
-          explorerIface.appendChild(chip);
-
-          var depsDiv = document.createElement('div');
-          depsDiv.id = 'ifaceDepBlocks';
-          depsDiv.style.display = 'none';
-          explorerIface.appendChild(depsDiv);
-
-          chip.addEventListener('click', function() {
-            if (depsDiv.style.display !== 'none') {
-              depsDiv.style.display = 'none';
-              depsDiv.innerHTML = '';
-              chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
-              chip.classList.remove('expanded');
-              return;
-            }
-            chip.classList.add('expanded');
-            chip.textContent = 'Loading\u2026';
-            depsDiv.style.display = '';
-            depsDiv.innerHTML = '<div class="spinner"></div>';
-            setTimeout(function() { renderDepInterfaces(depsDiv, chip, uniqueNames, totalUnique); }, 0);
-          });
-        }
-      }
-
+      updateDepsSection();
       inlineRefsCheck.checked = inlineRefsEnabled;
       var ifaceActive = explorerIface.classList.contains('active');
       ifaceToggleLabel.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
+    }
+
+    /** (Re-)render the "+N subtypes" chip and dep blocks, respecting excluded props. */
+    function updateDepsSection() {
+      // Remove existing chip + dep blocks
+      var oldChip = explorerIface.querySelector('.deps-expand-chip');
+      var oldDeps = document.getElementById('ifaceDepBlocks');
+      if (oldChip) oldChip.remove();
+      if (oldDeps) oldDeps.remove();
+
+      if (currentIsAlias || !currentExplored) return;
+
+      var excludedSet = new Set(Object.keys(currentExcluded));
+      var depNodes = collectDependencyTree(currentExplored, excludedSet);
+      // Total unique deps (for compaction % display)
+      var seen = {};
+      var totalUnique = 0;
+      for (var i = 0; i < depNodes.length; i++) {
+        if (!depNodes[i].duplicate && !seen[depNodes[i].name]) {
+          seen[depNodes[i].name] = true;
+          totalUnique++;
+        }
+      }
+
+      var uniqueNames = collectRenderableDeps(currentExplored, excludedSet);
+      if (uniqueNames.length > 0) {
+        var chip = document.createElement('button');
+        chip.className = 'deps-expand-chip';
+        chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
+        if (Object.keys(currentExcluded).length > 0) {
+          chip.classList.add('chip-flash');
+          chip.addEventListener('animationend', function() { chip.classList.remove('chip-flash'); }, { once: true });
+        }
+        explorerIface.appendChild(chip);
+
+        var depsDiv = document.createElement('div');
+        depsDiv.id = 'ifaceDepBlocks';
+        depsDiv.style.display = 'none';
+        explorerIface.appendChild(depsDiv);
+
+        chip.addEventListener('click', function() {
+          if (depsDiv.style.display !== 'none') {
+            depsDiv.style.display = 'none';
+            depsDiv.innerHTML = '';
+            chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
+            chip.classList.remove('expanded');
+            return;
+          }
+          chip.classList.add('expanded');
+          chip.textContent = 'Loading\u2026';
+          depsDiv.style.display = '';
+          depsDiv.innerHTML = '<div class="spinner"></div>';
+          setTimeout(function() { renderDepInterfaces(depsDiv, chip, uniqueNames, totalUnique); }, 0);
+        });
+      }
     }
 
     /** Build chip label showing rendered count and compaction percentage. */
@@ -628,7 +630,7 @@
     function renderDepInterfaces(container, chip, names, totalUnique) {
       var html = '';
       for (var i = 0; i < names.length; i++) {
-        var result = renderInterfaceHtml(names[i], null, true);
+        var result = renderInterfaceHtml(names[i], null, false);
         html += result.html;
       }
       container.innerHTML = html;
@@ -641,15 +643,32 @@
         if (!e.target.closest('.copy-btn')) return;
         var block = e.target.closest('.interface-block');
         if (!block) return;
-        var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-        // Include expanded dep blocks if present
-        var depDiv = container.querySelector('#ifaceDepBlocks');
-        if (depDiv && depDiv.style.display !== 'none') {
-          var depBlocks = depDiv.querySelectorAll('.dep-block');
-          if (depBlocks.length > 0) {
-            var depText = Array.prototype.map.call(depBlocks, function(b) { return b.innerText; }).join('\n\n');
-            plain += '\n\n' + depText;
+        // For iface tab: generate full copy block with subtypes
+        var plain;
+        if (container === explorerIface && currentExplored) {
+          // Collect excluded property names from checked checkboxes
+          var excludedProps = {};
+          var cbs = block.querySelectorAll('.excl-cb:checked');
+          for (var ci = 0; ci < cbs.length; ci++) {
+            var propSpan = cbs[ci].closest('.if-line');
+            if (propSpan) {
+              var pn = propSpan.querySelector('.if-prop');
+              if (pn) excludedProps[pn.textContent] = true;
+            }
           }
+          var excludedSet = new Set(Object.keys(excludedProps));
+          var root = generateRootDefBlock(currentExplored);
+          var subs = generateSubTypeDefsBlock(currentExplored, { excludedMembers: excludedSet });
+          plain = subs ? root + '\n\n' + subs : root;
+          // Strip excluded property lines from plain-text output
+          if (Object.keys(excludedProps).length > 0) {
+            plain = plain.split('\n').filter(function(line) {
+              var m = line.match(/^\s+(\w+)\?:/);
+              return !m || !excludedProps[m[1]];
+            }).join('\n');
+          }
+        } else {
+          plain = block.innerText.replace(/Copy$/, '').trimEnd();
         }
         navigator.clipboard.writeText(plain).then(function() {
           var btn = e.target.closest('.copy-btn');
@@ -659,6 +678,22 @@
       });
     }
     attachCopyHandler(explorerIface);
+
+    // Exclude-from-codegen checkbox toggle
+    explorerIface.addEventListener('change', function(e) {
+      if (!e.target.classList.contains('excl-cb')) return;
+      var line = e.target.closest('.if-line');
+      if (!line) return;
+      var propName = line.querySelector('.if-prop')?.textContent;
+      if (e.target.checked) {
+        line.classList.add('excludeInCodeGen');
+        if (propName) currentExcluded[propName] = true;
+      } else {
+        line.classList.remove('excludeInCodeGen');
+        if (propName) delete currentExcluded[propName];
+      }
+      updateDepsSection();
+    });
 
     // Via-chain popup on hover
     var viaPopup = null;

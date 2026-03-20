@@ -4,6 +4,9 @@ import {
   generateTypeAlias,
   generateTypeGuard,
   generateFactory,
+  generateRootDefBlock,
+  generateSubTypeDefsBlock,
+  collectRenderableDeps,
   toConstName,
 } from "./codegens.js";
 import type { Defs } from "./fns.js";
@@ -31,12 +34,20 @@ describe("toConstName", () => {
 // ── Shared test defs ────────────────────────────────────────────────────────
 
 const defs: Defs = {
+  NameOfClass: {
+    enum: ["Authority", "Vehicle", "StopPlace", "Line", "Route"],
+    "x-netex-role": "enumeration",
+  },
   Authority: {
     allOf: [
       { $ref: "#/definitions/OrganisationStructure" },
       {
         properties: {
           AuthorityCode: { type: "string", description: "Code for authority" },
+          nameOfClass: {
+            allOf: [{ $ref: "#/definitions/NameOfClass" }],
+            "x-fixed-single-enum": "NameOfClass",
+          },
         },
       },
     ],
@@ -104,6 +115,89 @@ const defs: Defs = {
     },
     "x-netex-role": "entity",
   },
+  WithModeProp: {
+    properties: {
+      mode: {
+        allOf: [{ $ref: "#/definitions/AllModesEnumeration" }],
+      },
+    },
+    "x-netex-role": "entity",
+  },
+  WithDynClassRef: {
+    allOf: [
+      { $ref: "#/definitions/OrganisationStructure" },
+      {
+        properties: {
+          nameOfMemberClass: {
+            allOf: [{ $ref: "#/definitions/NameOfClass" }],
+          },
+        },
+      },
+    ],
+    "x-netex-role": "entity",
+  },
+  StatusEnum: {
+    enum: ["active", "inactive", "pending"],
+    "x-netex-role": "enumeration",
+  },
+  EntityWithFixedStatus: {
+    allOf: [{
+      properties: {
+        status: {
+          allOf: [{ $ref: "#/definitions/StatusEnum" }],
+          "x-fixed-single-enum": "StatusEnum",
+        },
+      },
+    }],
+    "x-netex-role": "entity",
+  },
+  WithUnstampedStatusRef: {
+    allOf: [
+      { $ref: "#/definitions/OrganisationStructure" },
+      {
+        properties: {
+          category: {
+            allOf: [{ $ref: "#/definitions/StatusEnum" }],
+          },
+        },
+      },
+    ],
+    "x-netex-role": "entity",
+  },
+  RelationshipId: { $ref: "#/definitions/NameOfClass" },
+  SomeRelStructure: {
+    allOf: [
+      {
+        properties: {
+          $id: {
+            allOf: [{ $ref: "#/definitions/RelationshipId" }],
+            "x-fixed-single-enum": "NameOfClass",
+            xml: { attribute: true },
+          },
+          Item: { type: "array", items: { $ref: "#/definitions/Authority" } },
+        },
+      },
+    ],
+    "x-netex-role": "collection",
+  },
+  WithRelDep: {
+    allOf: [
+      { $ref: "#/definitions/OrganisationStructure" },
+      {
+        properties: {
+          nameOfClass: {
+            allOf: [{ $ref: "#/definitions/NameOfClass" }],
+            "x-fixed-single-enum": "NameOfClass",
+          },
+          conds: {
+            type: "array",
+            items: { $ref: "#/definitions/SomeRelStructure" },
+          },
+        },
+      },
+    ],
+    "x-netex-role": "entity",
+  },
 };
 
 // ── generateInterface (plain text) ──────────────────────────────────────────
@@ -125,8 +219,8 @@ describe("generateInterface", () => {
     expect(text).toContain("// ── Authority ──");
   });
 
-  it("omits origin comments when compact", () => {
-    const { text } = generateInterface(defs, "Authority", { html: false, compact: true });
+  it("omits origin comments when metaComments: false", () => {
+    const { text } = generateInterface(defs, "Authority", { html: false, metaComments: false });
     expect(text).not.toContain("// ──");
     expect(text).not.toContain("/**");
   });
@@ -154,9 +248,15 @@ describe("generateInterface", () => {
     expect(text).not.toContain("integer");
   });
 
-  it("compact mode skips JSDoc header", () => {
-    const { text } = generateInterface(defs, "Authority", { html: false, compact: true });
+  it("metaComments: false skips JSDoc header", () => {
+    const { text } = generateInterface(defs, "Authority", { html: false, metaComments: false });
     expect(text).toMatch(/^interface Authority \{/);
+  });
+
+  it("renders dynamic NameOfClass ref as string", () => {
+    const { text } = generateInterface(defs, "WithDynClassRef", { html: false });
+    expect(text).toContain("nameOfMemberClass?: string;");
+    expect(text).not.toContain("NameOfClass");
   });
 });
 
@@ -188,9 +288,9 @@ describe("generateTypeAlias", () => {
     expect(text).toContain("Resolved via:");
   });
 
-  it("omits JSDoc when compact", () => {
+  it("omits JSDoc when metaComments: false", () => {
     const resolved = { ts: "string", complex: false };
-    const { text } = generateTypeAlias(defs, "PrivateCode", resolved, { html: false, compact: true });
+    const { text } = generateTypeAlias(defs, "PrivateCode", resolved, { html: false, metaComments: false });
     expect(text).not.toContain("/**");
     expect(text).toMatch(/^type PrivateCode = string;$/);
   });
@@ -268,5 +368,90 @@ describe("generateFactory", () => {
     });
     expect(text).toContain('Id: "string",  // required');
     expect(text).not.toContain("Name:");
+  });
+});
+
+// ── generateRootDefBlock ─────────────────────────────────────────────────────
+
+describe("generateRootDefBlock", () => {
+  it("generates plain text with metaComments for Authority", () => {
+    const text = generateRootDefBlock(defs, "Authority", { html: false });
+    expect(text).toContain("interface Authority {");
+    expect(text).toContain("// ──");
+  });
+
+  it("returns alias text for enum defs", () => {
+    const text = generateRootDefBlock(defs, "AllModesEnumeration", { html: false });
+    expect(text).toContain("const ALL_MODES");
+  });
+});
+
+// ── generateSubTypeDefsBlock ─────────────────────────────────────────────────
+
+describe("generateSubTypeDefsBlock", () => {
+  it("returns empty string for type with no complex deps", () => {
+    // Authority only has string properties — no complex transitive deps
+    const text = generateSubTypeDefsBlock(defs, "Authority", { html: false });
+    expect(text).toBe("");
+  });
+
+  it("includes complex deps from array properties", () => {
+    // WithArrayProp has Items: Authority[] — Authority is a complex dep
+    const text = generateSubTypeDefsBlock(defs, "WithArrayProp", { html: false });
+    expect(text).toContain("interface Authority {");
+  });
+
+  it("omits metaComments on dep blocks", () => {
+    const text = generateSubTypeDefsBlock(defs, "WithArrayProp", { html: false });
+    expect(text).not.toContain("// ──");
+  });
+
+  it("excludes x-fixed-single-enum enums unreferenced as types", () => {
+    const text = generateSubTypeDefsBlock(defs, "Authority", { html: false });
+    expect(text).not.toContain("NAME_OF_CLASS");
+    expect(text).not.toContain("type NameOfClass");
+  });
+
+  it("includes enums that ARE referenced as property types", () => {
+    const text = generateSubTypeDefsBlock(defs, "WithModeProp", { html: false });
+    expect(text).toContain("ALL_MODES");
+  });
+
+  it("fully excludes NameOfClass from alias-chain deps", () => {
+    const text = generateSubTypeDefsBlock(defs, "WithRelDep", { html: false });
+    expect(text).not.toContain("NAME_OF_CLASS");
+    expect(text).not.toContain("type NameOfClass");
+    expect(text).not.toContain("?: NameOfClass");
+  });
+
+  it("excludes NameOfClass for dynamic (non-fixed) refs", () => {
+    const text = generateSubTypeDefsBlock(defs, "WithDynClassRef", { html: false });
+    expect(text).not.toContain("NAME_OF_CLASS");
+    expect(text).not.toContain("type NameOfClass");
+  });
+
+  it("collapses fixed-enum-target deps to string", () => {
+    const text = generateSubTypeDefsBlock(defs, "WithUnstampedStatusRef", { html: false });
+    expect(text).toContain("type StatusEnum = string;");
+    expect(text).not.toContain("STATUS_ENUM");
+  });
+});
+
+// ── collectRenderableDeps ────────────────────────────────────────────────────
+
+describe("collectRenderableDeps", () => {
+  it("excludes x-fixed-single-enum deps", () => {
+    const names = collectRenderableDeps(defs, "Authority");
+    expect(names).not.toContain("NameOfClass");
+  });
+
+  it("includes normal enum deps", () => {
+    const names = collectRenderableDeps(defs, "WithModeProp");
+    expect(names).toContain("AllModesEnumeration");
+  });
+
+  it("excludes NameOfClass for dynamic refs", () => {
+    const names = collectRenderableDeps(defs, "WithDynClassRef");
+    expect(names).not.toContain("NameOfClass");
   });
 });

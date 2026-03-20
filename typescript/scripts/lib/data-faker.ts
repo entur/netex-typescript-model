@@ -16,6 +16,7 @@ import {
   resolveAtom,
   defRole,
   classifySchema,
+  isDynNocRef,
   type Defs,
   type Def,
 } from "./fns.js";
@@ -219,6 +220,12 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
 
     // x-fixed-single-enum: use the context-resolved value
     if (typeof schema["x-fixed-single-enum"] === "string") {
+      result[propName] = name;
+      continue;
+    }
+
+    // Dynamic NameOfClass ref — use the parent type name as a sensible default
+    if (isDynNocRef(schema)) {
       result[propName] = name;
       continue;
     }

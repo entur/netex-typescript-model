@@ -174,11 +174,14 @@ function buildViewerFnsScript(): string {
     function makeInlineCodeBlock(n, props, opts) { return _viewerBundle.makeInlineCodeBlock(defs, n, Object.assign({}, opts || {}, props ? { props: props } : {})); }
     function collectRefProps(name) { return _viewerBundle.collectRefProps(defs, name); }
     function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(defs, entityName, baseStructure); }
-    function collectDependencyTree(name) { return _viewerBundle.collectDependencyTree(defs, name); }
+    function collectDependencyTree(name, excludeRootProps) { return _viewerBundle.collectDependencyTree(defs, name, excludeRootProps); }
+    function collectRenderableDeps(name, excludedMembers) { return _viewerBundle.collectRenderableDeps(defs, name, excludedMembers); }
     function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(defs, refDefName); }
     var generateInterface = _viewerBundle.generateInterface;
     var generateTypeGuard = _viewerBundle.generateTypeGuard;
     var generateFactory = _viewerBundle.generateFactory;
+    function generateRootDefBlock(name, opts) { return _viewerBundle.generateRootDefBlock(defs, name, opts); }
+    function generateSubTypeDefsBlock(name, opts) { return _viewerBundle.generateSubTypeDefsBlock(defs, name, opts); }
     var _reverseIdx = null;
     function buildReverseIndex() {
       if (!_reverseIdx) _reverseIdx = _viewerBundle.buildReverseIndex(defs);

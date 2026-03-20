@@ -54,7 +54,8 @@ export interface ViaHop {
     | "enum"
     | "primitive"
     | "complex"
-    | "fixed-for";
+    | "fixed-for"
+    | "dyn-class";
 }
 
 export interface ResolvedType {
@@ -403,6 +404,15 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   return { ts: name, complex: true, via: [{ name, rule: "complex" }] };
 }
 
+const MEGA_ENUM = "NameOfClass";
+
+/** Does this property schema dynamically reference the NameOfClass mega-enum (without x-fixed-single-enum)? */
+export function isDynNocRef(schema: Def): boolean {
+  if (typeof schema["x-fixed-single-enum"] === "string") return false;
+  const shape = classifySchema(schema);
+  return shape.kind === "ref" && shape.target === MEGA_ENUM;
+}
+
 /**
  * Resolve a property schema to its TypeScript type representation.
  *
@@ -416,6 +426,9 @@ export function resolvePropertyType(defs: Defs, schema: Def, context?: string): 
       complex: false,
       via: [{ name: context, rule: "fixed-for" }],
     };
+  }
+  if (isDynNocRef(schema)) {
+    return { ts: "string", complex: false, via: [{ name: MEGA_ENUM, rule: "dyn-class" }] };
   }
   const shape = classifySchema(schema);
   switch (shape.kind) {
@@ -879,7 +892,7 @@ export interface DepTreeNode {
  *
  * The root itself is excluded from the output.
  */
-export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode[] {
+export function collectDependencyTree(defs: Defs, rootName: string, excludeRootProps?: Set<string>): DepTreeNode[] {
   const result: DepTreeNode[] = [];
   const emitted = new Set<string>();
   emitted.add(rootName);
@@ -928,23 +941,28 @@ export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode
   }
 
   /** Extract ref-typed property targets from a definition. */
-  function refTargets(name: string): Array<{ target: string; via: string }> {
+  function refTargets(name: string): Array<{ target: string; via: string; canonical: string }> {
     const def = defs[name];
-    const targets: Array<{ target: string; via: string }> = [];
+    const targets: Array<{ target: string; via: string; canonical: string }> = [];
 
     // Walk properties for ref/refArray targets
     const props = flattenAllOf(defs, name);
     for (const p of props) {
+      // x-fixed-single-enum resolves to a literal — the $ref target is unused
+      if (typeof p.schema["x-fixed-single-enum"] === "string") continue;
+      if (isDynNocRef(p.schema)) continue;
+
       const shape = classifySchema(p.schema);
+      const canon = p.prop[1];
       if (shape.kind === "ref" || shape.kind === "refArray") {
-        targets.push({ target: resolveAlias(shape.target), via: p.prop[0] });
+        targets.push({ target: resolveAlias(shape.target), via: p.prop[0], canonical: canon });
       }
       // anyOf with $ref branches (union enums, abstract unions)
       if (shape.kind === "unknown" || shape.kind === "object") {
         if (p.schema.anyOf) {
           for (const branch of p.schema.anyOf as Def[]) {
             if (branch.$ref) {
-              targets.push({ target: resolveAlias(deref(branch.$ref)), via: p.prop[0] });
+              targets.push({ target: resolveAlias(deref(branch.$ref)), via: p.prop[0], canonical: canon });
             }
           }
         }
@@ -955,14 +973,14 @@ export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode
     if (def && def.type === "array" && def.items) {
       const itemShape = classifySchema(def.items);
       if (itemShape.kind === "ref") {
-        targets.push({ target: resolveAlias(itemShape.target), via: name });
+        targets.push({ target: resolveAlias(itemShape.target), via: name, canonical: "" });
       }
     }
     // If the def itself has anyOf branches (union type), follow each ref branch
     if (def && def.anyOf) {
       for (const branch of def.anyOf as Def[]) {
         if (branch.$ref) {
-          targets.push({ target: resolveAlias(deref(branch.$ref)), via: name });
+          targets.push({ target: resolveAlias(deref(branch.$ref)), via: name, canonical: "" });
         }
       }
     }
@@ -972,7 +990,8 @@ export function collectDependencyTree(defs: Defs, rootName: string): DepTreeNode
 
   // Seed from root
   const queue: Array<{ name: string; via: string; depth: number }> = [];
-  for (const { target, via } of refTargets(resolveAlias(rootName))) {
+  for (const { target, via, canonical } of refTargets(resolveAlias(rootName))) {
+    if (excludeRootProps && excludeRootProps.has(canonical)) continue;
     queue.push({ name: target, via, depth: 0 });
   }
 
