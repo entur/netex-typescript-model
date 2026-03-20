@@ -10,7 +10,6 @@ import {
   resolveAtom,
   buildReverseIndex,
   findTransitiveEntityUsers,
-  defaultForType,
   lcFirst,
   unwrapMixed,
   defRole,
@@ -21,9 +20,14 @@ import {
   buildInheritanceChain,
   inlineSingleRefs,
   canonicalPropName,
+  resolveRefEntity,
+  collectRefProps,
+  collectExtraProps,
+  collectDependencyTree,
+  isDynNocRef,
   type Defs,
   type ViaHop,
-} from "./schema-viewer-fns.js";
+} from "./fns.js";
 
 // ── resolveType ──────────────────────────────────────────────────────────────
 
@@ -211,7 +215,7 @@ describe("resolveDefType", () => {
       Inner: { type: "integer" },
     };
     expect(resolveDefType(defs, "Wrapper")).toEqual({
-      ts: "integer",
+      ts: "number",
       complex: false,
       via: [
         { name: "Wrapper", rule: "allOf-passthrough" },
@@ -575,6 +579,61 @@ describe("resolvePropertyType", () => {
   });
 });
 
+// ── isDynNocRef ──────────────────────────────────────────────────────────────
+
+describe("isDynNocRef", () => {
+  it("returns true for direct $ref to NameOfClass", () => {
+    expect(isDynNocRef({ $ref: "#/definitions/NameOfClass" })).toBe(true);
+  });
+
+  it("returns true for allOf ref to NameOfClass", () => {
+    expect(isDynNocRef({ allOf: [{ $ref: "#/definitions/NameOfClass" }] })).toBe(true);
+  });
+
+  it("returns false when x-fixed-single-enum is set", () => {
+    expect(isDynNocRef({
+      allOf: [{ $ref: "#/definitions/NameOfClass" }],
+      "x-fixed-single-enum": "NameOfClass",
+    })).toBe(false);
+  });
+
+  it("returns false for other enum refs", () => {
+    expect(isDynNocRef({ $ref: "#/definitions/AllModesEnumeration" })).toBe(false);
+  });
+
+  it("returns false for primitives", () => {
+    expect(isDynNocRef({ type: "string" })).toBe(false);
+  });
+});
+
+// ── resolvePropertyType + isDynNocRef ────────────────────────────────────────
+
+describe("resolvePropertyType with dynamic NameOfClass", () => {
+  it("resolves dynamic NameOfClass ref as string", () => {
+    const defs: Defs = {
+      NameOfClass: { enum: ["A", "B"], "x-netex-role": "enumeration" },
+    };
+    const schema = { allOf: [{ $ref: "#/definitions/NameOfClass" }] };
+    const result = resolvePropertyType(defs, schema);
+    expect(result.ts).toBe("string");
+    expect(result.complex).toBe(false);
+    expect(result.via).toEqual([{ name: "NameOfClass", rule: "dyn-class" }]);
+  });
+
+  it("does not short-circuit when x-fixed-single-enum is set", () => {
+    const defs: Defs = {
+      NameOfClass: { enum: ["A", "B"], "x-netex-role": "enumeration" },
+    };
+    const schema = {
+      allOf: [{ $ref: "#/definitions/NameOfClass" }],
+      "x-fixed-single-enum": "NameOfClass",
+    };
+    const result = resolvePropertyType(defs, schema, "MyEntity");
+    expect(result.ts).toBe('"MyEntity"');
+    expect(result.via).toEqual([{ name: "MyEntity", rule: "fixed-for" }]);
+  });
+});
+
 // ── resolveAtom ──────────────────────────────────────────────────────────────
 
 describe("resolveAtom", () => {
@@ -705,39 +764,158 @@ describe("findTransitiveEntityUsers", () => {
   });
 });
 
-// ── defaultForType ───────────────────────────────────────────────────────────
+// ── resolveRefEntity ─────────────────────────────────────────────────────────
 
-describe("defaultForType", () => {
-  it('returns "" for string', () => {
-    expect(defaultForType("string")).toBe('""');
+describe("resolveRefEntity", () => {
+  it("resolves direct entity target via stamp", () => {
+    const defs: Defs = {
+      FooRef: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
+      Foo: { "x-netex-role": "entity" },
+    };
+    expect(resolveRefEntity(defs, "FooRef")).toBe("Foo");
   });
 
-  it("returns 0 for number", () => {
-    expect(defaultForType("number")).toBe("0");
+  it("expands abstract target to concrete entity sg-members", () => {
+    const defs: Defs = {
+      BarRef: { "x-netex-role": "reference", "x-netex-refTarget": "Bar" },
+      Bar: { "x-netex-role": "abstract", "x-netex-sg-members": ["Baz", "Qux"] },
+      BazRef: { "x-netex-role": "reference", "x-netex-refTarget": "Baz" },
+      Baz: { "x-netex-role": "entity" },
+      QuxRef: { "x-netex-role": "reference", "x-netex-refTarget": "Qux" },
+      Qux: { "x-netex-role": "structure" },
+    };
+    expect(resolveRefEntity(defs, "BarRef")).toEqual(["Baz"]);
   });
 
-  it("returns 0 for integer", () => {
-    expect(defaultForType("integer")).toBe("0");
+  it("falls back to name stripping when no stamp", () => {
+    const defs: Defs = {
+      FooRef: { "x-netex-role": "reference" },
+      Foo: { "x-netex-role": "entity" },
+    };
+    expect(resolveRefEntity(defs, "FooRef")).toBe("Foo");
   });
 
-  it("returns false for boolean", () => {
-    expect(defaultForType("boolean")).toBe("false");
+  it("returns null when no target found", () => {
+    const defs: Defs = {
+      UnknownRef: { "x-netex-role": "reference" },
+    };
+    expect(resolveRefEntity(defs, "UnknownRef")).toBeNull();
   });
 
-  it("returns [] for arrays", () => {
-    expect(defaultForType("string[]")).toBe("[]");
+  it("handles RefStructure suffix via stamp", () => {
+    const defs: Defs = {
+      Foo_RefStructure: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
+      Foo: { "x-netex-role": "entity" },
+    };
+    expect(resolveRefEntity(defs, "Foo_RefStructure")).toBe("Foo");
+  });
+});
+
+// ── collectRefProps ──────────────────────────────────────────────────────────
+
+describe("collectRefProps", () => {
+  it("finds ref-typed properties with resolved targets", () => {
+    const defs: Defs = {
+      MyStruct: {
+        properties: {
+          FooRef: { $ref: "#/definitions/FooRef" },
+          name: { type: "string" },
+          BarRef: { allOf: [{ $ref: "#/definitions/BarRef" }] },
+        },
+      },
+      FooRef: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
+      Foo: { "x-netex-role": "entity" },
+      BarRef: { "x-netex-role": "reference", "x-netex-refTarget": "Bar" },
+      Bar: { "x-netex-role": "entity" },
+    };
+    const result = collectRefProps(defs, "MyStruct");
+    expect(result).toHaveLength(2);
+    expect(result[0].propName).toBe("FooRef");
+    expect(result[0].targetEntities).toEqual(["Foo"]);
+    expect(result[1].propName).toBe("BarRef");
+    expect(result[1].targetEntities).toEqual(["Bar"]);
   });
 
-  it("returns first literal for unions", () => {
-    expect(defaultForType('"a" | "b"')).toBe('"a"');
+  it("walks allOf chain to find inherited ref props", () => {
+    const defs: Defs = {
+      Child: { allOf: [{ $ref: "#/definitions/Parent" }, { properties: { ChildRef: { $ref: "#/definitions/ChildRef" } } }] },
+      Parent: { properties: { ParentRef: { $ref: "#/definitions/ParentRef" } } },
+      ChildRef: { "x-netex-role": "reference", "x-netex-refTarget": "ChildEntity" },
+      ChildEntity: { "x-netex-role": "entity" },
+      ParentRef: { "x-netex-role": "reference", "x-netex-refTarget": "ParentEntity" },
+      ParentEntity: { "x-netex-role": "entity" },
+    };
+    const result = collectRefProps(defs, "Child");
+    expect(result).toHaveLength(2);
+    expect(result.map(r => r.propName).sort()).toEqual(["ChildRef", "ParentRef"]);
   });
 
-  it('returns "" for string with format', () => {
-    expect(defaultForType("string /* date-time */")).toBe('""');
+  it("excludes unresolvable refs", () => {
+    const defs: Defs = {
+      MyStruct: { properties: { BadRef: { $ref: "#/definitions/BadRef" } } },
+      BadRef: { "x-netex-role": "reference" },
+    };
+    const result = collectRefProps(defs, "MyStruct");
+    expect(result).toEqual([]);
   });
 
-  it("returns cast for complex types", () => {
-    expect(defaultForType("MyType")).toBe("{} as MyType");
+  it("returns empty for no ref props", () => {
+    const defs: Defs = {
+      MyStruct: { properties: { name: { type: "string" }, count: { type: "number" } } },
+    };
+    expect(collectRefProps(defs, "MyStruct")).toEqual([]);
+  });
+});
+
+// ── collectExtraProps ────────────────────────────────────────────────────────
+
+describe("collectExtraProps", () => {
+  it("returns empty when entity maps directly to base structure", () => {
+    const defs: Defs = {
+      MyEntity: { $ref: "#/definitions/Base_VersionStructure", "x-netex-role": "entity" },
+      Base_VersionStructure: { properties: { a: { type: "string" } } },
+    };
+    expect(collectExtraProps(defs, "MyEntity", "Base_VersionStructure")).toEqual([]);
+  });
+
+  it("collects props from one intermediate level", () => {
+    const defs: Defs = {
+      DerivedEntity: { $ref: "#/definitions/Derived_VersionStructure", "x-netex-role": "entity" },
+      Derived_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Base_VersionStructure" }, { properties: { x: { type: "string" }, y: { type: "number" }, z: { type: "boolean" } } }],
+      },
+      Base_VersionStructure: { properties: { a: { type: "string" } } },
+    };
+    expect(collectExtraProps(defs, "DerivedEntity", "Base_VersionStructure")).toEqual(["x", "y", "z"]);
+  });
+
+  it("collects props from two intermediate levels", () => {
+    const defs: Defs = {
+      DeepEntity: { $ref: "#/definitions/Deep_VersionStructure", "x-netex-role": "entity" },
+      Deep_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Mid_VersionStructure" }, { properties: { d1: { type: "string" } } }],
+      },
+      Mid_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Base_VersionStructure" }, { properties: { m1: { type: "string" }, m2: { type: "number" } } }],
+      },
+      Base_VersionStructure: { properties: { a: { type: "string" } } },
+    };
+    const extras = collectExtraProps(defs, "DeepEntity", "Base_VersionStructure");
+    expect(extras).toContain("d1");
+    expect(extras).toContain("m1");
+    expect(extras).toContain("m2");
+    expect(extras).toHaveLength(3);
+  });
+
+  it("handles $ref alias entities (common NeTEx pattern)", () => {
+    const defs: Defs = {
+      AliasEntity: { $ref: "#/definitions/Alias_VersionStructure", "x-netex-role": "entity" },
+      Alias_VersionStructure: {
+        allOf: [{ $ref: "#/definitions/Base_VS" }, { properties: { extra: { type: "string" } } }],
+      },
+      Base_VS: { properties: { base: { type: "string" } } },
+    };
+    expect(collectExtraProps(defs, "AliasEntity", "Base_VS")).toEqual(["extra"]);
   });
 });
 
@@ -1292,5 +1470,269 @@ describe("inlineSingleRefs", () => {
     // Inherited props from the parent chain should still be present
     expect(result.some((p) => p.prop[1] === "id" && !p.inlinedFrom)).toBe(true);
     expect(result.some((p) => p.prop[1] === "version" && !p.inlinedFrom)).toBe(true);
+  });
+});
+
+// ── collectDependencyTree ─────────────────────────────────────────────────────
+
+describe("collectDependencyTree", () => {
+  it("returns empty for an enumeration", () => {
+    const defs: Defs = {
+      MyEnum: { enum: ["a", "b"], "x-netex-role": "enumeration" },
+    };
+    expect(collectDependencyTree(defs, "MyEnum")).toHaveLength(0);
+  });
+
+  it("collects direct ref-typed dependencies", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Name: { $ref: "#/definitions/NameType" },
+              Code: { $ref: "#/definitions/CodeType" },
+            },
+          },
+        ],
+      },
+      NameType: { type: "string", "x-netex-atom": "string" },
+      CodeType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(2);
+    expect(tree.map((n) => n.name).sort()).toEqual(["CodeType", "NameType"]);
+    expect(tree.every((n) => n.depth === 0)).toBe(true);
+    expect(tree.every((n) => !n.duplicate)).toBe(true);
+  });
+
+  it("resolves $ref aliases before enqueuing", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{ properties: { Thing: { $ref: "#/definitions/Alias" } } }],
+      },
+      Alias: { $ref: "#/definitions/RealType" },
+      RealType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(1);
+    expect(tree[0].name).toBe("RealType");
+    expect(tree[0].via).toBe("Thing");
+  });
+
+  it("marks duplicate entries and skips recursion", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              A: { $ref: "#/definitions/Shared" },
+              B: { $ref: "#/definitions/Shared" },
+            },
+          },
+        ],
+      },
+      Shared: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(2);
+    const first = tree.find((n) => !n.duplicate)!;
+    const second = tree.find((n) => n.duplicate)!;
+    expect(first.name).toBe("Shared");
+    expect(second.name).toBe("Shared");
+    expect(second.duplicate).toBe(true);
+  });
+
+  it("recurses into complex types at increasing depth", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{ properties: { Child: { $ref: "#/definitions/ChildStruct" } } }],
+      },
+      ChildStruct: {
+        type: "object",
+        "x-netex-role": "structure",
+        allOf: [{ properties: { Leaf: { $ref: "#/definitions/LeafType" } } }],
+      },
+      LeafType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(2);
+    const child = tree.find((n) => n.name === "ChildStruct")!;
+    const leaf = tree.find((n) => n.name === "LeafType")!;
+    expect(child.depth).toBe(0);
+    expect(leaf.depth).toBe(1);
+  });
+
+  it("stops at references (x-netex-role: reference)", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Ref: { $ref: "#/definitions/ThingRef" },
+              Inner: { $ref: "#/definitions/InnerStruct" },
+            },
+          },
+        ],
+      },
+      ThingRef: {
+        "x-netex-role": "reference",
+        allOf: [{ properties: { Nested: { $ref: "#/definitions/Nested" } } }],
+      },
+      InnerStruct: { type: "string", "x-netex-atom": "string" },
+      Nested: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    // ThingRef is emitted but not recursed — Nested should NOT appear
+    expect(tree.find((n) => n.name === "ThingRef")).toBeDefined();
+    expect(tree.find((n) => n.name === "Nested")).toBeUndefined();
+  });
+
+  it("excludes root from output", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{ properties: { X: { $ref: "#/definitions/Leaf" } } }],
+      },
+      Leaf: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree.every((n) => n.name !== "Root")).toBe(true);
+  });
+
+  it("handles refArray properties", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [
+          {
+            properties: {
+              Items: { type: "array", items: { $ref: "#/definitions/ItemType" } },
+            },
+          },
+        ],
+      },
+      ItemType: { type: "string", "x-netex-atom": "string" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    expect(tree).toHaveLength(1);
+    expect(tree[0].name).toBe("ItemType");
+    expect(tree[0].via).toBe("Items");
+  });
+
+  it("resolves allOf-passthrough wrappers to the underlying definition", () => {
+    const defs: Defs = {
+      Root: {
+        properties: {
+          Code: { $ref: "#/definitions/PrivateCode" },
+        },
+        "x-netex-role": "entity",
+      },
+      // allOf with single $ref, no own properties → passthrough alias
+      PrivateCode: {
+        allOf: [{ $ref: "#/definitions/PrivateCodeStructure" }],
+      },
+      PrivateCodeStructure: {
+        type: "object",
+        properties: {
+          value: { type: "string" },
+          type: { type: "string", xml: { attribute: true } },
+        },
+        "x-netex-atom": "simpleObj",
+      },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    // Should collect PrivateCodeStructure (the resolved target), not PrivateCode (the wrapper)
+    const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
+    expect(names).toContain("PrivateCodeStructure");
+    expect(names).not.toContain("PrivateCode");
+  });
+
+  it("collects enumeration targets from anyOf union properties", () => {
+    const defs: Defs = {
+      Root: {
+        properties: {
+          Category: {
+            anyOf: [
+              { $ref: "#/definitions/FooEnumeration" },
+              { $ref: "#/definitions/BarEnumeration" },
+            ],
+          },
+        },
+        "x-netex-role": "entity",
+      },
+      FooEnumeration: { enum: ["a", "b"], "x-netex-role": "enumeration" },
+      BarEnumeration: { enum: ["x", "y"], "x-netex-role": "enumeration" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
+    expect(names).toContain("FooEnumeration");
+    expect(names).toContain("BarEnumeration");
+  });
+
+  it("skips x-fixed-single-enum refs in dependency tree", () => {
+    const defs: Defs = {
+      MyEntity: {
+        properties: {
+          nameOfClass: {
+            allOf: [{ $ref: "#/definitions/BigEnum" }],
+            "x-fixed-single-enum": "BigEnum",
+          },
+          mode: {
+            allOf: [{ $ref: "#/definitions/SmallEnum" }],
+          },
+        },
+        "x-netex-role": "entity",
+      },
+      BigEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" },
+      SmallEnum: { enum: ["x", "y"], "x-netex-role": "enumeration" },
+    };
+    const deps = collectDependencyTree(defs, "MyEntity");
+    const names = deps.map((d) => d.name);
+    expect(names).toContain("SmallEnum");
+    expect(names).not.toContain("BigEnum");
+  });
+
+  it("collects enumeration targets from array-of-enum list wrappers", () => {
+    const defs: Defs = {
+      Root: {
+        properties: {
+          Facilities: { $ref: "#/definitions/FacilityList" },
+        },
+        "x-netex-role": "entity",
+      },
+      FacilityList: {
+        allOf: [{ $ref: "#/definitions/FacilityListOfEnumerations" }],
+      },
+      FacilityListOfEnumerations: {
+        type: "array",
+        items: { $ref: "#/definitions/FacilityEnumeration" },
+        "x-netex-atom": "array",
+      },
+      FacilityEnumeration: { enum: ["wifi", "power"], "x-netex-role": "enumeration" },
+    };
+    const tree = collectDependencyTree(defs, "Root");
+    const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
+    expect(names).toContain("FacilityEnumeration");
+  });
+
+  it("excludeRootProps skips matching seeds", () => {
+    const defs: Defs = {
+      Root: {
+        allOf: [{
+          properties: {
+            A: { $ref: "#/definitions/OnlyViaA" },
+            B: { $ref: "#/definitions/Shared" },
+            C: { $ref: "#/definitions/Shared" },
+          },
+        }],
+      },
+      OnlyViaA: { type: "string", "x-netex-atom": "string" },
+      Shared: { type: "string", "x-netex-atom": "string" },
+    };
+    // Without exclusion: OnlyViaA + Shared (+ duplicate Shared)
+    const full = collectDependencyTree(defs, "Root");
+    expect(full.filter(n => !n.duplicate)).toHaveLength(2);
+
+    // Exclude A → OnlyViaA gone, Shared still reachable via B/C
+    const excl = collectDependencyTree(defs, "Root", new Set(["A"]));
+    expect(excl.filter(n => !n.duplicate).map(n => n.name)).toEqual(["Shared"]);
   });
 });

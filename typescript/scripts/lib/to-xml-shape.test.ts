@@ -1,0 +1,137 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { makeInlinedToXmlShape, makeInlineCodeBlock } from "./to-xml-shape.js";
+import { fake, toXmlShape as dataFakerToXmlShape } from "./data-faker.js";
+import { lcFirst, type Defs } from "./fns.js";
+
+// ── Schema loading (eager — needed at describe.each time) ────────────────────
+
+const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
+
+function loadDefs(): Defs {
+  if (!existsSync(jsonschemaDir)) {
+    throw new Error(
+      `Base jsonschema dir not found at ${jsonschemaDir}.\nRun "make all" first.`,
+    );
+  }
+  const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
+  if (!schemaFile) {
+    throw new Error(`No *.schema.json found in ${jsonschemaDir}.\nRun "make all" first.`);
+  }
+  return JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8")).definitions;
+}
+
+const defs = loadDefs();
+
+// ── Entity list (ResourceFrame entities from valid-roundtrip.test.ts) ────────
+
+const ENTITIES = [
+  "Contact",
+  "DataSource",
+  "VehicleType",
+  "Vehicle",
+  "DeckPlan",
+  "Blacklist",
+  "ControlCentre",
+  "VehicleModel",
+  "SchematicMap",
+  "ResponsibilitySet",
+  "ResponsibilityRole",
+  "GroupOfOperators",
+  "Whitelist",
+  "ServiceFacilitySet",
+  "SiteFacilitySet",
+  "VehicleEquipmentProfile",
+  "RollingStockInventory",
+  "CarModelProfile",
+];
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+describe("makeInlinedToXmlShape", () => {
+  it("Contact: returns valid JavaScript", () => {
+    const code = makeInlinedToXmlShape(defs, "Contact");
+    expect(typeof code).toBe("string");
+    expect(() => new Function("obj", "toXmlShape", code)).not.toThrow();
+  });
+
+  it("Contact: generated function matches toXmlShape", () => {
+    const code = makeInlinedToXmlShape(defs, "Contact");
+    const stem = fake(defs, "Contact");
+    const fnName = lcFirst("Contact") + "ToXmlShape";
+    const fn = new Function(code + `\nreturn ${fnName};`)();
+    const cb = (name: string, obj: Record<string, unknown>) =>
+      dataFakerToXmlShape(defs, name, obj);
+    const generated = fn(stem, cb);
+    const reference = dataFakerToXmlShape(defs, "Contact", stem);
+    expect(generated).toEqual(reference);
+  });
+
+  describe.each(ENTITIES)("%s", (name) => {
+    it("generated matches toXmlShape", () => {
+      const code = makeInlinedToXmlShape(defs, name);
+      const fnName = lcFirst(name) + "ToXmlShape";
+      const fn = new Function(code + `\nreturn ${fnName};`)();
+      const stem = fake(defs, name);
+      const cb = (n: string, obj: Record<string, unknown>) =>
+        dataFakerToXmlShape(defs, n, obj);
+      expect(fn(stem, cb)).toEqual(dataFakerToXmlShape(defs, name, stem));
+    });
+  });
+});
+
+// ── HTML syntax-highlighting tests ──────────────────────────────────────────
+
+describe("makeInlinedToXmlShape html mode", () => {
+  it("Contact: plain mode has no span tags", () => {
+    const plain = makeInlinedToXmlShape(defs, "Contact");
+    expect(plain).not.toContain("<span");
+    expect(plain).not.toContain("</span>");
+  });
+
+  it("Contact: html mode contains span tags with if-* classes", () => {
+    const html = makeInlinedToXmlShape(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-kw">');
+    expect(html).toContain('<span class="if-lit">');
+    expect(html).toContain('<span class="if-prop">');
+  });
+
+  it("Contact: html mode highlights function and return keywords", () => {
+    const html = makeInlinedToXmlShape(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-kw">function</span>');
+    expect(html).toContain('<span class="if-kw">return</span>');
+    expect(html).toContain('<span class="if-kw">const</span>');
+  });
+});
+
+describe("makeInlineCodeBlock html mode", () => {
+  it("Contact: plain mode has no span tags", () => {
+    const plain = makeInlineCodeBlock(defs, "Contact");
+    expect(plain).not.toContain("<span");
+  });
+
+  it("Contact: html mode contains highlighted comment", () => {
+    const html = makeInlineCodeBlock(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-cmt">');
+    expect(html).toContain("Project Contact");
+  });
+
+  it("Contact: html mode includes highlighted keywords", () => {
+    const html = makeInlineCodeBlock(defs, "Contact", { html: true });
+    expect(html).toContain('<span class="if-kw">function</span>');
+  });
+
+  it("Vehicle: html mode highlights dispatch function keywords", () => {
+    const html = makeInlineCodeBlock(defs, "Vehicle", { html: true });
+    expect(html).toContain('<span class="if-kw">switch</span>');
+    expect(html).toContain('<span class="if-kw">case</span>');
+    expect(html).toContain('<span class="if-kw">default</span>');
+  });
+
+  it("plain mode includes comment header", () => {
+    const plain = makeInlineCodeBlock(defs, "Contact");
+    expect(plain).toContain("/*");
+    expect(plain).toContain("Project Contact");
+  });
+});

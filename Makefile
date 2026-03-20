@@ -51,9 +51,13 @@ docs: $(GEN)/$(OUT_NAME)/docs/index.html
 # ── Schema HTML viewer ────────────────────────────────────────────────────────
 
 SCHEMA_HTML_SRCS := typescript/scripts/build-schema-html.ts \
-	typescript/scripts/lib/schema-viewer-fns.ts \
-	typescript/scripts/lib/schema-viewer-host-app.js \
-	typescript/scripts/lib/schema-viewer.css
+	typescript/scripts/lib/fns.ts \
+	typescript/scripts/lib/data-faker.ts \
+	typescript/scripts/lib/to-xml-shape.ts \
+	typescript/scripts/lib/codegens.ts \
+	typescript/scripts/lib/bundle-entry.ts \
+	typescript/scripts/static/schema-viewer-host-app.js \
+	typescript/scripts/static/schema-viewer.css
 
 $(GEN)/$(OUT_NAME)/netex-schema.html: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(SCHEMA_HTML_SRCS)
 	npx --prefix typescript tsx typescript/scripts/build-schema-html.ts

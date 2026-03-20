@@ -11,9 +11,15 @@ import {
   defRole,
   unwrapMixed,
   inlineSingleRefs,
+  genMockObject,
+  serialize,
+  resolveRefEntity,
+  collectRefProps,
+  collectExtraProps,
+  collectDependencyTree,
   type Defs,
   type ViaHop,
-} from "./schema-viewer-fns.js";
+} from "./fns.js";
 
 const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
 
@@ -206,7 +212,7 @@ describe("VehicleType — deep entity scenario (Interface tab)", () => {
 
     expect(refsByOrigin).toEqual({
       DataManagedObjectStructure: ["BrandingRef"],
-      TransportType_VersionStructure: ["PrivateCode", "DeckPlanRef", "PassengerCapacity"],
+      TransportType_VersionStructure: ["PrivateCode", "PassengerCapacity", "DeckPlanRef"],
       VehicleType_VersionStructure: ["IncludedIn", "ClassifiedAsRef"],
     });
   });
@@ -379,7 +385,7 @@ describe("resolvePropertyType — uncovered shape kinds", () => {
     const schema = defs["OrderedVersionOfObjectRefStructure"]?.properties?.["order"];
     expect(schema).toBeDefined();
     const result = resolvePropertyType(defs, schema);
-    expect(result).toEqual({ ts: "integer", complex: false });
+    expect(result).toEqual({ ts: "number", complex: false });
   });
 
   it("number primitive: MeasureType.value", () => {
@@ -787,5 +793,409 @@ describe("resolvePropertyType — x-fixed-single-enum (real schema)", () => {
     // Without context, falls through to normal enum resolution
     expect(result.ts).toBe("NameOfClass");
     expect(result.via).toEqual([{ name: "NameOfClass", rule: "enum" }]);
+  });
+});
+
+// ── genMockObject — real schema ─────────────────────────────────────────────
+
+describe("genMockObject — VehicleType (real schema)", () => {
+  it("has $id containing VehicleType", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.$id).toContain("VehicleType");
+  });
+
+  it("has $version set to '1'", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.$version).toBe("1");
+  });
+
+  it("has TransportMode as a valid enum value", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(typeof mock.TransportMode).toBe("string");
+    expect((mock.TransportMode as string).length).toBeGreaterThan(0);
+  });
+
+  it("has LowFloor as a boolean", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(typeof mock.LowFloor).toBe("boolean");
+  });
+
+  it("has BrandingRef as ref-pattern object", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const ref = mock.BrandingRef as Record<string, unknown>;
+    expect(ref).toBeDefined();
+    expect(typeof ref.value).toBe("string");
+    expect(typeof ref.$ref).toBe("string");
+  });
+
+  it("has PropulsionTypes as array with enum value", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const pt = mock.PropulsionTypes;
+    expect(Array.isArray(pt)).toBe(true);
+    expect((pt as unknown[]).length).toBeGreaterThan(0);
+    expect(typeof (pt as unknown[])[0]).toBe("string");
+  });
+
+  it("has $nameOfClass matching the entity name (XML attribute)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    // nameOfClass is an XML attribute → canonical name is $nameOfClass
+    expect(mock.$nameOfClass).toBe("VehicleType");
+  });
+
+  it("includes properties from all 5 inherited origins", () => {
+    // VehicleType chain (see flattenAllOf origin chain test):
+    //   EntityStructure                  (ROOT — id, nameOfClass)
+    //   EntityInVersionStructure         ($version, $created, $changed, $modification, ...)
+    //   DataManagedObjectStructure       (keyList, BrandingRef, ...)
+    //   TransportType_VersionStructure   (TransportMode, PrivateCode, ...)
+    //   VehicleType_VersionStructure     (LowFloor, Length, PropulsionTypes, ...)
+    //
+    const mock = genMockObject(defs, "VehicleType");
+
+    // EntityStructure
+    expect(mock.$id).toBeDefined();
+    expect(mock.$nameOfClass).toBeDefined();
+
+    // EntityInVersionStructure
+    expect(mock.$version).toBeDefined();
+    expect(mock.$created).toBeDefined();
+    expect(mock.$changed).toBeDefined();
+    expect(mock.$modification).toBeDefined();
+
+    // DataManagedObjectStructure
+    expect(mock.BrandingRef).toBeDefined();
+
+    // TransportType_VersionStructure — TransportMode (enum), PrivateCode (simpleObj atom),
+    // Name (shallow-complex: TextType[])
+    expect(mock.TransportMode).toBeDefined();
+    expect(mock.PrivateCode).toBeDefined();
+    expect(mock.Name).toBeDefined();
+    expect(Array.isArray(mock.Name)).toBe(true);
+
+    // VehicleType_VersionStructure
+    expect(mock.LowFloor).toBeDefined();
+    expect(mock.Length).toBeDefined();
+    expect(mock.PropulsionTypes).toBeDefined();
+    expect(mock.FuelTypes).toBeDefined();
+  });
+
+  it("fills Name as TextType[] array with value and $lang (shallow-complex via mixed-unwrap)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(Array.isArray(mock.Name)).toBe(true);
+    const item = (mock.Name as Record<string, unknown>[])[0];
+    expect(item).toBeDefined();
+    expect("value" in item).toBe(true);
+    expect("$lang" in item).toBe(true);
+  });
+
+  it("fills Description as TextType[] (same shallow-complex path as Name)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(Array.isArray(mock.Description)).toBe(true);
+  });
+
+  it("fills keyList as wrapper with KeyValue child array", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const wrapper = mock.keyList as Record<string, unknown>;
+    expect(wrapper).toBeDefined();
+    expect(typeof wrapper).toBe("object");
+    expect(Array.isArray(wrapper.KeyValue)).toBe(true);
+    const item = (wrapper.KeyValue as Record<string, unknown>[])[0];
+    expect(item).toBeDefined();
+    expect("Key" in item).toBe(true);
+    expect("Value" in item).toBe(true);
+  });
+
+  it("fills privateCodes as wrapper with PrivateCode child array", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const wrapper = mock.privateCodes as Record<string, unknown>;
+    expect(wrapper).toBeDefined();
+    expect(typeof wrapper).toBe("object");
+    expect(Array.isArray(wrapper.PrivateCode)).toBe(true);
+    const item = (wrapper.PrivateCode as Record<string, unknown>[])[0];
+    expect(item).toBeDefined();
+    expect("value" in item).toBe(true);
+  });
+
+  it("fills plain string properties with \"string\" default", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const pc = mock.PrivateCode as Record<string, unknown>;
+    expect(pc.value).toBe("string");
+  });
+
+  it("fills $created as date-time string (inherited from EntityInVersionStructure)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(mock.$created).toBe("2025-01-01T00:00:00");
+  });
+
+  it("fills $modification as first enum value (inherited from EntityInVersionStructure)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    expect(typeof mock.$modification).toBe("string");
+    expect((mock.$modification as string).length).toBeGreaterThan(0);
+  });
+
+  it("fills Length as a number (inherited from VehicleType_VersionStructure)", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    // Length → LengthType → atom collapse to number
+    expect(typeof mock.Length).toBe("number");
+  });
+});
+
+describe("serialize — VehicleType (real schema)", () => {
+  it("produces XML starting with <VehicleType", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const xml = serialize(defs, "VehicleType", mock);
+    expect(xml).toContain("<VehicleType");
+  });
+
+  it("contains id= attribute", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const xml = serialize(defs, "VehicleType", mock);
+    expect(xml).toContain('id=');
+  });
+
+  it("contains version= attribute", () => {
+    const mock = genMockObject(defs, "VehicleType");
+    const xml = serialize(defs, "VehicleType", mock);
+    expect(xml).toContain('version=');
+  });
+});
+
+// ── x-netex-refTarget annotation stamp ──────────────────────────────────────
+
+describe("x-netex-refTarget annotation", () => {
+  it("TransportTypeRef has stamp pointing to TransportType", () => {
+    expect(defs["TransportTypeRef"]["x-netex-refTarget"]).toBe("TransportType");
+  });
+
+  it("TransportTypeRefStructure has stamp pointing to TransportType", () => {
+    expect(defs["TransportTypeRefStructure"]["x-netex-refTarget"]).toBe("TransportType");
+  });
+
+  it("at least 160 reference-role defs have the stamp", () => {
+    const stamped = Object.entries(defs).filter(
+      ([, d]) => d["x-netex-refTarget"] !== undefined,
+    );
+    expect(stamped.length).toBeGreaterThanOrEqual(160);
+  });
+
+  it("framework refs like VersionOfObjectRef have no stamp", () => {
+    expect(defs["VersionOfObjectRef"]?.["x-netex-refTarget"]).toBeUndefined();
+  });
+});
+
+// ── resolveRefEntity — real schema ──────────────────────────────────────────
+
+describe("resolveRefEntity — real schema", () => {
+  it("TransportTypeRef resolves to TransportType entity", () => {
+    expect(resolveRefEntity(defs, "TransportTypeRef")).toBe("TransportType");
+  });
+
+  it("VehicleModelRef resolves to VehicleModel entity", () => {
+    expect(resolveRefEntity(defs, "VehicleModelRef")).toBe("VehicleModel");
+  });
+
+  it("OrganisationRef resolves to concrete entity sg-members (abstract expansion)", () => {
+    const result = resolveRefEntity(defs, "OrganisationRef");
+    expect(Array.isArray(result)).toBe(true);
+    expect((result as string[]).length).toBeGreaterThan(0);
+    // Every result should be an entity
+    for (const name of result as string[]) {
+      expect(defRole(defs[name])).toBe("entity");
+    }
+  });
+
+  it("VersionOfObjectRef returns null (framework ref)", () => {
+    expect(resolveRefEntity(defs, "VersionOfObjectRef")).toBeNull();
+  });
+});
+
+// ── collectRefProps — real schema ───────────────────────────────────────────
+
+describe("collectRefProps — real schema", () => {
+  it("Vehicle_VersionStructure has ref props including TransportTypeRef", () => {
+    const result = collectRefProps(defs, "Vehicle_VersionStructure");
+    expect(result.length).toBeGreaterThanOrEqual(3);
+    const names = result.map((r) => r.propName);
+    expect(names).toContain("TransportTypeRef");
+    expect(names).toContain("VehicleModelRef");
+  });
+
+  it("all returned target entities have entity role", () => {
+    const result = collectRefProps(defs, "Vehicle_VersionStructure");
+    for (const entry of result) {
+      for (const e of entry.targetEntities) {
+        expect(defRole(defs[e])).toBe("entity");
+      }
+    }
+  });
+});
+
+// ── collectExtraProps — real schema ─────────────────────────────────────────
+
+describe("collectExtraProps — real schema", () => {
+  it("TransportType at TransportType_VersionStructure base has no extras", () => {
+    expect(collectExtraProps(defs, "TransportType", "TransportType_VersionStructure")).toEqual([]);
+  });
+
+  it("VehicleType at TransportType_VersionStructure base has ~19 extras", () => {
+    const extras = collectExtraProps(defs, "VehicleType", "TransportType_VersionStructure");
+    expect(extras.length).toBeGreaterThanOrEqual(15);
+    expect(extras).toContain("LowFloor");
+    expect(extras).toContain("Length");
+    expect(extras).toContain("ClassifiedAsRef");
+  });
+
+  it("SimpleVehicleType at TransportType_VersionStructure base has ~11 extras", () => {
+    const extras = collectExtraProps(defs, "SimpleVehicleType", "TransportType_VersionStructure");
+    expect(extras.length).toBeGreaterThanOrEqual(8);
+    expect(extras).toContain("VehicleCategory");
+    expect(extras).toContain("NumberOfWheels");
+    expect(extras).toContain("Portable");
+  });
+
+  it("VehicleType extras do not include TransportMode (ancestor prop)", () => {
+    const extras = collectExtraProps(defs, "VehicleType", "TransportType_VersionStructure");
+    expect(extras).not.toContain("TransportMode");
+  });
+});
+
+// ── VehicleType_VersionStructure end-to-end relations ───────────────────────
+
+describe("VehicleType_VersionStructure — relations end-to-end", () => {
+  it("collectRefProps finds at least 4 ref props", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    expect(refs.length).toBeGreaterThanOrEqual(4);
+    const names = refs.map((r) => r.propName);
+    expect(names).toContain("BrandingRef");
+    expect(names).toContain("ClassifiedAsRef");
+    expect(names).toContain("DeckPlanRef");
+    expect(names).toContain("IncludedIn");
+  });
+
+  it("ClassifiedAsRef resolves to VehicleModel entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const classified = refs.find((r) => r.propName === "ClassifiedAsRef");
+    expect(classified).toBeDefined();
+    expect(classified!.targetEntities).toContain("VehicleModel");
+  });
+
+  it("DeckPlanRef resolves to DeckPlan entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const dp = refs.find((r) => r.propName === "DeckPlanRef");
+    expect(dp).toBeDefined();
+    expect(dp!.targetEntities).toContain("DeckPlan");
+  });
+
+  it("IncludedIn resolves to VehicleType entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const inc = refs.find((r) => r.propName === "IncludedIn");
+    expect(inc).toBeDefined();
+    expect(inc!.targetEntities).toContain("VehicleType");
+  });
+
+  it("BrandingRef resolves to Branding entity", () => {
+    const refs = collectRefProps(defs, "VehicleType_VersionStructure");
+    const br = refs.find((r) => r.propName === "BrandingRef");
+    expect(br).toBeDefined();
+    expect(br!.targetEntities).toContain("Branding");
+  });
+
+  it("findTransitiveEntityUsers finds VehicleType, Train, and CompoundTrain", () => {
+    const reverseIndex = buildReverseIndex(defs);
+    const entities = findTransitiveEntityUsers(
+      "VehicleType_VersionStructure",
+      reverseIndex,
+      (n) => defRole(defs[n]) === "entity",
+    );
+    expect(entities).toContain("VehicleType");
+    expect(entities).toContain("Train");
+    expect(entities).toContain("CompoundTrain");
+    // SimpleVehicleType does NOT extend VehicleType_VersionStructure
+    expect(entities).not.toContain("SimpleVehicleType");
+  });
+
+  it("VehicleType has no extra props at VehicleType_VersionStructure base", () => {
+    expect(collectExtraProps(defs, "VehicleType", "VehicleType_VersionStructure")).toEqual([]);
+  });
+
+  it("Train has TrainSize and components as extras beyond VehicleType_VersionStructure", () => {
+    const extras = collectExtraProps(defs, "Train", "VehicleType_VersionStructure");
+    expect(extras).toContain("TrainSize");
+    expect(extras).toContain("components");
+  });
+
+  it("CompoundTrain has components as extra beyond VehicleType_VersionStructure", () => {
+    const extras = collectExtraProps(defs, "CompoundTrain", "VehicleType_VersionStructure");
+    expect(extras).toContain("components");
+  });
+
+  it("Train extras do not include VehicleType_VersionStructure props", () => {
+    const extras = collectExtraProps(defs, "Train", "VehicleType_VersionStructure");
+    // These are on VehicleType_VersionStructure itself, not on intermediate levels
+    expect(extras).not.toContain("LowFloor");
+    expect(extras).not.toContain("Length");
+    expect(extras).not.toContain("PropulsionTypes");
+  });
+});
+
+// ── collectDependencyTree ───────────────────────────────────────────────────
+
+describe("collectDependencyTree", () => {
+  it("enum returns empty", () => {
+    expect(collectDependencyTree(defs, "ModificationEnumeration")).toHaveLength(0);
+  });
+
+  it("simple structure has expected deps", () => {
+    const tree = collectDependencyTree(defs, "ContactStructure");
+    const unique = tree.filter((n) => !n.duplicate);
+    expect(unique.length).toBeGreaterThanOrEqual(3);
+    const names = unique.map((n) => n.name);
+    expect(names).toContain("MultilingualString");
+    expect(names).toContain("PhoneType");
+    expect(names).toContain("EmailAddressType");
+  });
+
+  it("ContactStructure tree has duplicates for reused types", () => {
+    const tree = collectDependencyTree(defs, "ContactStructure");
+    const duplicates = tree.filter((n) => n.duplicate);
+    const dupNames = duplicates.map((n) => n.name);
+    // Phone and MultilingualString are used by multiple properties
+    expect(dupNames).toContain("PhoneType");
+    expect(dupNames).toContain("MultilingualString");
+  });
+
+  it("deep entity has many deps — Authority", () => {
+    const tree = collectDependencyTree(defs, "Authority");
+    const unique = tree.filter((n) => !n.duplicate);
+    const total = tree.length;
+    expect(unique.length).toBeGreaterThan(10);
+    expect(total).toBeGreaterThan(unique.length);
+  });
+
+  it("root excluded from output", () => {
+    const tree = collectDependencyTree(defs, "Authority");
+    // Authority itself should not appear; resolve its alias too
+    expect(tree.every((n) => n.name !== "Authority")).toBe(true);
+  });
+
+  it("via paths reference known property names", () => {
+    const tree = collectDependencyTree(defs, "ContactStructure");
+    const first = tree[0];
+    expect(first.via).toBeTruthy();
+    expect(typeof first.via).toBe("string");
+  });
+
+  it("BFS depth ordering — all depth-0 before depth-1", () => {
+    const tree = collectDependencyTree(defs, "Authority");
+    if (tree.length === 0) return;
+    let lastDepth0Idx = -1;
+    let firstDepth1Idx = Infinity;
+    for (let i = 0; i < tree.length; i++) {
+      if (tree[i].depth === 0) lastDepth0Idx = i;
+      if (tree[i].depth === 1 && i < firstDepth1Idx) firstDepth1Idx = i;
+    }
+    if (firstDepth1Idx < Infinity) {
+      expect(lastDepth0Idx).toBeLessThan(firstDepth1Idx);
+    }
   });
 });

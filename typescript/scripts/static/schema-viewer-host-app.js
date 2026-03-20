@@ -92,6 +92,9 @@
     let currentExplored = null;
     let currentMode = null;
 
+    var TAB_MAP = { props: 'explorerProps', graph: 'explorerGraph', relations: 'explorerRelations', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
+    const relationsContainer = document.getElementById('relationsContainer');
+
     /**
      * Switch the explorer panel between "explore" (Properties + Graph)
      * and "code" (Interface + Mapping + Utilities) tab sets.
@@ -106,7 +109,7 @@
         chip.textContent = mode === 'code' ? 'Code' : 'Explore';
       }
       var tabs = explorerPanel.querySelectorAll('.explorer-tab');
-      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true } : { props: true, graph: true };
+      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true, sample: true } : { props: true, graph: true, relations: true };
       var firstVisible = null;
       tabs.forEach(function(t) {
         var show = !!visible[t.dataset.tab];
@@ -118,8 +121,7 @@
         tabs.forEach(function(t) { t.classList.remove('active'); });
         explorerPanel.querySelectorAll('.explorer-tab-content').forEach(function(c) { c.classList.remove('active'); });
         firstVisible.classList.add('active');
-        var tm = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
-        document.getElementById(tm[firstVisible.dataset.tab]).classList.add('active');
+        document.getElementById(TAB_MAP[firstVisible.dataset.tab]).classList.add('active');
         ifaceToggleLabel.style.display = (firstVisible.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
       }
     }
@@ -131,8 +133,7 @@
       explorerPanel.querySelectorAll('.explorer-tab').forEach(t => t.classList.remove('active'));
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
-      const tabMap = { props: 'explorerProps', graph: 'explorerGraph', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils' };
-      document.getElementById(tabMap[tab.dataset.tab] || 'explorerProps').classList.add('active');
+      document.getElementById(TAB_MAP[tab.dataset.tab] || 'explorerProps').classList.add('active');
       ifaceToggleLabel.style.display = (tab.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
     });
 
@@ -152,6 +153,7 @@
     function renderExplorer(name) {
       currentIsAlias = false;
       const props = flattenAllOf(defs, name);
+      const required = collectRequired(defs, name);
       explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
       explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
@@ -176,13 +178,17 @@
 
       explorerProps.innerHTML = html;
       renderGraph(name);
+      relationsContainer.innerHTML = '<div class="spinner"></div>';
+      setTimeout(function() { renderRelations(name); }, 0);
       explorerIface.innerHTML = '<div class="spinner"></div>';
       explorerMapping.innerHTML = '<div class="spinner"></div>';
       explorerUtils.innerHTML = '<div class="spinner"></div>';
+      explorerSample.innerHTML = '<div class="spinner"></div>';
       setTimeout(function() {
-        renderInterface(name);
-        renderMappingGuide(name);
-        renderUtils(name);
+        renderInterface(name, props);
+        renderMappingGuide(name, props);
+        renderUtils(name, props, required);
+        renderSampleData(name);
       }, 0);
       currentExplored = name;
     }
@@ -300,6 +306,204 @@
       graphContainer.innerHTML = renderGraphSvg(name, colors);
     }
 
+    // ── Relations tab ─────────────────────────────────────────────────
+
+    var _relationsRefProps = [];
+    var _relationsCurrentName = null;
+
+    /**
+     * Build a bipartite SVG showing entity-to-entity relationships through a selected ref.
+     *
+     * Left column = "my entities" (entities whose structure has the ref property).
+     * Right column = "can own" (entities at the target of the ref).
+     * Each box shows entity name + extra properties that entity adds beyond the base.
+     */
+    function renderRelationsSvg(leftNodes, rightNodes, refLabel, colors) {
+      var PAD = 14, COL_W = 180, GAP_X = 80, NODE_RX = 6;
+      var TITLE_H = 22, PROP_H = 14, BOX_PAD_Y = 6, BOX_GAP_Y = 10;
+      var MAX_SHOWN_PROPS = 6;
+      var HEADER_H = 22;
+
+      var accent = colors.accent, fg = colors.fg, muted = colors.muted, cardBg = colors.cardBg, cardBorder = colors.cardBorder;
+
+      function boxHeight(node) {
+        var shown = Math.min(node.extras.length, MAX_SHOWN_PROPS);
+        var moreH = node.extras.length > MAX_SHOWN_PROPS ? PROP_H : 0;
+        return TITLE_H + (shown > 0 ? BOX_PAD_Y + shown * PROP_H + moreH : 0) + BOX_PAD_Y;
+      }
+
+      function stackColumn(nodes) {
+        var y = PAD + HEADER_H;
+        var items = [];
+        for (var i = 0; i < nodes.length; i++) {
+          var h = boxHeight(nodes[i]);
+          items.push({ node: nodes[i], y: y, h: h });
+          y += h + BOX_GAP_Y;
+        }
+        return { items: items, totalH: y - BOX_GAP_Y + PAD };
+      }
+
+      var leftCol = stackColumn(leftNodes);
+      var rightCol = stackColumn(rightNodes);
+      var totalH = Math.max(leftCol.totalH, rightCol.totalH, PAD + HEADER_H + 40);
+      var totalW = PAD + COL_W + GAP_X + COL_W + PAD;
+
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + totalW + '" height="' + totalH + '">';
+      svg += '<defs><marker id="rel-arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">';
+      svg += '<path d="M0,0 L10,3 L0,6 Z" fill="' + muted + '"/></marker></defs>';
+
+      // Column headers
+      svg += '<text x="' + (PAD + COL_W / 2) + '" y="' + (PAD + 14) + '" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="' + muted + '">My entities</text>';
+      svg += '<text x="' + (PAD + COL_W + GAP_X + COL_W / 2) + '" y="' + (PAD + 14) + '" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="' + muted + '">Can own</text>';
+
+      // Ref label centered between columns
+      svg += '<text x="' + (PAD + COL_W + GAP_X / 2) + '" y="' + (PAD + 14) + '" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="' + accent + '">' + esc(refLabel) + '</text>';
+
+      function renderColumn(col, x, isLeft) {
+        for (var i = 0; i < col.items.length; i++) {
+          var item = col.items[i];
+          var n = item.node;
+          var fill = cardBg;
+          var stroke = cardBorder;
+          var textFill = fg;
+          svg += '<g class="graph-node" data-def="' + esc(n.name) + '">';
+          svg += '<title>' + esc(n.name) + (n.extras.length > 0 ? ' (+' + n.extras.length + ' props)' : '') + '</title>';
+          svg += '<rect x="' + x + '" y="' + item.y + '" width="' + COL_W + '" height="' + item.h + '" rx="' + NODE_RX + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>';
+          // Title
+          var label = n.name.length > 22 ? n.name.slice(0, 20) + '\u2026' : n.name;
+          svg += '<text x="' + (x + 8) + '" y="' + (item.y + 15) + '" dominant-baseline="middle" font-family="ui-monospace,monospace" font-size="11" font-weight="600" fill="' + textFill + '">' + esc(label) + '</text>';
+          // Extra props
+          var shown = Math.min(n.extras.length, MAX_SHOWN_PROPS);
+          for (var j = 0; j < shown; j++) {
+            var py = item.y + TITLE_H + BOX_PAD_Y + j * PROP_H;
+            var pLabel = n.extras[j].length > 24 ? n.extras[j].slice(0, 22) + '\u2026' : n.extras[j];
+            svg += '<text x="' + (x + 12) + '" y="' + (py + 10) + '" font-family="ui-monospace,monospace" font-size="9" fill="' + muted + '">+ ' + esc(pLabel) + '</text>';
+          }
+          if (n.extras.length > MAX_SHOWN_PROPS) {
+            var moreY = item.y + TITLE_H + BOX_PAD_Y + shown * PROP_H;
+            svg += '<text x="' + (x + 12) + '" y="' + (moreY + 10) + '" font-family="system-ui,sans-serif" font-size="9" font-style="italic" fill="' + muted + '">…and ' + (n.extras.length - MAX_SHOWN_PROPS) + ' more</text>';
+          }
+          svg += '</g>';
+        }
+      }
+
+      renderColumn(leftCol, PAD, true);
+      renderColumn(rightCol, PAD + COL_W + GAP_X, false);
+
+      // Edges: each left → each right
+      for (var li = 0; li < leftCol.items.length; li++) {
+        var lItem = leftCol.items[li];
+        var lMidY = lItem.y + lItem.h / 2;
+        for (var ri = 0; ri < rightCol.items.length; ri++) {
+          var rItem = rightCol.items[ri];
+          var rMidY = rItem.y + rItem.h / 2;
+          svg += '<line x1="' + (PAD + COL_W) + '" y1="' + lMidY + '" x2="' + (PAD + COL_W + GAP_X) + '" y2="' + rMidY + '" stroke="' + cardBorder + '" stroke-width="1" marker-end="url(#rel-arrow)"/>';
+        }
+      }
+
+      svg += '</svg>';
+      return svg;
+    }
+
+    /** Render the Relations SVG for a given definition and selected ref prop into the SVG container. */
+    function renderRelationsForRef(name, refEntry) {
+      var svgContainer = document.getElementById('relationsSvgContainer');
+      if (!svgContainer) return;
+
+      var cs = getComputedStyle(document.documentElement);
+      var colors = {
+        accent: cs.getPropertyValue('--accent').trim(),
+        fg: cs.getPropertyValue('--fg').trim(),
+        muted: cs.getPropertyValue('--muted').trim(),
+        cardBg: cs.getPropertyValue('--card-bg').trim(),
+        cardBorder: cs.getPropertyValue('--card-border').trim()
+      };
+
+      // Left column: entities that use the current structure
+      var reverseIdx = buildReverseIndex();
+      var isEntityPred = function(n) { return defRole(defs[n]) === 'entity'; };
+      var myEntities = findTransitiveEntityUsers(name, reverseIdx, isEntityPred);
+
+      // Right column: find entities that use the target's backing structure
+      // (mirrors left-side logic — target entity is a pure alias, its structure has the subtypes)
+      var rightEntitiesSet = {};
+      var rightBaseStructure = null;
+      for (var ti = 0; ti < refEntry.targetEntities.length; ti++) {
+        var te = refEntry.targetEntities[ti];
+        var teDef = defs[te];
+        // Resolve entity → backing structure
+        var backingStruct = teDef && teDef.$ref
+          ? teDef.$ref.replace('#/definitions/', '')
+          : (teDef && teDef.allOf ? (function() {
+              for (var a = 0; a < teDef.allOf.length; a++) {
+                if (teDef.allOf[a].$ref) return teDef.allOf[a].$ref.replace('#/definitions/', '');
+              }
+              return null;
+            })() : null);
+        if (!backingStruct) { rightEntitiesSet[te] = true; continue; }
+        if (!rightBaseStructure) rightBaseStructure = backingStruct;
+        var structUsers = findTransitiveEntityUsers(backingStruct, reverseIdx, isEntityPred);
+        for (var ui = 0; ui < structUsers.length; ui++) {
+          rightEntitiesSet[structUsers[ui]] = true;
+        }
+      }
+      var rightEntityNames = Object.keys(rightEntitiesSet).sort();
+
+      var leftNodes = myEntities.map(function(e) {
+        return { name: e, extras: collectExtraProps(e, name) };
+      });
+      var rightNodes = rightEntityNames.map(function(e) {
+        return { name: e, extras: rightBaseStructure ? collectExtraProps(e, rightBaseStructure) : [] };
+      });
+
+      if (leftNodes.length === 0 && rightNodes.length === 0) {
+        svgContainer.innerHTML = '<p class="explorer-empty">No entity relationships for this reference.</p>';
+        return;
+      }
+
+      svgContainer.innerHTML = renderRelationsSvg(leftNodes, rightNodes, refEntry.propName, colors);
+    }
+
+    /** Populate the Relations tab: dropdown + initial SVG. */
+    function renderRelations(name) {
+      _relationsRefProps = collectRefProps(name);
+      _relationsCurrentName = name;
+
+      if (_relationsRefProps.length === 0) {
+        relationsContainer.innerHTML = '<p class="explorer-empty">No reference properties.</p>';
+        return;
+      }
+
+      // Build dropdown + container
+      var html = '<div class="relations-controls"><label>Ref: <select class="relations-select" id="relationsSelect">';
+      for (var i = 0; i < _relationsRefProps.length; i++) {
+        html += '<option value="' + i + '">' + esc(_relationsRefProps[i].propName) + '</option>';
+      }
+      html += '</select></label></div>';
+      html += '<div class="relations-svg-container" id="relationsSvgContainer"></div>';
+      relationsContainer.innerHTML = html;
+
+      // Render first ref
+      renderRelationsForRef(name, _relationsRefProps[0]);
+
+      // Wire dropdown change
+      document.getElementById('relationsSelect').addEventListener('change', function(e) {
+        var idx = parseInt(e.target.value, 10);
+        if (_relationsRefProps[idx]) {
+          renderRelationsForRef(_relationsCurrentName, _relationsRefProps[idx]);
+        }
+      });
+    }
+
+    // Relations SVG node clicks (delegate from relationsContainer)
+    relationsContainer.addEventListener('click', function(e) {
+      var node = e.target.closest('.graph-node');
+      if (node && node.dataset.def && defs[node.dataset.def]) {
+        if (decodeURIComponent(location.hash) !== '#' + node.dataset.def) location.hash = '#' + node.dataset.def;
+        renderExplorer(node.dataset.def);
+      }
+    });
+
     // ── TypeScript tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
@@ -307,6 +511,7 @@
     const inlineRefsCheck = document.getElementById('inlineRefsCheck');
     var inlineRefsEnabled = false;
     var currentIsAlias = false;
+    var currentExcluded = {};
 
     /**
      * Build the "suggested flat interface" HTML for the TypeScript tab.
@@ -322,158 +527,19 @@
      * @param {string} name  Definition name.
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
-    function renderInterfaceHtml(name) {
-      var flat = flattenAllOf(defs, name);
-
-      // If no properties, try to render as a type alias
-      if (flat.length === 0) {
-        var resolved = resolveDefType(name);
-        var isAlias = !resolved.complex || resolved.ts !== name;
-        if (isAlias) {
-          return renderTypeAliasHtml(name, resolved);
-        }
-      }
-
-      var props = inlineRefsEnabled ? inlineSingleRefs(flat) : flat;
-      var origins = [];
-      var originSeen = {};
-      for (var oi = 0; oi < props.length; oi++) {
-        if (!originSeen[props[oi].origin]) { originSeen[props[oi].origin] = true; origins.push(props[oi].origin); }
-      }
-
-      var lines = [];
-      lines.push('<span class="if-cmt">/**');
-      lines.push(' * Suggested flat interface for ' + esc(name));
-      lines.push(' * Resolved from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '') + ' in the inheritance chain');
-      lines.push(' */</span>');
-      lines.push('<span class="if-kw">interface</span> ' + esc(name) + ' {');
-
-      var lastOrigin = null;
-      var lastInlinedFrom = null;
-      for (var pi = 0; pi < props.length; pi++) {
-        var p = props[pi];
-        if (p.origin !== lastOrigin) {
-          if (lastOrigin !== null) lines.push('');
-          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.origin) + ' \u2500\u2500</span>');
-          lastOrigin = p.origin;
-          lastInlinedFrom = null;
-        }
-        if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
-          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + esc(p.inlinedFrom) + ' (inlined) \u2500\u2500</span>');
-          lastInlinedFrom = p.inlinedFrom;
-        } else if (!p.inlinedFrom && lastInlinedFrom) {
-          lastInlinedFrom = null;
-        }
-        var resolved = resolvePropertyType(p.schema, name);
-        var typeHtml;
-        if (resolved.complex) {
-          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          var suffix = resolved.ts.endsWith('[]') ? '[]' : '';
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-          var atom = resolveAtom(typeName);
-          if (atom && atom !== 'simpleObj') typeHtml += ' <span class="if-cmt">// \u2192 ' + esc(atom) + '</span>';
-        } else if (defs[resolved.ts]) {
-          // Named def resolved as non-complex (e.g. stamped enum) — still linkable
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(resolved.ts) + '">' + esc(resolved.ts) + '</a>';
-        } else if (resolved.ts.indexOf('|') !== -1) {
-          var parts = resolved.ts.split(' | ');
-          typeHtml = parts.map(function(part) {
-            part = part.trim();
-            if (part.charAt(0) === '"' || part.charAt(0) === "'") return '<span class="if-lit">' + esc(part) + '</span>';
-            return '<span class="if-prim">' + esc(part) + '</span>';
-          }).join(' | ');
-        } else if (resolved.ts.indexOf('/*') !== -1) {
-          var ci = resolved.ts.indexOf(' /*');
-          if (ci !== -1) typeHtml = '<span class="if-prim">' + esc(resolved.ts.slice(0, ci)) + '</span><span class="if-cmt">' + esc(resolved.ts.slice(ci)) + '</span>';
-          else typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        } else {
-          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        }
-        var viaAttr = '';
-        if (resolved.via && resolved.via.length > 0) {
-          viaAttr = ' data-via="' + encodeURIComponent(JSON.stringify(resolved.via)) + '"';
-        }
-        lines.push('  <span class="if-prop"' + viaAttr + '>' + esc(p.prop[1]) + '</span>?: ' + typeHtml + ';');
-      }
-
-      lines.push('}');
-
-      var html = '<div class="interface-block">' + lines.join('\n');
-      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
-      return { html: html, isAlias: false };
-    }
-
-    /**
-     * Convert a PascalCase type name to UPPER_SNAKE_CASE for a const array name.
-     * Strips trailing "Enumeration" suffix before converting.
-     * e.g. "AllPublicTransportModesEnumeration" → "ALL_PUBLIC_TRANSPORT_MODES"
-     */
-    function toConstName(name) {
-      var base = name.replace(/Enumeration$/, '');
-      return base.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toUpperCase();
-    }
-
-    /**
-     * Build type-alias HTML for definitions that resolve to a primitive or enum.
-     * @param {string} name  Definition name.
-     * @param {{ts:string, complex:boolean, via?:Array}} resolved  Result from resolveDefType.
-     * @returns {{html:string, isAlias:boolean}}
-     */
-    function renderTypeAliasHtml(name, resolved) {
-      // Find the enum values — walk through the via chain to find the def with .enum
-      var enumValues = null;
-      var def = defs[name];
-      if (def && def.enum) {
-        enumValues = def.enum;
-      } else if (resolved.via) {
-        for (var vi = 0; vi < resolved.via.length; vi++) {
-          var hopDef = defs[resolved.via[vi].name];
-          if (hopDef && hopDef.enum) { enumValues = hopDef.enum; break; }
-        }
-      }
-
-      var lines = [];
-      lines.push('<span class="if-cmt">/**');
-      lines.push(' * Type alias for ' + esc(name));
-      if (resolved.via && resolved.via.length > 0) {
-        var chain = resolved.via.map(function(hop) { return hop.name + ' \u2192 ' + hop.rule; }).join(' \u2192 ');
-        lines.push(' * Resolved via: ' + esc(chain));
-      }
-      lines.push(' */</span>');
-
-      // Enum with values → const array + indexed type
-      if (enumValues) {
-        var constName = toConstName(name);
-        var litItems = enumValues.map(function(v) {
-          return '  <span class="if-lit">' + esc(JSON.stringify(v)) + '</span>';
-        });
-        lines.push('<span class="if-kw">const</span> ' + esc(constName) + ' = [');
-        lines.push(litItems.join(',\n'));
-        lines.push('] <span class="if-kw">as const</span>;');
-        lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = (<span class="if-kw">typeof</span> ' + esc(constName) + ')[<span class="if-prim">number</span>];');
-      } else {
-        // Non-enum type alias
-        var typeHtml;
-        if (resolved.complex) {
-          var typeName = resolved.ts.endsWith('[]') ? resolved.ts.slice(0, -2) : resolved.ts;
-          var suffix = resolved.ts.endsWith('[]') ? '[]' : '';
-          typeHtml = '<a class="if-ref explorer-type-link" href="#' + esc(typeName) + '">' + esc(typeName) + '</a>' + suffix;
-        } else if (resolved.ts.indexOf('|') !== -1) {
-          var parts = resolved.ts.split(' | ');
-          typeHtml = parts.map(function(part) {
-            part = part.trim();
-            if (part.charAt(0) === '"' || part.charAt(0) === "'") return '<span class="if-lit">' + esc(part) + '</span>';
-            return '<span class="if-prim">' + esc(part) + '</span>';
-          }).join(' | ');
-        } else {
-          typeHtml = '<span class="if-prim">' + esc(resolved.ts) + '</span>';
-        }
-        lines.push('<span class="if-kw">type</span> ' + esc(name) + ' = ' + typeHtml + ';');
-      }
-
-      var html = '<div class="interface-block">' + lines.join('\n');
-      html += '<button class="copy-btn" id="ifaceCopy">Copy</button></div>';
-      return { html: html, isAlias: true };
+    function renderInterfaceHtml(name, preProps, metaComments) {
+      var result = generateInterface(defs, name, {
+        html: true,
+        metaComments: metaComments,
+        inlineRefs: metaComments && inlineRefsEnabled,
+        preProps: preProps || undefined,
+        excludeCheckboxes: metaComments,
+      });
+      var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
+      var html = '<div class="' + blockClass + '">' + result.text;
+      if (metaComments) html += '<button class="copy-btn">Copy</button>';
+      html += '</div>';
+      return { html: html, isAlias: result.isAlias };
     }
 
     // Wire inline-refs checkbox once
@@ -483,31 +549,150 @@
     });
 
     /** Render the TypeScript tab into its container element. */
-    function renderInterface(name) {
-      var result = renderInterfaceHtml(name);
+    function renderInterface(name, props) {
+      currentExcluded = {};
+      var result = renderInterfaceHtml(name, props, true);
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
+      updateDepsSection();
       inlineRefsCheck.checked = inlineRefsEnabled;
-      // Hide inline-refs toggle for type aliases (no properties to inline)
-      if (currentIsAlias) {
-        ifaceToggleLabel.style.display = 'none';
-      } else {
-        ifaceToggleLabel.style.display = '';
+      var ifaceActive = explorerIface.classList.contains('active');
+      ifaceToggleLabel.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
+    }
+
+    /** (Re-)render the "+N subtypes" chip and dep blocks, respecting excluded props. */
+    function updateDepsSection() {
+      // Remove existing chip + dep blocks
+      var oldChip = explorerIface.querySelector('.deps-expand-chip');
+      var oldDeps = document.getElementById('ifaceDepBlocks');
+      if (oldChip) oldChip.remove();
+      if (oldDeps) oldDeps.remove();
+
+      if (currentIsAlias || !currentExplored) return;
+
+      var excludedSet = new Set(Object.keys(currentExcluded));
+      var depNodes = collectDependencyTree(currentExplored, excludedSet);
+      // Total unique deps (for compaction % display)
+      var seen = {};
+      var totalUnique = 0;
+      for (var i = 0; i < depNodes.length; i++) {
+        if (!depNodes[i].duplicate && !seen[depNodes[i].name]) {
+          seen[depNodes[i].name] = true;
+          totalUnique++;
+        }
+      }
+
+      var uniqueNames = collectRenderableDeps(currentExplored, excludedSet);
+      if (uniqueNames.length > 0) {
+        var chip = document.createElement('button');
+        chip.className = 'deps-expand-chip';
+        chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
+        if (Object.keys(currentExcluded).length > 0) {
+          chip.classList.add('chip-flash');
+          chip.addEventListener('animationend', function() { chip.classList.remove('chip-flash'); }, { once: true });
+        }
+        explorerIface.appendChild(chip);
+
+        var depsDiv = document.createElement('div');
+        depsDiv.id = 'ifaceDepBlocks';
+        depsDiv.style.display = 'none';
+        explorerIface.appendChild(depsDiv);
+
+        chip.addEventListener('click', function() {
+          if (depsDiv.style.display !== 'none') {
+            depsDiv.style.display = 'none';
+            depsDiv.innerHTML = '';
+            chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
+            chip.classList.remove('expanded');
+            return;
+          }
+          chip.classList.add('expanded');
+          chip.textContent = 'Loading\u2026';
+          depsDiv.style.display = '';
+          depsDiv.innerHTML = '<div class="spinner"></div>';
+          setTimeout(function() { renderDepInterfaces(depsDiv, chip, uniqueNames, totalUnique); }, 0);
+        });
       }
     }
 
-    // Copy handler
-    explorerIface.addEventListener('click', e => {
-      if (!e.target.closest('.copy-btn')) return;
-      const block = explorerIface.querySelector('.interface-block');
-      if (!block) return;
-      // Extract plain text (strip HTML tags)
-      const plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(() => {
-        const btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(() => btn.textContent = 'Copy', 1500);
+    /** Build chip label showing rendered count and compaction percentage. */
+    function depChipLabel(shown, total, expanded) {
+      var prefix = expanded ? '\u25BC ' : '+';
+      var label = prefix + shown + ' subtype' + (shown !== 1 ? 's' : '');
+      if (total > shown) {
+        var pct = Math.round((1 - shown / total) * 100);
+        label += ' (' + pct + '% compaction)';
+      }
+      return label;
+    }
+
+    /** Lazily render compact interface blocks for all transitive dependency types. */
+    function renderDepInterfaces(container, chip, names, totalUnique) {
+      var html = '';
+      for (var i = 0; i < names.length; i++) {
+        var result = renderInterfaceHtml(names[i], null, false);
+        html += result.html;
+      }
+      container.innerHTML = html;
+      chip.textContent = depChipLabel(names.length, totalUnique, true);
+    }
+
+    // Copy-to-clipboard: shared handler for all tabs with .copy-btn inside .interface-block
+    function attachCopyHandler(container) {
+      container.addEventListener('click', function(e) {
+        if (!e.target.closest('.copy-btn')) return;
+        var block = e.target.closest('.interface-block');
+        if (!block) return;
+        // For iface tab: generate full copy block with subtypes
+        var plain;
+        if (container === explorerIface && currentExplored) {
+          // Collect excluded property names from checked checkboxes
+          var excludedProps = {};
+          var cbs = block.querySelectorAll('.excl-cb:checked');
+          for (var ci = 0; ci < cbs.length; ci++) {
+            var propSpan = cbs[ci].closest('.if-line');
+            if (propSpan) {
+              var pn = propSpan.querySelector('.if-prop');
+              if (pn) excludedProps[pn.textContent] = true;
+            }
+          }
+          var excludedSet = new Set(Object.keys(excludedProps));
+          var root = generateRootDefBlock(currentExplored);
+          var subs = generateSubTypeDefsBlock(currentExplored, { excludedMembers: excludedSet });
+          plain = subs ? root + '\n\n' + subs : root;
+          // Strip excluded property lines from plain-text output
+          if (Object.keys(excludedProps).length > 0) {
+            plain = plain.split('\n').filter(function(line) {
+              var m = line.match(/^\s+(\w+)\?:/);
+              return !m || !excludedProps[m[1]];
+            }).join('\n');
+          }
+        } else {
+          plain = block.innerText.replace(/Copy$/, '').trimEnd();
+        }
+        navigator.clipboard.writeText(plain).then(function() {
+          var btn = e.target.closest('.copy-btn');
+          btn.textContent = 'Copied!';
+          setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+        });
       });
+    }
+    attachCopyHandler(explorerIface);
+
+    // Exclude-from-codegen checkbox toggle
+    explorerIface.addEventListener('change', function(e) {
+      if (!e.target.classList.contains('excl-cb')) return;
+      var line = e.target.closest('.if-line');
+      if (!line) return;
+      var propName = line.querySelector('.if-prop')?.textContent;
+      if (e.target.checked) {
+        line.classList.add('excludeInCodeGen');
+        if (propName) currentExcluded[propName] = true;
+      } else {
+        line.classList.remove('excludeInCodeGen');
+        if (propName) delete currentExcluded[propName];
+      }
+      updateDepsSection();
     });
 
     // Via-chain popup on hover
@@ -566,91 +751,27 @@
     const explorerMapping = document.getElementById('explorerMapping');
 
     /**
-     * Build the XML Mapping tab HTML: a serialize function for fast-xml-parser.
-     *
-     * Convention: PascalCase = XML elements, `$` prefix = XML attributes.
-     * The serialize function renames `$`-prefixed props to `@_` for fast-xml-parser,
-     * stringifies booleans, and recurses into nested objects.
+     * Build the XML Mapping tab HTML: a generated per-entity projection
+     * function from `makeInlineCodeBlock`.
      *
      * @param {string} name  Definition name.
-     * @returns {string} HTML with intro text and a serialize code block.
+     * @returns {string} HTML with a code block containing the generated JS.
      */
-    function renderMappingHtml(name) {
-      var html = '';
-      html += '<p class="mapping-intro">';
-      html += 'Serialize <code>' + esc(name) + '</code> to XML via ';
-      html += '<a href="https://github.com/NaturalIntelligence/fast-xml-parser" target="_blank">fast-xml-parser</a>. ';
-      html += 'Convention: PascalCase = XML elements, <code>$</code> prefix = XML attributes.';
-      html += '</p>';
+    function renderMappingHtml(name, props) {
+      var highlighted = makeInlineCodeBlock(name, props, { html: true });
 
+      var html = '';
       html += '<div class="mapping-section"><h3>Serialize</h3>';
       html += '<div class="interface-block">';
-      html += renderSerializeCode(name);
+      html += highlighted;
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       return html;
     }
 
-    /**
-     * Generate serialize code for fast-xml-parser XMLBuilder.
-     *
-     * Emits a generic recursive `serializeValue` that handles `$`→`@_`
-     * renaming, boolean stringification, arrays, and nested objects —
-     * matching the proven Hathor pattern. No per-property enumeration.
-     *
-     * @param {string} name  Definition name.
-     * @returns {string} Syntax-highlighted HTML code block.
-     */
-    function renderSerializeCode(name) {
-      var kw = 'if-kw', lit = 'if-lit', prim = 'if-prim', ref = 'if-ref', prop = 'if-prop', cmt = 'if-cmt';
-      var lines = [];
-      lines.push('<span class="' + kw + '">import</span> { XMLBuilder } <span class="' + kw + '">from</span> <span class="' + lit + '">"fast-xml-parser"</span>;');
-      lines.push('');
-      lines.push('<span class="' + kw + '">const</span> builder = <span class="' + kw + '">new</span> XMLBuilder({');
-      lines.push('  format: <span class="' + lit + '">true</span>,');
-      lines.push('  indentBy: <span class="' + lit + '">"  "</span>,');
-      lines.push('  ignoreAttributes: <span class="' + lit + '">false</span>,');
-      lines.push('});');
-      lines.push('');
-      lines.push('<span class="' + cmt + '">/** Recursively convert canonical props to fast-xml-parser shape. */</span>');
-      lines.push('<span class="' + kw + '">function</span> serializeValue(');
-      lines.push('  obj: Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;');
-      lines.push('): Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt; {');
-      lines.push('  <span class="' + kw + '">const</span> out: Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt; = {};');
-      lines.push('  <span class="' + kw + '">for</span> (<span class="' + kw + '">const</span> [key, val] <span class="' + kw + '">of</span> Object.entries(obj)) {');
-      lines.push('    <span class="' + kw + '">if</span> (val === <span class="' + lit + '">undefined</span>) <span class="' + kw + '">continue</span>;');
-      lines.push('    <span class="' + kw + '">if</span> (key.startsWith(<span class="' + lit + '">"$"</span>)) {');
-      lines.push('      out[<span class="' + lit + '">`@_${key.slice(1)}`</span>] = <span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"boolean"</span> ? String(val) : val;');
-      lines.push('    } <span class="' + kw + '">else if</span> (Array.isArray(val)) {');
-      lines.push('      out[key] = val.map(item =&gt;');
-      lines.push('        <span class="' + kw + '">typeof</span> item === <span class="' + lit + '">"object"</span> &amp;&amp; item !== <span class="' + lit + '">null</span>');
-      lines.push('          ? serializeValue(item <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;)');
-      lines.push('          : item');
-      lines.push('      );');
-      lines.push('    } <span class="' + kw + '">else if</span> (<span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"object"</span> &amp;&amp; val !== <span class="' + lit + '">null</span>) {');
-      lines.push('      out[key] = serializeValue(val <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;);');
-      lines.push('    } <span class="' + kw + '">else if</span> (<span class="' + kw + '">typeof</span> val === <span class="' + lit + '">"boolean"</span>) {');
-      lines.push('      out[key] = String(val);');
-      lines.push('    } <span class="' + kw + '">else</span> {');
-      lines.push('      out[key] = val;');
-      lines.push('    }');
-      lines.push('  }');
-      lines.push('  <span class="' + kw + '">return</span> out;');
-      lines.push('}');
-      lines.push('');
-      lines.push('<span class="' + kw + '">export function</span> serialize(');
-      lines.push('  obj: Partial&lt;<span class="' + ref + ' explorer-type-link" href="#' + esc(name) + '">' + esc(name) + '</span>&gt;');
-      lines.push('): <span class="' + prim + '">string</span> {');
-      lines.push('  <span class="' + kw + '">const</span> xmlObj = serializeValue(obj <span class="' + kw + '">as</span> Record&lt;<span class="' + prim + '">string</span>, <span class="' + prim + '">unknown</span>&gt;);');
-      lines.push('  <span class="' + kw + '">return</span> builder.build({ <span class="' + prop + '">' + esc(name) + '</span>: xmlObj }) <span class="' + kw + '">as</span> <span class="' + prim + '">string</span>;');
-      lines.push('}');
-
-      return lines.join('\n');
-    }
-
     /** Render the XML Mapping tab into its container element. */
-    function renderMappingGuide(name) {
-      explorerMapping.innerHTML = renderMappingHtml(name);
+    function renderMappingGuide(name, props) {
+      explorerMapping.innerHTML = renderMappingHtml(name, props);
     }
 
     // ── Utilities tab ─────────────────────────────────────────────────
@@ -668,75 +789,22 @@
      * @param {string} name  Definition name.
      * @returns {string} Three `.mapping-section` divs with code blocks and Copy buttons.
      */
-    function renderUtilsHtml(name) {
-      var props = flattenAllOf(defs, name);
-      var required = collectRequired(defs, name);
+    function renderUtilsHtml(name, preProps, preRequired) {
+      var props = preProps || flattenAllOf(defs, name);
+      var required = preRequired || collectRequired(defs, name);
 
       var html = '';
 
       // Type Guard
       html += '<div class="mapping-section"><h3>Type Guard</h3>';
       html += '<div class="interface-block">';
-      var lines = [];
-      lines.push('<span class="if-kw">function</span> is' + esc(name) + '(o: <span class="if-prim">unknown</span>): o <span class="if-kw">is</span> <span class="if-ref">' + esc(name) + '</span> {');
-      lines.push('  <span class="if-kw">if</span> (!o || <span class="if-kw">typeof</span> o !== <span class="if-lit">"object"</span>) <span class="if-kw">return false</span>;');
-      lines.push('  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;');
-      for (var gi = 0; gi < props.length; gi++) {
-        var p = props[gi];
-        var resolved = resolvePropertyType(p.schema, name);
-        var check = '';
-        if (resolved.ts.endsWith('[]')) {
-          check = '!Array.isArray(obj.' + p.prop[1] + ')';
-        } else if (resolved.complex) {
-          check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"object"</span>';
-        } else {
-          var base = resolved.ts;
-          if (base.indexOf('/*') !== -1) base = base.slice(0, base.indexOf(' /*')).trim();
-          if (base.indexOf('|') !== -1) {
-            var firstPart = base.split('|')[0].trim();
-            if (firstPart.charAt(0) === '"' || firstPart.charAt(0) === "'") {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
-            } else {
-              check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(firstPart) + '"</span>';
-            }
-          } else if (base === 'integer') {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"number"</span>';
-          } else if (base.charAt(0) === '"' || base.charAt(0) === "'") {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"string"</span>';
-          } else {
-            check = '<span class="if-kw">typeof</span> obj.' + esc(p.prop[1]) + ' !== <span class="if-lit">"' + esc(base) + '"</span>';
-          }
-        }
-        lines.push('  <span class="if-kw">if</span> (<span class="if-lit">"' + esc(p.prop[1]) + '"</span> <span class="if-kw">in</span> obj && ' + check + ') <span class="if-kw">return false</span>;');
-      }
-      lines.push('  <span class="if-kw">return true</span>;');
-      lines.push('}');
-      html += lines.join('\n');
+      html += generateTypeGuard(defs, name, { html: true, preProps: props });
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       // Factory
       html += '<div class="mapping-section"><h3>Factory</h3>';
       html += '<div class="interface-block">';
-      var flines = [];
-      flines.push('<span class="if-kw">function</span> create' + esc(name) + '(');
-      flines.push('  init?: Partial&lt;<span class="if-ref">' + esc(name) + '</span>&gt;');
-      flines.push('): <span class="if-ref">' + esc(name) + '</span> {');
-      if (required.size > 0) {
-        flines.push('  <span class="if-kw">return</span> {');
-        for (var fi = 0; fi < props.length; fi++) {
-          var fp = props[fi];
-          if (!required.has(fp.prop[0])) continue;
-          var fresolved = resolvePropertyType(fp.schema, name);
-          var defVal = defaultForType(fresolved.ts);
-          flines.push('    ' + esc(fp.prop[1]) + ': ' + '<span class="if-lit">' + esc(defVal) + '</span>,  <span class="if-cmt">// required</span>');
-        }
-        flines.push('    ...init,');
-        flines.push('  };');
-      } else {
-        flines.push('  <span class="if-kw">return</span> { ...init } <span class="if-kw">as</span> <span class="if-ref">' + esc(name) + '</span>;');
-      }
-      flines.push('}');
-      html += flines.join('\n');
+      html += generateFactory(defs, name, { html: true, preProps: props, preRequired: required });
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       // References
@@ -780,35 +848,93 @@
     }
 
     /** Render the Utilities tab into its container element. */
-    function renderUtils(name) {
-      explorerUtils.innerHTML = renderUtilsHtml(name);
+    function renderUtils(name, props, required) {
+      explorerUtils.innerHTML = renderUtilsHtml(name, props, required);
     }
 
-    // Copy handler for XML mapping tab
-    explorerMapping.addEventListener('click', function(e) {
-      if (!e.target.closest('.copy-btn')) return;
-      var block = e.target.closest('.interface-block');
-      if (!block) return;
-      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(function() {
-        var btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
-      });
+    // ── Sample data tab ──────────────────────────────────────────────────
+
+    const explorerSample = document.getElementById('explorerSample');
+    var _cachedSampleStem = null;
+    var _cachedSampleNested = null;
+    var _cachedSampleName = null;
+
+    /** Syntax-highlight a JSON string for display. */
+    function highlightJsonStr(str) {
+      // Manual HTML-escaping (not esc()) because the regex highlighting below
+      // needs to operate on the raw string structure, not a DOM-escaped result.
+      return str
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"([^"\\]*(\\.[^"\\]*)*)"(\s*:)?/g, function(match, content, _esc, colon) {
+          if (colon) return '<span class="if-prop">"' + content + '"</span>:';
+          // Check if content looks like a number or boolean
+          return '<span class="if-lit">"' + content + '"</span>';
+        })
+        .replace(/\b(true|false)\b/g, '<span class="if-kw">$1</span>')
+        .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="if-prim">$1</span>');
+    }
+
+    /** Show the given sample format, hiding the others (no DOM rebuild). */
+    function showSampleFormat(format) {
+      var panels = explorerSample.querySelectorAll('.sample-panel');
+      for (var i = 0; i < panels.length; i++) {
+        panels[i].style.display = panels[i].dataset.fmt === format ? '' : 'none';
+      }
+      var pills = explorerSample.querySelectorAll('.sample-pill');
+      for (var i = 0; i < pills.length; i++) {
+        var input = pills[i].querySelector('input');
+        var isActive = input && input.value === format;
+        pills[i].classList.toggle('active', isActive);
+        if (input) input.checked = isActive;
+      }
+    }
+
+    /** Build all three sample panels once, then show the requested format. */
+    function renderSampleData(name) {
+      _cachedSampleStem = genMockObject(name);
+      _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
+      _cachedSampleName = name;
+
+      var html = '';
+      // Pill toggle
+      html += '<div class="sample-toggle">';
+      html += '<label class="sample-pill active">';
+      html += '<input type="radio" name="sampleFmt" value="js" checked> Flat';
+      html += '</label>';
+      html += '<label class="sample-pill">';
+      html += '<input type="radio" name="sampleFmt" value="nested"> XmlShaped';
+      html += '</label>';
+      html += '<label class="sample-pill">';
+      html += '<input type="radio" name="sampleFmt" value="xml"> XML';
+      html += '</label>';
+      html += '</div>';
+
+      // Pre-render all three panels
+      html += '<div class="sample-panel interface-block" data-fmt="js">';
+      html += highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2));
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      html += '<div class="sample-panel interface-block" data-fmt="nested" style="display:none">';
+      html += highlightJsonStr(JSON.stringify(_cachedSampleNested, null, 2));
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      html += '<div class="sample-panel interface-block" data-fmt="xml" style="display:none">';
+      html += esc(buildXml(_cachedSampleName, _cachedSampleNested));
+      html += '<button class="copy-btn">Copy</button></div>';
+
+      explorerSample.innerHTML = html;
+    }
+
+    // Toggle handler for sample format pills — just toggle visibility
+    explorerSample.addEventListener('change', function(e) {
+      if (e.target.name === 'sampleFmt') {
+        showSampleFormat(e.target.value);
+      }
     });
 
-    // Copy handler for utilities tab
-    explorerUtils.addEventListener('click', function(e) {
-      if (!e.target.closest('.copy-btn')) return;
-      var block = e.target.closest('.interface-block');
-      if (!block) return;
-      var plain = block.innerText.replace(/Copy$/, '').trimEnd();
-      navigator.clipboard.writeText(plain).then(function() {
-        var btn = e.target.closest('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
-      });
-    });
+    attachCopyHandler(explorerSample);
+    attachCopyHandler(explorerMapping);
+    attachCopyHandler(explorerUtils);
 
     // Graph node clicks
     graphContainer.addEventListener('click', e => {

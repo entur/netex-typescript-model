@@ -48,6 +48,10 @@ jobs:
         working-directory: typescript
         run: npx vitest run
 
+      - name: Run e2e codegen type-check
+        working-directory: typescript
+        run: npx tsx scripts/e2e-codegen-typecheck.ts
+
       - name: Build welcome page
         working-directory: typescript
         run: npx tsx scripts/build-docs-index.ts

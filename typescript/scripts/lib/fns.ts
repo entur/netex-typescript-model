@@ -1,9 +1,12 @@
 /**
- * Pure functions used by the schema HTML viewer's explorer panel (pane 3).
+ * Schema introspection functions used by the schema HTML viewer's explorer panel.
  *
- * These are the canonical implementations — the inline JS in the `<script>` tag
- * of build-schema-html.ts mirrors them, closing over a page-level `defs` variable
- * instead of taking `defs` as a parameter. Keep both in sync.
+ * These are the canonical implementations — bundled via esbuild (through
+ * bundle-entry.ts) into an IIFE for the HTML page. Bound wrappers close over
+ * a page-level `defs` variable instead of taking `defs` as a parameter.
+ *
+ * Data generation functions (`fake`, `buildXml`, `toXmlShape`, `serialize`)
+ * live in `data-faker.ts` and are re-exported here for backward compatibility.
  *
  * ## Explorer tabs and their entry functions
  *
@@ -12,6 +15,10 @@
  *
  * **Graph** — `isRefType`, `refTarget`, and `resolveType` to build an SVG
  * inheritance-chain diagram with composition edges for ref-typed properties.
+ *
+ * **Relations** — `collectRefProps`, `resolveRefEntity`, `collectExtraProps`,
+ * and `findTransitiveEntityUsers` to build a bipartite LTR graph showing
+ * entity-to-entity relationships through reference properties.
  *
  * **Interface** — `flattenAllOf` to collect all properties, then
  * `resolvePropertyType` to resolve each to its TypeScript type and
@@ -22,8 +29,9 @@
  *
  * **Utilities** — `flattenAllOf` + `collectRequired` for factory defaults,
  * `resolvePropertyType` for type-guard checks, `refTarget` for outgoing refs,
- * `buildReverseIndex` for incoming "used by" links, and `defaultForType` for
- * factory default-value literals.
+ * `buildReverseIndex` for incoming "used by" links.
+ *
+ * **Sample data** — see `data-faker.ts` (`fake`, `toXmlShape`, `buildXml`, `serialize`).
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -46,7 +54,8 @@ export interface ViaHop {
     | "enum"
     | "primitive"
     | "complex"
-    | "fixed-for";
+    | "fixed-for"
+    | "dyn-class";
 }
 
 export interface ResolvedType {
@@ -112,7 +121,7 @@ function allOfRef(allOf: Def[]): string | null {
 }
 
 /** Discriminated shape of a JSON Schema property node. */
-type SchemaShape =
+export type SchemaShape =
   | { kind: "ref"; target: string }
   | { kind: "enum"; values: unknown[] }
   | { kind: "refArray"; target: string }
@@ -122,7 +131,7 @@ type SchemaShape =
   | { kind: "unknown" };
 
 /** Classify a property schema into a discriminated shape (single pass). */
-function classifySchema(prop: Def): SchemaShape {
+export function classifySchema(prop: Def): SchemaShape {
   if (!prop || typeof prop !== "object") return { kind: "unknown" };
   if (prop.$ref) return { kind: "ref", target: deref(prop.$ref) };
   if (prop.allOf) {
@@ -293,16 +302,11 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
         (def.properties && Object.keys(def.properties).length > 0) ||
         def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
       if (!hasOwnProps) {
-        return withHop(
-          resolveDefType(defs, target, visited),
-          name,
-          "allOf-passthrough",
-        );
+        return withHop(resolveDefType(defs, target, visited), name, "allOf-passthrough");
       }
       // Speculatively follow parent — use result if primitive
       const parentResult = resolveDefType(defs, target, new Set(visited));
-      if (!parentResult.complex)
-        return withHop(parentResult, name, "allOf-speculative");
+      if (!parentResult.complex) return withHop(parentResult, name, "allOf-speculative");
     }
   }
 
@@ -356,8 +360,9 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
 
   // Primitive (no properties)
   if (def.type && !def.properties && typeof def.type === "string" && def.type !== "object") {
+    const tsType = def.type === "integer" ? "number" : def.type;
     const fmt = def.format ? " /* " + def.format + " */" : "";
-    return { ts: def.type + fmt, complex: false, via: [{ name, rule: "primitive" }] };
+    return { ts: tsType + fmt, complex: false, via: [{ name, rule: "primitive" }] };
   }
 
   // Mixed-content wrapper — resolve as the inner element type array
@@ -383,12 +388,29 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   }
 
   // Empty object (no properties, no role) — e.g. ExtensionsStructure (xsd:any wrapper)
-  if (def.type === "object" && !def.properties && !def["x-netex-role"]) {
+  // Also catches completely empty schemas ({}) from unresolved XSD constructs
+  if (
+    (!def.type || def.type === "object") &&
+    !def.properties &&
+    !def["x-netex-role"] &&
+    !def.allOf &&
+    !def.anyOf &&
+    !def.enum
+  ) {
     return { ts: "any", complex: false, via: [{ name, rule: "empty-object" }] };
   }
 
   // Complex
   return { ts: name, complex: true, via: [{ name, rule: "complex" }] };
+}
+
+const MEGA_ENUM = "NameOfClass";
+
+/** Does this property schema dynamically reference the NameOfClass mega-enum (without x-fixed-single-enum)? */
+export function isDynNocRef(schema: Def): boolean {
+  if (typeof schema["x-fixed-single-enum"] === "string") return false;
+  const shape = classifySchema(schema);
+  return shape.kind === "ref" && shape.target === MEGA_ENUM;
 }
 
 /**
@@ -404,6 +426,9 @@ export function resolvePropertyType(defs: Defs, schema: Def, context?: string): 
       complex: false,
       via: [{ name: context, rule: "fixed-for" }],
     };
+  }
+  if (isDynNocRef(schema)) {
+    return { ts: "string", complex: false, via: [{ name: MEGA_ENUM, rule: "dyn-class" }] };
   }
   const shape = classifySchema(schema);
   switch (shape.kind) {
@@ -421,8 +446,9 @@ export function resolvePropertyType(defs: Defs, schema: Def, context?: string): 
         complex: false,
       };
     case "primitive": {
+      const tsType = shape.type === "integer" ? "number" : shape.type;
       const fmt = shape.format ? " /* " + shape.format + " */" : "";
-      return { ts: shape.type + fmt, complex: false };
+      return { ts: tsType + fmt, complex: false };
     }
     case "unknown":
       return { ts: "unknown", complex: false };
@@ -488,7 +514,8 @@ export function buildInheritanceChain(defs: Defs, name: string): InheritanceNode
       for (const entry of def.allOf as Def[]) {
         if (entry.$ref) parent = deref(entry.$ref);
         else if (entry.properties) {
-          for (const [k, v] of Object.entries(entry.properties)) ownProps.push({ name: k, schema: v as Record<string, unknown> });
+          for (const [k, v] of Object.entries(entry.properties))
+            ownProps.push({ name: k, schema: v as Record<string, unknown> });
         }
       }
     }
@@ -569,6 +596,132 @@ export function findTransitiveEntityUsers(
   return entities.sort();
 }
 
+// ── Relations (ref-target resolution) ────────────────────────────────────────
+
+/**
+ * Resolve a reference definition name to the entity/entities it targets.
+ *
+ * Uses `x-netex-refTarget` stamp when available, falling back to name-stripping.
+ * For abstract targets, expands `x-netex-sg-members` recursively to find concrete entities.
+ *
+ * @returns A single entity name, an array of entity names (abstract expansion), or null.
+ */
+export function resolveRefEntity(
+  defs: Defs,
+  refDefName: string,
+  _visited?: Set<string>,
+): string | string[] | null {
+  const visited = _visited ?? new Set<string>();
+  if (visited.has(refDefName)) return null;
+  visited.add(refDefName);
+
+  const def = defs[refDefName];
+  // 1. Read stamp or fall back to name stripping
+  let target: string | undefined = def?.["x-netex-refTarget"];
+  if (!target) {
+    if (refDefName.endsWith("Ref")) target = refDefName.slice(0, -3);
+    else if (refDefName.endsWith("_RefStructure")) target = refDefName.slice(0, -13);
+    else if (refDefName.endsWith("RefStructure")) target = refDefName.slice(0, -12);
+  }
+  if (!target || !defs[target]) return null;
+
+  const role = defRole(defs[target]);
+  // 2. Direct entity
+  if (role === "entity") return target;
+  // 3. Abstract — expand sg-members recursively
+  //    Members may be on the target itself or on a parallel `_Dummy` element.
+  if (role === "abstract") {
+    let members: string[] = defs[target]?.["x-netex-sg-members"] ?? [];
+    if (members.length === 0) {
+      members = defs[target + "_Dummy"]?.["x-netex-sg-members"] ?? [];
+    }
+    const entities: string[] = [];
+    for (const m of members) {
+      // Try via Ref first
+      const resolved = resolveRefEntity(defs, m + "Ref", visited);
+      if (typeof resolved === "string") {
+        if (!entities.includes(resolved)) entities.push(resolved);
+      } else if (Array.isArray(resolved)) {
+        for (const e of resolved) if (!entities.includes(e)) entities.push(e);
+      }
+      // If the member itself is an entity, include it directly
+      if (defRole(defs[m]) === "entity" && !entities.includes(m)) entities.push(m);
+    }
+    return entities.length > 0 ? entities.sort() : null;
+  }
+  return null;
+}
+
+/** Entry returned by `collectRefProps`. */
+export interface RefPropEntry {
+  propName: string;
+  refDefName: string;
+  targetEntities: string[];
+}
+
+/**
+ * Collect ref-typed properties from a definition and resolve their entity targets.
+ *
+ * Walks the full allOf chain via `flattenAllOf`, filters to `isRefType` properties,
+ * resolves each through `resolveRefEntity`, and returns only those with resolvable targets.
+ */
+export function collectRefProps(defs: Defs, name: string): RefPropEntry[] {
+  const props = flattenAllOf(defs, name);
+  const result: RefPropEntry[] = [];
+  for (const p of props) {
+    if (!isRefType(p.schema)) continue;
+    const target = refTarget(p.schema);
+    if (!target) continue;
+    const entities = resolveRefEntity(defs, target);
+    if (!entities) continue;
+    const targetEntities = typeof entities === "string" ? [entities] : entities;
+    result.push({ propName: p.prop[0], refDefName: target, targetEntities });
+  }
+  return result;
+}
+
+/**
+ * Collect the "extra" properties an entity's structure adds beyond a base structure.
+ *
+ * Walks the allOf chain from the entity's backing structure up to (but not including)
+ * `baseStructure`, collecting own property names at each intermediate level.
+ */
+export function collectExtraProps(defs: Defs, entityName: string, baseStructure: string): string[] {
+  // Resolve entity → backing structure (entity defs are $ref aliases)
+  const entityDef = defs[entityName];
+  if (!entityDef) return [];
+  let struct = entityDef.$ref ? deref(entityDef.$ref) : null;
+  if (!struct) {
+    const ref = allOfRef(entityDef);
+    struct = ref ? deref(ref) : null;
+  }
+  if (!struct || struct === baseStructure) return [];
+
+  // Walk from struct up to baseStructure, collecting own props
+  const extras: string[] = [];
+  let current: string | null = struct;
+  const visited = new Set<string>();
+  while (current && current !== baseStructure && !visited.has(current)) {
+    visited.add(current);
+    const d = defs[current];
+    if (!d) break;
+    // Collect own properties from this level
+    if (d.properties) {
+      for (const k of Object.keys(d.properties)) extras.push(canonicalPropName(k, d.properties[k]));
+    }
+    for (const ao of d.allOf ?? []) {
+      if (ao.properties) {
+        for (const k of Object.keys(ao.properties))
+          extras.push(canonicalPropName(k, ao.properties[k]));
+      }
+    }
+    // Move up: find allOf $ref parent
+    const parentRef = d.allOf ? allOfRef(d.allOf) : null;
+    current = parentRef ?? (d.$ref ? deref(d.$ref) : null);
+  }
+  return extras;
+}
+
 // ── Role filter ─────────────────────────────────────────────────────────────
 
 /** Fixed display order for role filter chips. */
@@ -629,27 +782,6 @@ export function presentRoles(
 }
 
 // ── Code generation helpers ──────────────────────────────────────────────────
-
-/** Return a sensible default value literal for a resolved TypeScript type string. */
-export function defaultForType(ts: string): string {
-  if ((ts.startsWith('"') || ts.startsWith("'")) && ts.indexOf("|") === -1) return ts;
-  if (ts === "string") return '""';
-  if (ts === "number" || ts === "integer") return "0";
-  if (ts === "boolean") return "false";
-  if (ts.endsWith("[]")) return "[]";
-  if (ts.indexOf("|") !== -1) {
-    const first = ts.split("|")[0].trim();
-    if (first.startsWith('"')) return first;
-    return '""';
-  }
-  if (ts.indexOf("/*") !== -1) {
-    const base = ts.slice(0, ts.indexOf(" /*")).trim();
-    if (base === "string") return '""';
-    if (base === "number" || base === "integer") return "0";
-    return '""';
-  }
-  return "{} as " + ts;
-}
 
 /** Lowercase the first character of a property name (NeTEx props are PascalCase, TS conventions use camelCase). */
 export function lcFirst(s: string): string {
@@ -739,3 +871,177 @@ export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatPropert
   return result;
 }
 
+// ── Dependency tree ─────────────────────────────────────────────────────────
+
+/** A node in the BFS dependency tree returned by `collectDependencyTree`. */
+export interface DepTreeNode {
+  name: string;
+  via: string;
+  depth: number;
+  duplicate: boolean;
+}
+
+/**
+ * Collect all transitive type dependencies of a definition via BFS.
+ *
+ * Seeds the queue from the root's `flattenAllOf` properties — for each ref/refArray
+ * target, enqueues it at depth 0. Pure `$ref` aliases are resolved before enqueuing.
+ * Stops recursion at enumerations, references, atoms (non-simpleObj), and non-complex
+ * types (per `resolveDefType`). Duplicates are tracked: re-encountered types are
+ * emitted with `duplicate: true` but not recursed into.
+ *
+ * The root itself is excluded from the output.
+ */
+export function collectDependencyTree(defs: Defs, rootName: string, excludeRootProps?: Set<string>): DepTreeNode[] {
+  const result: DepTreeNode[] = [];
+  const emitted = new Set<string>();
+  emitted.add(rootName);
+
+  /** Resolve pure $ref aliases and allOf-passthrough wrappers to the underlying definition name. */
+  function resolveAlias(name: string): string {
+    const visited = new Set<string>();
+    let current = name;
+    while (!visited.has(current)) {
+      visited.add(current);
+      const def = defs[current];
+      if (!def) break;
+      if (def.$ref) {
+        current = deref(def.$ref);
+        continue;
+      }
+      // allOf with single $ref and no own properties → passthrough
+      if (def.allOf) {
+        const refs = def.allOf.filter((e: Def) => e.$ref);
+        if (refs.length === 1) {
+          const hasOwnProps =
+            (def.properties && Object.keys(def.properties).length > 0) ||
+            def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
+          if (!hasOwnProps) {
+            current = deref(refs[0].$ref);
+            continue;
+          }
+        }
+      }
+      break;
+    }
+    return current;
+  }
+
+  /** Should we stop recursion at this definition? */
+  function isLeaf(name: string): boolean {
+    const def = defs[name];
+    if (!def) return true;
+    const role = defRole(def);
+    if (role === "enumeration" || role === "reference") return true;
+    const atom = resolveAtom(defs, name);
+    if (atom && atom !== "simpleObj") return true;
+    const resolved = resolveDefType(defs, name);
+    if (!resolved.complex) return true;
+    return false;
+  }
+
+  /** Extract ref-typed property targets from a definition. */
+  function refTargets(name: string): Array<{ target: string; via: string; canonical: string }> {
+    const def = defs[name];
+    const targets: Array<{ target: string; via: string; canonical: string }> = [];
+
+    // Walk properties for ref/refArray targets
+    const props = flattenAllOf(defs, name);
+    for (const p of props) {
+      // x-fixed-single-enum resolves to a literal — the $ref target is unused
+      if (typeof p.schema["x-fixed-single-enum"] === "string") continue;
+      if (isDynNocRef(p.schema)) continue;
+
+      const shape = classifySchema(p.schema);
+      const canon = p.prop[1];
+      if (shape.kind === "ref" || shape.kind === "refArray") {
+        targets.push({ target: resolveAlias(shape.target), via: p.prop[0], canonical: canon });
+      }
+      // anyOf with $ref branches (union enums, abstract unions)
+      if (shape.kind === "unknown" || shape.kind === "object") {
+        if (p.schema.anyOf) {
+          for (const branch of p.schema.anyOf as Def[]) {
+            if (branch.$ref) {
+              targets.push({ target: resolveAlias(deref(branch.$ref)), via: p.prop[0], canonical: canon });
+            }
+          }
+        }
+      }
+    }
+
+    // If the def itself is an array with ref items (e.g. list-of-enums wrapper), follow items
+    if (def && def.type === "array" && def.items) {
+      const itemShape = classifySchema(def.items);
+      if (itemShape.kind === "ref") {
+        targets.push({ target: resolveAlias(itemShape.target), via: name, canonical: "" });
+      }
+    }
+    // If the def itself has anyOf branches (union type), follow each ref branch
+    if (def && def.anyOf) {
+      for (const branch of def.anyOf as Def[]) {
+        if (branch.$ref) {
+          targets.push({ target: resolveAlias(deref(branch.$ref)), via: name, canonical: "" });
+        }
+      }
+    }
+
+    return targets;
+  }
+
+  // Seed from root
+  const queue: Array<{ name: string; via: string; depth: number }> = [];
+  for (const { target, via, canonical } of refTargets(resolveAlias(rootName))) {
+    if (excludeRootProps && excludeRootProps.has(canonical)) continue;
+    queue.push({ name: target, via, depth: 0 });
+  }
+
+  // BFS
+  let head = 0;
+  while (head < queue.length) {
+    const { name, via, depth } = queue[head++];
+    if (emitted.has(name)) {
+      result.push({ name, via, depth, duplicate: true });
+      continue;
+    }
+    emitted.add(name);
+    const leaf = isLeaf(name);
+    result.push({ name, via, depth, duplicate: false });
+
+    if (leaf) {
+      // Even for leaves, follow array items and anyOf branches on the def itself
+      // (e.g. list-of-enum wrappers need their item type collected)
+      const def = defs[name];
+      if (def && def.type === "array" && def.items) {
+        const itemShape = classifySchema(def.items);
+        if (itemShape.kind === "ref") {
+          queue.push({ name: resolveAlias(itemShape.target), via: name, depth: depth + 1 });
+        }
+      }
+      if (def && def.anyOf) {
+        for (const branch of def.anyOf as Def[]) {
+          if (branch.$ref) {
+            queue.push({ name: resolveAlias(deref(branch.$ref)), via: name, depth: depth + 1 });
+          }
+        }
+      }
+      continue;
+    }
+
+    for (const { target, via: childVia } of refTargets(name)) {
+      queue.push({ name: target, via: childVia, depth: depth + 1 });
+    }
+  }
+
+  return result;
+}
+
+// ── Re-exports from data-faker.ts ───────────────────────────────────────────
+
+export {
+  fake as genMockObject, // TODO: remove this, fix host-app.js refs
+  fake,
+  defaultForType,
+  buildXml,
+  toXmlShape,
+  serialize,
+} from "./data-faker.js";
