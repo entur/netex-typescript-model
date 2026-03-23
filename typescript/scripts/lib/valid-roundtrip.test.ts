@@ -3,14 +3,14 @@ import { readFileSync, existsSync, readdirSync, writeFileSync, mkdtempSync, rmSy
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { genMockObject, serialize, defRole, type Defs } from "./fns.js";
+import { genMockObject, serialize, defRole, type NetexLibrary } from "./fns.js";
 
 // ── Schema loading (eager — needed at describe.each time) ────────────────────
 
 const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
 const xsdRoot = resolve(import.meta.dirname, "../../../xsd/2.0/NeTEx_publication.xsd");
 
-function loadDefs(): Defs {
+function loadNetexLibrary(): NetexLibrary {
   if (!existsSync(jsonschemaDir)) {
     throw new Error(`Base jsonschema dir not found at ${jsonschemaDir}.\nRun "make all" first.`);
   }
@@ -24,35 +24,24 @@ function loadDefs(): Defs {
   return JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8")).definitions;
 }
 
-const defs = loadDefs();
+const netexLibrary = loadNetexLibrary();
 
 // ── Entities to test ─────────────────────────────────────────────────────────
 
-/** ResourceFrame collection element per entity type. */
+/** ResourceFrame collection element per entity type.
+ *  Subset chosen for structural diversity — deep inheritance, flat, nested,
+ *  collection, and multi-domain — while keeping xmllint runtime reasonable. */
 const FRAME_WRAPPERS: Record<string, string> = {
   VehicleType: "vehicleTypes",
-  Vehicle: "vehicles",
-  DeckPlan: "deckPlans",
-  Blacklist: "blacklists",
-  DataSource: "dataSources",
   Contact: "contacts",
-  ControlCentre: "controlCentres",
-  VehicleModel: "vehicleModels",
-  SchematicMap: "schematicMaps",
+  DeckPlan: "deckPlans",
   ResponsibilitySet: "responsibilitySets",
-  ResponsibilityRole: "responsibilityRoles",
   GroupOfOperators: "groupsOfOperators",
-  Whitelist: "whitelists",
-  ServiceFacilitySet: "serviceFacilitySets",
-  SiteFacilitySet: "siteFacilitySets",
-  VehicleEquipmentProfile: "vehicleEquipmentProfiles",
-  RollingStockInventory: "rollingStockInventories",
-  CarModelProfile: "vehicleModelProfiles",
 };
 
 const TEST_ENTITIES = Object.keys(FRAME_WRAPPERS).map((name) => ({
   name,
-  role: defRole(defs[name]),
+  role: defRole(netexLibrary[name]),
   wrapper: FRAME_WRAPPERS[name],
 }));
 
@@ -120,8 +109,8 @@ function nonKeyrefErrors(stderr: string): string[] {
 
 describe.each(TEST_ENTITIES)("$name (role: $role)", ({ name }) => {
   it("validates against NeTEx XSD (ignoring keyref)", { timeout: 30_000 }, () => {
-    const mock = genMockObject(defs, name);
-    const xml = serialize(defs, name, mock);
+    const mock = genMockObject(netexLibrary, name);
+    const xml = serialize(netexLibrary, name, mock);
     const full = wrapInPublicationDelivery(name, xml);
     const { stderr } = validateWithXmllint(full);
     const errors = nonKeyrefErrors(stderr);

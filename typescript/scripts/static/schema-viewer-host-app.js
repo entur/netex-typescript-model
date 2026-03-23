@@ -82,7 +82,7 @@
     });
 
     // Explorer panel
-    const defs = JSON.parse(document.getElementById('schema-data').textContent);
+    const netexLibrary = JSON.parse(document.getElementById('schema-data').textContent);
     /*@@VIEWER_FNS@@*/
     const explorerPanel = document.getElementById('explorerPanel');
     const explorerTitle = document.getElementById('explorerTitle');
@@ -152,8 +152,8 @@
      */
     function renderExplorer(name) {
       currentIsAlias = false;
-      const props = flattenAllOf(defs, name);
-      const required = collectRequired(defs, name);
+      const props = flattenAllOf(netexLibrary, name);
+      const required = collectRequired(netexLibrary, name);
       explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
       explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
@@ -280,7 +280,7 @@
           var ref = row.refs[j2];
           var cy2 = compStartY2 + j2 * (COMP_H + COMP_GAP_Y);
           var clabel = ref.name.length > 16 ? ref.name.slice(0, 14) + '\u2026' : ref.name;
-          var hasDef = ref.target && defs[ref.target];
+          var hasDef = ref.target && netexLibrary[ref.target];
           svg += '<g' + (hasDef ? ' class="graph-node" data-def="' + esc(ref.target) + '"' : '') + '>';
           svg += '<title>' + esc(ref.name) + ': ' + esc(ref.type) + '</title>';
           svg += '<rect x="' + (PAD + NODE_W + COMP_GAP_X) + '" y="' + cy2 + '" width="' + COMP_W + '" height="' + COMP_H + '" rx="4" fill="' + cardBg + '" stroke="' + cardBorder + '" stroke-width="1" stroke-dasharray="3,2"/>';
@@ -421,7 +421,7 @@
 
       // Left column: entities that use the current structure
       var reverseIdx = buildReverseIndex();
-      var isEntityPred = function(n) { return defRole(defs[n]) === 'entity'; };
+      var isEntityPred = function(n) { return defRole(netexLibrary[n]) === 'entity'; };
       var myEntities = findTransitiveEntityUsers(name, reverseIdx, isEntityPred);
 
       // Right column: find entities that use the target's backing structure
@@ -430,7 +430,7 @@
       var rightBaseStructure = null;
       for (var ti = 0; ti < refEntry.targetEntities.length; ti++) {
         var te = refEntry.targetEntities[ti];
-        var teDef = defs[te];
+        var teDef = netexLibrary[te];
         // Resolve entity → backing structure
         var backingStruct = teDef && teDef.$ref
           ? teDef.$ref.replace('#/definitions/', '')
@@ -498,7 +498,7 @@
     // Relations SVG node clicks (delegate from relationsContainer)
     relationsContainer.addEventListener('click', function(e) {
       var node = e.target.closest('.graph-node');
-      if (node && node.dataset.def && defs[node.dataset.def]) {
+      if (node && node.dataset.def && netexLibrary[node.dataset.def]) {
         if (decodeURIComponent(location.hash) !== '#' + node.dataset.def) location.hash = '#' + node.dataset.def;
         renderExplorer(node.dataset.def);
       }
@@ -528,7 +528,7 @@
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name, preProps, metaComments) {
-      var result = generateInterface(defs, name, {
+      var result = generateInterface(netexLibrary, name, {
         html: true,
         metaComments: metaComments,
         inlineRefs: metaComments && inlineRefsEnabled,
@@ -658,7 +658,7 @@
           }
           var excludedSet = new Set(Object.keys(excludedProps));
           var root = generateRootDefBlock(currentExplored);
-          var subs = generateSubTypeDefsBlock(currentExplored, { excludedMembers: excludedSet });
+          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet });
           plain = subs ? root + '\n\n' + subs : root;
           // Strip excluded property lines from plain-text output
           if (Object.keys(excludedProps).length > 0) {
@@ -712,7 +712,7 @@
       for (var i = 0; i < via.length; i++) {
         if (i > 0) inner += '<span class="via-arrow">→</span>';
         var hop = via[i];
-        var isDefLink = !!defs[hop.name];
+        var isDefLink = !!netexLibrary[hop.name];
         if (isDefLink) {
           inner += '<span class="via-name via-link">' + esc(hop.name) + '</span>';
         } else {
@@ -790,21 +790,21 @@
      * @returns {string} Three `.mapping-section` divs with code blocks and Copy buttons.
      */
     function renderUtilsHtml(name, preProps, preRequired) {
-      var props = preProps || flattenAllOf(defs, name);
-      var required = preRequired || collectRequired(defs, name);
+      var props = preProps || flattenAllOf(netexLibrary, name);
+      var required = preRequired || collectRequired(netexLibrary, name);
 
       var html = '';
 
       // Type Guard
       html += '<div class="mapping-section"><h3>Type Guard</h3>';
       html += '<div class="interface-block">';
-      html += generateTypeGuard(defs, name, { html: true, preProps: props });
+      html += generateTypeGuard(netexLibrary, name, { html: true, preProps: props });
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       // Factory
       html += '<div class="mapping-section"><h3>Factory</h3>';
       html += '<div class="interface-block">';
-      html += generateFactory(defs, name, { html: true, preProps: props, preRequired: required });
+      html += generateFactory(netexLibrary, name, { html: true, preProps: props, preRequired: required });
       html += '<button class="copy-btn">Copy</button></div></div>';
 
       // References
@@ -939,7 +939,7 @@
     // Graph node clicks
     graphContainer.addEventListener('click', e => {
       const node = e.target.closest('.graph-node');
-      if (node && node.dataset.def && defs[node.dataset.def]) {
+      if (node && node.dataset.def && netexLibrary[node.dataset.def]) {
         if (decodeURIComponent(location.hash) !== '#' + node.dataset.def) location.hash = '#' + node.dataset.def;
         renderExplorer(node.dataset.def);
       }
@@ -1095,7 +1095,7 @@
         const href = typeLink.getAttribute('href');
         if (href && href.startsWith('#')) {
           const targetName = decodeURIComponent(href.slice(1));
-          if (defs[targetName]) {
+          if (netexLibrary[targetName]) {
             renderExplorer(targetName);
             if (currentMode) setExplorerMode(currentMode);
           }

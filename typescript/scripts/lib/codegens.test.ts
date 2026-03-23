@@ -5,11 +5,11 @@ import {
   generateTypeGuard,
   generateFactory,
   generateRootDefBlock,
-  generateSubTypeDefsBlock,
+  generateSubTypesBlock,
   collectRenderableDeps,
   toConstName,
 } from "./codegens.js";
-import type { Defs } from "./fns.js";
+import type { NetexLibrary } from "./fns.js";
 
 // ── toConstName ─────────────────────────────────────────────────────────────
 
@@ -31,9 +31,9 @@ describe("toConstName", () => {
   });
 });
 
-// ── Shared test defs ────────────────────────────────────────────────────────
+// ── Shared test definitions ─────────────────────────────────────────────────────────
 
-const defs: Defs = {
+const netexLibrary: NetexLibrary = {
   NameOfClass: {
     enum: ["Authority", "Vehicle", "StopPlace", "Line", "Route"],
     "x-netex-role": "enumeration",
@@ -204,7 +204,7 @@ const defs: Defs = {
 
 describe("generateInterface", () => {
   it("generates a basic interface", () => {
-    const { text, isAlias } = generateInterface(defs, "Authority", { html: false });
+    const { text, isAlias } = generateInterface(netexLibrary, "Authority", { html: false });
     expect(isAlias).toBe(false);
     expect(text).toContain("interface Authority {");
     expect(text).toContain("  Name?: string;");
@@ -214,47 +214,47 @@ describe("generateInterface", () => {
   });
 
   it("includes origin comments when not compact", () => {
-    const { text } = generateInterface(defs, "Authority", { html: false });
+    const { text } = generateInterface(netexLibrary, "Authority", { html: false });
     expect(text).toContain("// ── OrganisationStructure ──");
     expect(text).toContain("// ── Authority ──");
   });
 
   it("omits origin comments when metaComments: false", () => {
-    const { text } = generateInterface(defs, "Authority", { html: false, metaComments: false });
+    const { text } = generateInterface(netexLibrary, "Authority", { html: false, metaComments: false });
     expect(text).not.toContain("// ──");
     expect(text).not.toContain("/**");
   });
 
   it("delegates to type alias for empty-prop definitions", () => {
-    const { text, isAlias } = generateInterface(defs, "EmptyWrapper", { html: false });
+    const { text, isAlias } = generateInterface(netexLibrary, "EmptyWrapper", { html: false });
     expect(isAlias).toBe(true);
     expect(text).toContain("type EmptyWrapper");
   });
 
   it("generates HTML output with spans", () => {
-    const { text } = generateInterface(defs, "Authority", { html: true });
+    const { text } = generateInterface(netexLibrary, "Authority", { html: true });
     expect(text).toContain('<span class="if-kw">interface</span>');
     expect(text).toContain('<span class="if-prop"');
   });
 
   it("renders complex property types as linkable names", () => {
-    const { text } = generateInterface(defs, "WithArrayProp", { html: false });
+    const { text } = generateInterface(netexLibrary, "WithArrayProp", { html: false });
     expect(text).toContain("Items?: Authority[];");
   });
 
   it("maps JSON Schema integer to TypeScript number", () => {
-    const { text } = generateInterface(defs, "ComplexChild", { html: false });
+    const { text } = generateInterface(netexLibrary, "ComplexChild", { html: false });
     expect(text).toContain("Extra?: number;");
     expect(text).not.toContain("integer");
   });
 
   it("metaComments: false skips JSDoc header", () => {
-    const { text } = generateInterface(defs, "Authority", { html: false, metaComments: false });
+    const { text } = generateInterface(netexLibrary, "Authority", { html: false, metaComments: false });
     expect(text).toMatch(/^interface Authority \{/);
   });
 
   it("renders dynamic NameOfClass ref as string", () => {
-    const { text } = generateInterface(defs, "WithDynClassRef", { html: false });
+    const { text } = generateInterface(netexLibrary, "WithDynClassRef", { html: false });
     expect(text).toContain("nameOfMemberClass?: string;");
     expect(text).not.toContain("NameOfClass");
   });
@@ -265,7 +265,7 @@ describe("generateInterface", () => {
 describe("generateTypeAlias", () => {
   it("generates enum alias with const array pattern", () => {
     const resolved = { ts: "AllModesEnumeration", complex: false, via: [{ name: "AllModesEnumeration", rule: "enum" }] };
-    const { text, isAlias } = generateTypeAlias(defs, "AllModesEnumeration", resolved, { html: false });
+    const { text, isAlias } = generateTypeAlias(netexLibrary, "AllModesEnumeration", resolved, { html: false });
     expect(isAlias).toBe(true);
     expect(text).toContain("const ALL_MODES = [");
     expect(text).toContain('"bus"');
@@ -277,27 +277,27 @@ describe("generateTypeAlias", () => {
 
   it("generates non-enum type alias", () => {
     const resolved = { ts: "string", complex: false, via: [{ name: "PrivateCode", rule: "atom-collapse" }] };
-    const { text, isAlias } = generateTypeAlias(defs, "PrivateCode", resolved, { html: false });
+    const { text, isAlias } = generateTypeAlias(netexLibrary, "PrivateCode", resolved, { html: false });
     expect(isAlias).toBe(true);
     expect(text).toContain("type PrivateCode = string;");
   });
 
   it("includes via chain in JSDoc when not compact", () => {
     const resolved = { ts: "string", complex: false, via: [{ name: "PrivateCode", rule: "ref" }, { name: "PrivateCodeStructure", rule: "atom-collapse" }] };
-    const { text } = generateTypeAlias(defs, "PrivateCode", resolved, { html: false });
+    const { text } = generateTypeAlias(netexLibrary, "PrivateCode", resolved, { html: false });
     expect(text).toContain("Resolved via:");
   });
 
   it("omits JSDoc when metaComments: false", () => {
     const resolved = { ts: "string", complex: false };
-    const { text } = generateTypeAlias(defs, "PrivateCode", resolved, { html: false, metaComments: false });
+    const { text } = generateTypeAlias(netexLibrary, "PrivateCode", resolved, { html: false, metaComments: false });
     expect(text).not.toContain("/**");
     expect(text).toMatch(/^type PrivateCode = string;$/);
   });
 
   it("generates HTML output for enum", () => {
     const resolved = { ts: "AllModesEnumeration", complex: false, via: [{ name: "AllModesEnumeration", rule: "enum" }] };
-    const { text } = generateTypeAlias(defs, "AllModesEnumeration", resolved, { html: true });
+    const { text } = generateTypeAlias(netexLibrary, "AllModesEnumeration", resolved, { html: true });
     expect(text).toContain('<span class="if-kw">const</span>');
     expect(text).toContain('<span class="if-lit">');
   });
@@ -307,7 +307,7 @@ describe("generateTypeAlias", () => {
 
 describe("generateTypeGuard", () => {
   it("generates a type guard function", () => {
-    const text = generateTypeGuard(defs, "Authority", { html: false });
+    const text = generateTypeGuard(netexLibrary, "Authority", { html: false });
     expect(text).toContain("function isAuthority(o: unknown): o is Authority {");
     expect(text).toContain('if (!o || typeof o !== "object") return false;');
     expect(text).toContain("const obj = o as Record<string, unknown>;");
@@ -318,18 +318,18 @@ describe("generateTypeGuard", () => {
   });
 
   it("uses Array.isArray for array properties", () => {
-    const text = generateTypeGuard(defs, "WithArrayProp", { html: false });
+    const text = generateTypeGuard(netexLibrary, "WithArrayProp", { html: false });
     expect(text).toContain("!Array.isArray(obj.Items)");
   });
 
   it("uses typeof object for complex properties", () => {
-    const text = generateTypeGuard(defs, "ComplexChild", { html: false });
+    const text = generateTypeGuard(netexLibrary, "ComplexChild", { html: false });
     // ComplexChild inherits Name, Description (strings) and adds Extra (integer → number)
     expect(text).toContain('typeof obj.Extra !== "number"');
   });
 
   it("generates HTML output with spans", () => {
-    const text = generateTypeGuard(defs, "Authority", { html: true });
+    const text = generateTypeGuard(netexLibrary, "Authority", { html: true });
     expect(text).toContain('<span class="if-kw">function</span>');
     expect(text).toContain('<span class="if-kw">return true</span>');
   });
@@ -339,7 +339,7 @@ describe("generateTypeGuard", () => {
 
 describe("generateFactory", () => {
   it("generates factory with no required fields", () => {
-    const text = generateFactory(defs, "Authority", { html: false });
+    const text = generateFactory(netexLibrary, "Authority", { html: false });
     expect(text).toContain("function createAuthority(");
     expect(text).toContain("  init?: Partial<Authority>");
     expect(text).toContain("): Authority {");
@@ -348,7 +348,7 @@ describe("generateFactory", () => {
   });
 
   it("generates factory with required fields", () => {
-    const text = generateFactory(defs, "RequiredEntity", { html: false });
+    const text = generateFactory(netexLibrary, "RequiredEntity", { html: false });
     expect(text).toContain("function createRequiredEntity(");
     expect(text).toContain("return {");
     expect(text).toContain('Id: "string",  // required');
@@ -356,13 +356,13 @@ describe("generateFactory", () => {
   });
 
   it("generates HTML output with spans", () => {
-    const text = generateFactory(defs, "Authority", { html: true });
+    const text = generateFactory(netexLibrary, "Authority", { html: true });
     expect(text).toContain('<span class="if-kw">function</span>');
     expect(text).toContain('<span class="if-ref">Authority</span>');
   });
 
   it("accepts pre-computed props and required", () => {
-    const text = generateFactory(defs, "RequiredEntity", {
+    const text = generateFactory(netexLibrary, "RequiredEntity", {
       html: false,
       preRequired: new Set(["Id"]),
     });
@@ -375,64 +375,64 @@ describe("generateFactory", () => {
 
 describe("generateRootDefBlock", () => {
   it("generates plain text with metaComments for Authority", () => {
-    const text = generateRootDefBlock(defs, "Authority", { html: false });
+    const text = generateRootDefBlock(netexLibrary, "Authority", { html: false });
     expect(text).toContain("interface Authority {");
     expect(text).toContain("// ──");
   });
 
-  it("returns alias text for enum defs", () => {
-    const text = generateRootDefBlock(defs, "AllModesEnumeration", { html: false });
+  it("returns alias text for enum definitions", () => {
+    const text = generateRootDefBlock(netexLibrary, "AllModesEnumeration", { html: false });
     expect(text).toContain("const ALL_MODES");
   });
 });
 
-// ── generateSubTypeDefsBlock ─────────────────────────────────────────────────
+// ── generateSubTypesBlock ─────────────────────────────────────────────────
 
-describe("generateSubTypeDefsBlock", () => {
+describe("generateSubTypesBlock", () => {
   it("returns empty string for type with no complex deps", () => {
-    const text = generateSubTypeDefsBlock(defs, "Authority", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "Authority", { html: false });
     expect(text).toBe("");
   });
 
   it("includes complex deps from array properties", () => {
     // WithArrayProp has Items: Authority[] — Authority is a complex dep
-    const text = generateSubTypeDefsBlock(defs, "WithArrayProp", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "WithArrayProp", { html: false });
     expect(text).toContain("interface Authority {");
   });
 
   it("omits metaComments on dep blocks", () => {
-    const text = generateSubTypeDefsBlock(defs, "WithArrayProp", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "WithArrayProp", { html: false });
     expect(text).not.toContain("// ──");
   });
 
   it("excludes x-fixed-single-enum enums unreferenced as types", () => {
-    const text = generateSubTypeDefsBlock(defs, "Authority", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "Authority", { html: false });
     expect(text).not.toContain("NAME_OF_CLASS");
     expect(text).not.toContain("type NameOfClass");
   });
 
   it("includes enums that ARE referenced as property types", () => {
-    const text = generateSubTypeDefsBlock(defs, "WithModeProp", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "WithModeProp", { html: false });
     expect(text).toContain("ALL_MODES");
   });
 
   it("fully excludes NameOfClass from alias-chain deps", () => {
-    const text = generateSubTypeDefsBlock(defs, "WithRelDep", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "WithRelDep", { html: false });
     expect(text).not.toContain("NAME_OF_CLASS");
     expect(text).not.toContain("type NameOfClass");
     expect(text).not.toContain("?: NameOfClass");
   });
 
   it("excludes NameOfClass for dynamic (non-fixed) refs", () => {
-    const text = generateSubTypeDefsBlock(defs, "WithDynClassRef", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "WithDynClassRef", { html: false });
     expect(text).not.toContain("NAME_OF_CLASS");
     expect(text).not.toContain("type NameOfClass");
   });
 
   it("excludedMembers removes deps seeded by excluded props", () => {
-    const full = generateSubTypeDefsBlock(defs, "WithArrayProp", { html: false });
+    const full = generateSubTypesBlock(netexLibrary, "WithArrayProp", { html: false });
     expect(full).toContain("interface Authority {");
-    const excluded = generateSubTypeDefsBlock(defs, "WithArrayProp", {
+    const excluded = generateSubTypesBlock(netexLibrary, "WithArrayProp", {
       html: false,
       excludedMembers: new Set(["Items"]),
     });
@@ -440,7 +440,7 @@ describe("generateSubTypeDefsBlock", () => {
   });
 
   it("collapses fixed-enum-target deps to string", () => {
-    const text = generateSubTypeDefsBlock(defs, "WithUnstampedStatusRef", { html: false });
+    const text = generateSubTypesBlock(netexLibrary, "WithUnstampedStatusRef", { html: false });
     expect(text).toContain("type StatusEnum = string;");
     expect(text).not.toContain("STATUS_ENUM");
   });
@@ -450,24 +450,24 @@ describe("generateSubTypeDefsBlock", () => {
 
 describe("collectRenderableDeps", () => {
   it("excludes x-fixed-single-enum deps", () => {
-    const names = collectRenderableDeps(defs, "Authority");
+    const names = collectRenderableDeps(netexLibrary, "Authority");
     expect(names).not.toContain("NameOfClass");
   });
 
   it("includes normal enum deps", () => {
-    const names = collectRenderableDeps(defs, "WithModeProp");
+    const names = collectRenderableDeps(netexLibrary, "WithModeProp");
     expect(names).toContain("AllModesEnumeration");
   });
 
   it("excludes NameOfClass for dynamic refs", () => {
-    const names = collectRenderableDeps(defs, "WithDynClassRef");
+    const names = collectRenderableDeps(netexLibrary, "WithDynClassRef");
     expect(names).not.toContain("NameOfClass");
   });
 
   it("excludedMembers filters deps seeded by excluded props", () => {
-    const full = collectRenderableDeps(defs, "WithArrayProp");
+    const full = collectRenderableDeps(netexLibrary, "WithArrayProp");
     expect(full).toContain("Authority");
-    const excluded = collectRenderableDeps(defs, "WithArrayProp", new Set(["Items"]));
+    const excluded = collectRenderableDeps(netexLibrary, "WithArrayProp", new Set(["Items"]));
     expect(excluded).not.toContain("Authority");
   });
 });

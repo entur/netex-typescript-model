@@ -25,7 +25,7 @@ import {
   collectExtraProps,
   collectDependencyTree,
   isDynNocRef,
-  type Defs,
+  type NetexLibrary,
   type ViaHop,
 } from "./fns.js";
 
@@ -107,17 +107,17 @@ describe("refTarget", () => {
 
 describe("flattenAllOf", () => {
   it("flattens simple properties", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { properties: { x: { type: "string" } } },
     };
-    const result = flattenAllOf(defs, "A");
+    const result = flattenAllOf(netexLibrary, "A");
     expect(result).toHaveLength(1);
     expect(result[0].prop).toEqual(["x", "x"]);
     expect(result[0].origin).toBe("A");
   });
 
   it("flattens allOf inheritance", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Child: {
         allOf: [
           { $ref: "#/definitions/Parent" },
@@ -126,28 +126,28 @@ describe("flattenAllOf", () => {
       },
       Parent: { properties: { x: { type: "string" } } },
     };
-    const result = flattenAllOf(defs, "Child");
+    const result = flattenAllOf(netexLibrary, "Child");
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ prop: ["x", "x"], origin: "Parent" });
     expect(result[1]).toMatchObject({ prop: ["y", "y"], origin: "Child" });
   });
 
   it("follows $ref aliases", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Alias: { $ref: "#/definitions/Real" },
       Real: { properties: { z: { type: "boolean" } } },
     };
-    const result = flattenAllOf(defs, "Alias");
+    const result = flattenAllOf(netexLibrary, "Alias");
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ prop: ["z", "z"], origin: "Real" });
   });
 
   it("handles circular references without infinite loop", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { allOf: [{ $ref: "#/definitions/B" }, { properties: { x: { type: "string" } } }] },
       B: { allOf: [{ $ref: "#/definitions/A" }, { properties: { y: { type: "string" } } }] },
     };
-    const result = flattenAllOf(defs, "A");
+    const result = flattenAllOf(netexLibrary, "A");
     expect(result.length).toBeGreaterThan(0);
   });
 });
@@ -156,12 +156,12 @@ describe("flattenAllOf", () => {
 
 describe("collectRequired", () => {
   it("collects from direct required", () => {
-    const defs: Defs = { A: { required: ["x", "y"] } };
-    expect(collectRequired(defs, "A")).toEqual(new Set(["x", "y"]));
+    const netexLibrary: NetexLibrary = { A: { required: ["x", "y"] } };
+    expect(collectRequired(netexLibrary, "A")).toEqual(new Set(["x", "y"]));
   });
 
   it("collects from allOf entries", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Child: {
         allOf: [
           { $ref: "#/definitions/Parent" },
@@ -170,15 +170,15 @@ describe("collectRequired", () => {
       },
       Parent: { required: ["a"] },
     };
-    expect(collectRequired(defs, "Child")).toEqual(new Set(["a", "b"]));
+    expect(collectRequired(netexLibrary, "Child")).toEqual(new Set(["a", "b"]));
   });
 
   it("follows $ref aliases", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Alias: { $ref: "#/definitions/Real" },
       Real: { required: ["z"] },
     };
-    expect(collectRequired(defs, "Alias")).toEqual(new Set(["z"]));
+    expect(collectRequired(netexLibrary, "Alias")).toEqual(new Set(["z"]));
   });
 });
 
@@ -186,8 +186,8 @@ describe("collectRequired", () => {
 
 describe("resolveDefType", () => {
   it("resolves primitive type", () => {
-    const defs: Defs = { StringType: { type: "string" } };
-    expect(resolveDefType(defs, "StringType")).toEqual({
+    const netexLibrary: NetexLibrary = { StringType: { type: "string" } };
+    expect(resolveDefType(netexLibrary, "StringType")).toEqual({
       ts: "string",
       complex: false,
       via: [{ name: "StringType", rule: "primitive" }],
@@ -195,11 +195,11 @@ describe("resolveDefType", () => {
   });
 
   it("follows $ref alias to primitive", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Alias: { $ref: "#/definitions/Target" },
       Target: { type: "string" },
     };
-    expect(resolveDefType(defs, "Alias")).toEqual({
+    expect(resolveDefType(netexLibrary, "Alias")).toEqual({
       ts: "string",
       complex: false,
       via: [
@@ -210,11 +210,11 @@ describe("resolveDefType", () => {
   });
 
   it("follows allOf wrapper to primitive", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Wrapper: { allOf: [{ $ref: "#/definitions/Inner" }] },
       Inner: { type: "integer" },
     };
-    expect(resolveDefType(defs, "Wrapper")).toEqual({
+    expect(resolveDefType(netexLibrary, "Wrapper")).toEqual({
       ts: "number",
       complex: false,
       via: [
@@ -225,30 +225,30 @@ describe("resolveDefType", () => {
   });
 
   it("resolves unstamped enum to literal union", () => {
-    const defs: Defs = { E: { enum: ["a", "b", "c"] } };
-    const result = resolveDefType(defs, "E");
+    const netexLibrary: NetexLibrary = { E: { enum: ["a", "b", "c"] } };
+    const result = resolveDefType(netexLibrary, "E");
     expect(result.complex).toBe(false);
     expect(result.ts).toBe('"a" | "b" | "c"');
     expect(result.via).toEqual([{ name: "E", rule: "enum" }]);
   });
 
   it("resolves stamped enumeration to its name", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       ModeEnumeration: {
         type: "string",
         enum: ["bus", "tram", "rail"],
         "x-netex-role": "enumeration",
       },
     };
-    const result = resolveDefType(defs, "ModeEnumeration");
+    const result = resolveDefType(netexLibrary, "ModeEnumeration");
     expect(result.ts).toBe("ModeEnumeration");
     expect(result.complex).toBe(false);
     expect(result.via).toEqual([{ name: "ModeEnumeration", rule: "enum" }]);
   });
 
   it("returns complex for object with properties", () => {
-    const defs: Defs = { Obj: { type: "object", properties: { x: { type: "string" } } } };
-    expect(resolveDefType(defs, "Obj")).toEqual({
+    const netexLibrary: NetexLibrary = { Obj: { type: "object", properties: { x: { type: "string" } } } };
+    expect(resolveDefType(netexLibrary, "Obj")).toEqual({
       ts: "Obj",
       complex: true,
       via: [{ name: "Obj", rule: "complex" }],
@@ -256,24 +256,24 @@ describe("resolveDefType", () => {
   });
 
   it("resolves x-netex-atom as primitive instead of complex, with via", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Wrapper: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
     };
-    const result = resolveDefType(defs, "Wrapper");
+    const result = resolveDefType(netexLibrary, "Wrapper");
     expect(result.ts).toBe("string");
     expect(result.complex).toBe(false);
     expect(result.via).toEqual([{ name: "Wrapper", rule: "atom-collapse" }]);
   });
 
   it("returns complex for x-netex-atom: simpleObj", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Wrapper: {
         type: "object",
         properties: { value: { type: "string" }, type: { type: "string" } },
         "x-netex-atom": "simpleObj",
       },
     };
-    expect(resolveDefType(defs, "Wrapper")).toEqual({
+    expect(resolveDefType(netexLibrary, "Wrapper")).toEqual({
       ts: "Wrapper",
       complex: true,
       via: [{ name: "Wrapper", rule: "complex" }],
@@ -281,7 +281,7 @@ describe("resolveDefType", () => {
   });
 
   it("speculatively follows allOf parent when own properties exist", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       RefStruct: {
         allOf: [
           { $ref: "#/definitions/Base" },
@@ -290,7 +290,7 @@ describe("resolveDefType", () => {
       },
       Base: { type: "string" },
     };
-    const result = resolveDefType(defs, "RefStruct");
+    const result = resolveDefType(netexLibrary, "RefStruct");
     expect(result).toEqual({
       ts: "string",
       complex: false,
@@ -302,7 +302,7 @@ describe("resolveDefType", () => {
   });
 
   it("stays complex when parent is also complex", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Child: {
         allOf: [
           { $ref: "#/definitions/Parent" },
@@ -311,13 +311,13 @@ describe("resolveDefType", () => {
       },
       Parent: { type: "object", properties: { x: { type: "string" } } },
     };
-    const result = resolveDefType(defs, "Child");
+    const result = resolveDefType(netexLibrary, "Child");
     expect(result.complex).toBe(true);
     expect(result.via).toEqual([{ name: "Child", rule: "complex" }]);
   });
 
   it("unwraps single-prop array wrapper with via", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       ListWrapper: {
         type: "object",
         properties: {
@@ -326,7 +326,7 @@ describe("resolveDefType", () => {
       },
       ItemStruct: { type: "object", "x-netex-atom": "simpleObj", properties: { value: { type: "string" }, code: { type: "string" } } },
     };
-    const result = resolveDefType(defs, "ListWrapper");
+    const result = resolveDefType(netexLibrary, "ListWrapper");
     expect(result.ts).toBe("ItemStruct[]");
     expect(result.complex).toBe(true);
     expect(result.via).toEqual([
@@ -336,21 +336,21 @@ describe("resolveDefType", () => {
   });
 
   it("unwraps empty object with via", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       EmptyObj: { type: "object" },
     };
-    const result = resolveDefType(defs, "EmptyObj");
+    const result = resolveDefType(netexLibrary, "EmptyObj");
     expect(result.ts).toBe("any");
     expect(result.complex).toBe(false);
     expect(result.via).toEqual([{ name: "EmptyObj", rule: "empty-object" }]);
   });
 
   it("records full via chain for $ref alias", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Alias: { $ref: "#/definitions/Target" },
       Target: { type: "string" },
     };
-    const result = resolveDefType(defs, "Alias");
+    const result = resolveDefType(netexLibrary, "Alias");
     expect(result.ts).toBe("string");
     expect(result.via).toEqual([
       { name: "Alias", rule: "ref" },
@@ -359,8 +359,8 @@ describe("resolveDefType", () => {
   });
 
   it("includes format comment for formatted primitives", () => {
-    const defs: Defs = { DT: { type: "string", format: "date-time" } };
-    expect(resolveDefType(defs, "DT")).toEqual({
+    const netexLibrary: NetexLibrary = { DT: { type: "string", format: "date-time" } };
+    expect(resolveDefType(netexLibrary, "DT")).toEqual({
       ts: "string /* date-time */",
       complex: false,
       via: [{ name: "DT", rule: "primitive" }],
@@ -368,21 +368,21 @@ describe("resolveDefType", () => {
   });
 
   it("handles circular references", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { $ref: "#/definitions/B" },
       B: { $ref: "#/definitions/A" },
     };
-    const result = resolveDefType(defs, "A");
+    const result = resolveDefType(netexLibrary, "A");
     expect(result.complex).toBe(true);
   });
 
   it("multi-hop $ref chain produces [ref, ref, primitive]", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { $ref: "#/definitions/B" },
       B: { $ref: "#/definitions/C" },
       C: { type: "string" },
     };
-    const result = resolveDefType(defs, "A");
+    const result = resolveDefType(netexLibrary, "A");
     expect(result.via).toEqual([
       { name: "A", rule: "ref" },
       { name: "B", rule: "ref" },
@@ -391,12 +391,12 @@ describe("resolveDefType", () => {
   });
 
   it("allOf-passthrough + inner ref chain", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Outer: { allOf: [{ $ref: "#/definitions/Inner" }] },
       Inner: { $ref: "#/definitions/Leaf" },
       Leaf: { type: "integer" },
     };
-    const result = resolveDefType(defs, "Outer");
+    const result = resolveDefType(netexLibrary, "Outer");
     expect(result.via).toEqual([
       { name: "Outer", rule: "allOf-passthrough" },
       { name: "Inner", rule: "ref" },
@@ -405,7 +405,7 @@ describe("resolveDefType", () => {
   });
 
   it("allOf-speculative records hop before inner chain", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Outer: {
         allOf: [
           { $ref: "#/definitions/Parent" },
@@ -415,7 +415,7 @@ describe("resolveDefType", () => {
       Parent: { $ref: "#/definitions/Prim" },
       Prim: { type: "string" },
     };
-    const result = resolveDefType(defs, "Outer");
+    const result = resolveDefType(netexLibrary, "Outer");
     expect(result.via).toEqual([
       { name: "Outer", rule: "allOf-speculative" },
       { name: "Parent", rule: "ref" },
@@ -424,7 +424,7 @@ describe("resolveDefType", () => {
   });
 
   it("array-unwrap + inner atom-collapse chain", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       ListWrap: {
         type: "object",
         properties: {
@@ -433,7 +433,7 @@ describe("resolveDefType", () => {
       },
       AtomItem: { type: "object", properties: { value: { type: "string" } }, "x-netex-atom": "string" },
     };
-    const result = resolveDefType(defs, "ListWrap");
+    const result = resolveDefType(netexLibrary, "ListWrap");
     expect(result.ts).toBe("string[]");
     expect(result.via).toEqual([
       { name: "ListWrap", rule: "array-unwrap" },
@@ -442,7 +442,7 @@ describe("resolveDefType", () => {
   });
 
   it("resolves x-netex-atom:array with ref items to EnumName[]", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       AccessFacilityListOfEnumerations: {
         type: "array",
         items: { $ref: "#/definitions/AccessFacilityEnumeration" },
@@ -454,7 +454,7 @@ describe("resolveDefType", () => {
         "x-netex-role": "enumeration",
       },
     };
-    const result = resolveDefType(defs, "AccessFacilityListOfEnumerations");
+    const result = resolveDefType(netexLibrary, "AccessFacilityListOfEnumerations");
     expect(result.ts).toBe("AccessFacilityEnumeration[]");
     expect(result.complex).toBe(false);
     expect(result.via).toEqual([
@@ -464,7 +464,7 @@ describe("resolveDefType", () => {
   });
 
   it("resolves x-netex-atom:array with ref items to complex type[]", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       ThingList: {
         type: "array",
         items: { $ref: "#/definitions/ThingStructure" },
@@ -475,7 +475,7 @@ describe("resolveDefType", () => {
         properties: { name: { type: "string" } },
       },
     };
-    const result = resolveDefType(defs, "ThingList");
+    const result = resolveDefType(netexLibrary, "ThingList");
     expect(result.ts).toBe("ThingStructure[]");
     expect(result.complex).toBe(true);
     expect(result.via).toEqual([
@@ -485,14 +485,14 @@ describe("resolveDefType", () => {
   });
 
   it("resolves x-netex-atom:array with inline primitive items", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       LanguageListOfEnumerations: {
         type: "array",
         items: { type: "string" },
         "x-netex-atom": "array",
       },
     };
-    const result = resolveDefType(defs, "LanguageListOfEnumerations");
+    const result = resolveDefType(netexLibrary, "LanguageListOfEnumerations");
     expect(result.ts).toBe("string[]");
     expect(result.complex).toBe(false);
     expect(result.via).toEqual([
@@ -505,8 +505,8 @@ describe("resolveDefType", () => {
 
 describe("resolvePropertyType", () => {
   it("resolves $ref through resolveDefType", () => {
-    const defs: Defs = { T: { type: "string" } };
-    expect(resolvePropertyType(defs, { $ref: "#/definitions/T" })).toEqual({
+    const netexLibrary: NetexLibrary = { T: { type: "string" } };
+    expect(resolvePropertyType(netexLibrary, { $ref: "#/definitions/T" })).toEqual({
       ts: "string",
       complex: false,
       via: [{ name: "T", rule: "primitive" }],
@@ -514,8 +514,8 @@ describe("resolvePropertyType", () => {
   });
 
   it("resolves array of $ref and preserves via", () => {
-    const defs: Defs = { T: { type: "string" } };
-    const result = resolvePropertyType(defs, { type: "array", items: { $ref: "#/definitions/T" } });
+    const netexLibrary: NetexLibrary = { T: { type: "string" } };
+    const result = resolvePropertyType(netexLibrary, { type: "array", items: { $ref: "#/definitions/T" } });
     expect(result).toEqual({
       ts: "string[]",
       complex: false,
@@ -524,29 +524,29 @@ describe("resolvePropertyType", () => {
   });
 
   it("resolves inline enum", () => {
-    const defs: Defs = {};
-    expect(resolvePropertyType(defs, { enum: ["x", "y"] })).toEqual({
+    const netexLibrary: NetexLibrary = {};
+    expect(resolvePropertyType(netexLibrary, { enum: ["x", "y"] })).toEqual({
       ts: '"x" | "y"',
       complex: false,
     });
   });
 
   it("resolves inline primitive", () => {
-    const defs: Defs = {};
-    expect(resolvePropertyType(defs, { type: "boolean" })).toEqual({
+    const netexLibrary: NetexLibrary = {};
+    expect(resolvePropertyType(netexLibrary, { type: "boolean" })).toEqual({
       ts: "boolean",
       complex: false,
     });
   });
 
   it("resolves x-fixed-single-enum as string literal when context is provided", () => {
-    const defs: Defs = { MyEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" } };
+    const netexLibrary: NetexLibrary = { MyEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" } };
     const schema = {
       allOf: [{ $ref: "#/definitions/MyEnum" }],
       description: "Fixed for each ENTITY type.",
       "x-fixed-single-enum": "MyEnum",
     };
-    expect(resolvePropertyType(defs, schema, "ContextName")).toEqual({
+    expect(resolvePropertyType(netexLibrary, schema, "ContextName")).toEqual({
       ts: '"ContextName"',
       complex: false,
       via: [{ name: "ContextName", rule: "fixed-for" }],
@@ -554,25 +554,25 @@ describe("resolvePropertyType", () => {
   });
 
   it("resolves x-fixed-single-enum normally without context", () => {
-    const defs: Defs = { MyEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" } };
+    const netexLibrary: NetexLibrary = { MyEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" } };
     const schema = {
       allOf: [{ $ref: "#/definitions/MyEnum" }],
       description: "Fixed for each ENTITY type.",
       "x-fixed-single-enum": "MyEnum",
     };
-    const result = resolvePropertyType(defs, schema);
+    const result = resolvePropertyType(netexLibrary, schema);
     // Without context, falls through to normal enum resolution (stamped enum → name)
     expect(result.ts).toBe("MyEnum");
     expect(result.via).toEqual([{ name: "MyEnum", rule: "enum" }]);
   });
 
   it("ignores x-fixed-single-enum stamp when absent", () => {
-    const defs: Defs = { MyEnum: { enum: ["A", "B"], "x-netex-role": "enumeration" } };
+    const netexLibrary: NetexLibrary = { MyEnum: { enum: ["A", "B"], "x-netex-role": "enumeration" } };
     const schema = {
       allOf: [{ $ref: "#/definitions/MyEnum" }],
       description: "Some other description.",
     };
-    const result = resolvePropertyType(defs, schema, "ContextName");
+    const result = resolvePropertyType(netexLibrary, schema, "ContextName");
     // No stamp → normal resolution regardless of context (stamped enum → name)
     expect(result.ts).toBe("MyEnum");
     expect(result.via).toEqual([{ name: "MyEnum", rule: "enum" }]);
@@ -610,25 +610,25 @@ describe("isDynNocRef", () => {
 
 describe("resolvePropertyType with dynamic NameOfClass", () => {
   it("resolves dynamic NameOfClass ref as string", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       NameOfClass: { enum: ["A", "B"], "x-netex-role": "enumeration" },
     };
     const schema = { allOf: [{ $ref: "#/definitions/NameOfClass" }] };
-    const result = resolvePropertyType(defs, schema);
+    const result = resolvePropertyType(netexLibrary, schema);
     expect(result.ts).toBe("string");
     expect(result.complex).toBe(false);
     expect(result.via).toEqual([{ name: "NameOfClass", rule: "dyn-class" }]);
   });
 
   it("does not short-circuit when x-fixed-single-enum is set", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       NameOfClass: { enum: ["A", "B"], "x-netex-role": "enumeration" },
     };
     const schema = {
       allOf: [{ $ref: "#/definitions/NameOfClass" }],
       "x-fixed-single-enum": "NameOfClass",
     };
-    const result = resolvePropertyType(defs, schema, "MyEntity");
+    const result = resolvePropertyType(netexLibrary, schema, "MyEntity");
     expect(result.ts).toBe('"MyEntity"');
     expect(result.via).toEqual([{ name: "MyEntity", rule: "fixed-for" }]);
   });
@@ -638,28 +638,28 @@ describe("resolvePropertyType with dynamic NameOfClass", () => {
 
 describe("resolveAtom", () => {
   it("reads x-netex-atom annotation", () => {
-    const defs: Defs = { T: { type: "object", "x-netex-atom": "string" } };
-    expect(resolveAtom(defs, "T")).toBe("string");
+    const netexLibrary: NetexLibrary = { T: { type: "object", "x-netex-atom": "string" } };
+    expect(resolveAtom(netexLibrary, "T")).toBe("string");
   });
 
   it("follows $ref alias to find annotation", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Alias: { $ref: "#/definitions/Real" },
       Real: { type: "object", "x-netex-atom": "number" },
     };
-    expect(resolveAtom(defs, "Alias")).toBe("number");
+    expect(resolveAtom(netexLibrary, "Alias")).toBe("number");
   });
 
   it("returns simpleObj for multi-prop types", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       T: { type: "object", "x-netex-atom": "simpleObj" },
     };
-    expect(resolveAtom(defs, "T")).toBe("simpleObj");
+    expect(resolveAtom(netexLibrary, "T")).toBe("simpleObj");
   });
 
   it("returns null when no annotation", () => {
-    const defs: Defs = { T: { type: "object", properties: { x: { type: "string" } } } };
-    expect(resolveAtom(defs, "T")).toBeNull();
+    const netexLibrary: NetexLibrary = { T: { type: "object", properties: { x: { type: "string" } } } };
+    expect(resolveAtom(netexLibrary, "T")).toBeNull();
   });
 
   it("returns null for missing definition", () => {
@@ -671,19 +671,19 @@ describe("resolveAtom", () => {
 
 describe("buildReverseIndex", () => {
   it("builds incoming reference map", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { $ref: "#/definitions/B" },
       B: { type: "string" },
       C: { properties: { x: { $ref: "#/definitions/B" } } },
     };
-    const idx = buildReverseIndex(defs);
+    const idx = buildReverseIndex(netexLibrary);
     expect(idx["B"]).toEqual(expect.arrayContaining(["A", "C"]));
     expect(idx["B"]).toHaveLength(2);
   });
 
   it("excludes self-references", () => {
-    const defs: Defs = { A: { allOf: [{ $ref: "#/definitions/A" }] } };
-    const idx = buildReverseIndex(defs);
+    const netexLibrary: NetexLibrary = { A: { allOf: [{ $ref: "#/definitions/A" }] } };
+    const idx = buildReverseIndex(netexLibrary);
     expect(idx["A"]).toBeUndefined();
   });
 });
@@ -691,76 +691,76 @@ describe("buildReverseIndex", () => {
 // ── findTransitiveEntityUsers ─────────────────────────────────────────────────
 
 describe("findTransitiveEntityUsers", () => {
-  /** Helper: build the isEntity predicate from defs (the common call-site pattern). */
-  const isEntity = (defs: Defs) => (name: string) => defRole(defs[name]) === "entity";
+  /** Helper: build the isEntity predicate from netexLibrary (the common call-site pattern). */
+  const isEntity = (netexLibrary: NetexLibrary) => (name: string) => defRole(netexLibrary[name]) === "entity";
 
   it("finds direct entity referrer", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Leaf: { type: "string" },
       MyEntity: { "x-netex-role": "entity", properties: { x: { $ref: "#/definitions/Leaf" } } },
     };
-    const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["MyEntity"]);
+    const idx = buildReverseIndex(netexLibrary);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(netexLibrary))).toEqual(["MyEntity"]);
   });
 
   it("finds entity through intermediate structure", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Leaf: { type: "string" },
       Middle: { "x-netex-role": "structure", properties: { x: { $ref: "#/definitions/Leaf" } } },
       MyEntity: { "x-netex-role": "entity", properties: { m: { $ref: "#/definitions/Middle" } } },
     };
-    const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["MyEntity"]);
+    const idx = buildReverseIndex(netexLibrary);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(netexLibrary))).toEqual(["MyEntity"]);
   });
 
   it("does not traverse beyond entities", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Leaf: { type: "string" },
       EntityA: { "x-netex-role": "entity", properties: { x: { $ref: "#/definitions/Leaf" } } },
       EntityB: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/EntityA" } } },
     };
-    const idx = buildReverseIndex(defs);
+    const idx = buildReverseIndex(netexLibrary);
     // EntityA uses Leaf directly; EntityB uses EntityA but not Leaf
-    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityA"]);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(netexLibrary))).toEqual(["EntityA"]);
   });
 
   it("excludes the input name from results even if it is an entity", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Self: { "x-netex-role": "entity", properties: { x: { type: "string" } } },
       Other: { "x-netex-role": "entity", properties: { s: { $ref: "#/definitions/Self" } } },
     };
-    const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers("Self", idx, isEntity(defs))).toEqual(["Other"]);
+    const idx = buildReverseIndex(netexLibrary);
+    expect(findTransitiveEntityUsers("Self", idx, isEntity(netexLibrary))).toEqual(["Other"]);
   });
 
   it("handles cycles without infinite loop", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { "x-netex-role": "structure", properties: { b: { $ref: "#/definitions/B" } } },
       B: { "x-netex-role": "structure", properties: { a: { $ref: "#/definitions/A" } } },
       E: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/A" } } },
     };
-    const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers("A", idx, isEntity(defs))).toEqual(["E"]);
+    const idx = buildReverseIndex(netexLibrary);
+    expect(findTransitiveEntityUsers("A", idx, isEntity(netexLibrary))).toEqual(["E"]);
   });
 
   it("returns empty array when no entities reachable", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Orphan: { type: "string" },
     };
-    const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers("Orphan", idx, isEntity(defs))).toEqual([]);
+    const idx = buildReverseIndex(netexLibrary);
+    expect(findTransitiveEntityUsers("Orphan", idx, isEntity(netexLibrary))).toEqual([]);
   });
 
   it("finds multiple entities through branching paths", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Leaf: { type: "string" },
       StructA: { "x-netex-role": "structure", properties: { x: { $ref: "#/definitions/Leaf" } } },
       StructB: { "x-netex-role": "structure", properties: { x: { $ref: "#/definitions/Leaf" } } },
       EntityX: { "x-netex-role": "entity", properties: { a: { $ref: "#/definitions/StructA" } } },
       EntityY: { "x-netex-role": "entity", properties: { b: { $ref: "#/definitions/StructB" } } },
     };
-    const idx = buildReverseIndex(defs);
-    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(defs))).toEqual(["EntityX", "EntityY"]);
+    const idx = buildReverseIndex(netexLibrary);
+    expect(findTransitiveEntityUsers("Leaf", idx, isEntity(netexLibrary))).toEqual(["EntityX", "EntityY"]);
   });
 });
 
@@ -768,15 +768,15 @@ describe("findTransitiveEntityUsers", () => {
 
 describe("resolveRefEntity", () => {
   it("resolves direct entity target via stamp", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       FooRef: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
       Foo: { "x-netex-role": "entity" },
     };
-    expect(resolveRefEntity(defs, "FooRef")).toBe("Foo");
+    expect(resolveRefEntity(netexLibrary, "FooRef")).toBe("Foo");
   });
 
   it("expands abstract target to concrete entity sg-members", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       BarRef: { "x-netex-role": "reference", "x-netex-refTarget": "Bar" },
       Bar: { "x-netex-role": "abstract", "x-netex-sg-members": ["Baz", "Qux"] },
       BazRef: { "x-netex-role": "reference", "x-netex-refTarget": "Baz" },
@@ -784,30 +784,30 @@ describe("resolveRefEntity", () => {
       QuxRef: { "x-netex-role": "reference", "x-netex-refTarget": "Qux" },
       Qux: { "x-netex-role": "structure" },
     };
-    expect(resolveRefEntity(defs, "BarRef")).toEqual(["Baz"]);
+    expect(resolveRefEntity(netexLibrary, "BarRef")).toEqual(["Baz"]);
   });
 
   it("falls back to name stripping when no stamp", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       FooRef: { "x-netex-role": "reference" },
       Foo: { "x-netex-role": "entity" },
     };
-    expect(resolveRefEntity(defs, "FooRef")).toBe("Foo");
+    expect(resolveRefEntity(netexLibrary, "FooRef")).toBe("Foo");
   });
 
   it("returns null when no target found", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       UnknownRef: { "x-netex-role": "reference" },
     };
-    expect(resolveRefEntity(defs, "UnknownRef")).toBeNull();
+    expect(resolveRefEntity(netexLibrary, "UnknownRef")).toBeNull();
   });
 
   it("handles RefStructure suffix via stamp", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Foo_RefStructure: { "x-netex-role": "reference", "x-netex-refTarget": "Foo" },
       Foo: { "x-netex-role": "entity" },
     };
-    expect(resolveRefEntity(defs, "Foo_RefStructure")).toBe("Foo");
+    expect(resolveRefEntity(netexLibrary, "Foo_RefStructure")).toBe("Foo");
   });
 });
 
@@ -815,7 +815,7 @@ describe("resolveRefEntity", () => {
 
 describe("collectRefProps", () => {
   it("finds ref-typed properties with resolved targets", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       MyStruct: {
         properties: {
           FooRef: { $ref: "#/definitions/FooRef" },
@@ -828,7 +828,7 @@ describe("collectRefProps", () => {
       BarRef: { "x-netex-role": "reference", "x-netex-refTarget": "Bar" },
       Bar: { "x-netex-role": "entity" },
     };
-    const result = collectRefProps(defs, "MyStruct");
+    const result = collectRefProps(netexLibrary, "MyStruct");
     expect(result).toHaveLength(2);
     expect(result[0].propName).toBe("FooRef");
     expect(result[0].targetEntities).toEqual(["Foo"]);
@@ -837,7 +837,7 @@ describe("collectRefProps", () => {
   });
 
   it("walks allOf chain to find inherited ref props", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Child: { allOf: [{ $ref: "#/definitions/Parent" }, { properties: { ChildRef: { $ref: "#/definitions/ChildRef" } } }] },
       Parent: { properties: { ParentRef: { $ref: "#/definitions/ParentRef" } } },
       ChildRef: { "x-netex-role": "reference", "x-netex-refTarget": "ChildEntity" },
@@ -845,25 +845,25 @@ describe("collectRefProps", () => {
       ParentRef: { "x-netex-role": "reference", "x-netex-refTarget": "ParentEntity" },
       ParentEntity: { "x-netex-role": "entity" },
     };
-    const result = collectRefProps(defs, "Child");
+    const result = collectRefProps(netexLibrary, "Child");
     expect(result).toHaveLength(2);
     expect(result.map(r => r.propName).sort()).toEqual(["ChildRef", "ParentRef"]);
   });
 
   it("excludes unresolvable refs", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       MyStruct: { properties: { BadRef: { $ref: "#/definitions/BadRef" } } },
       BadRef: { "x-netex-role": "reference" },
     };
-    const result = collectRefProps(defs, "MyStruct");
+    const result = collectRefProps(netexLibrary, "MyStruct");
     expect(result).toEqual([]);
   });
 
   it("returns empty for no ref props", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       MyStruct: { properties: { name: { type: "string" }, count: { type: "number" } } },
     };
-    expect(collectRefProps(defs, "MyStruct")).toEqual([]);
+    expect(collectRefProps(netexLibrary, "MyStruct")).toEqual([]);
   });
 });
 
@@ -871,26 +871,26 @@ describe("collectRefProps", () => {
 
 describe("collectExtraProps", () => {
   it("returns empty when entity maps directly to base structure", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       MyEntity: { $ref: "#/definitions/Base_VersionStructure", "x-netex-role": "entity" },
       Base_VersionStructure: { properties: { a: { type: "string" } } },
     };
-    expect(collectExtraProps(defs, "MyEntity", "Base_VersionStructure")).toEqual([]);
+    expect(collectExtraProps(netexLibrary, "MyEntity", "Base_VersionStructure")).toEqual([]);
   });
 
   it("collects props from one intermediate level", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       DerivedEntity: { $ref: "#/definitions/Derived_VersionStructure", "x-netex-role": "entity" },
       Derived_VersionStructure: {
         allOf: [{ $ref: "#/definitions/Base_VersionStructure" }, { properties: { x: { type: "string" }, y: { type: "number" }, z: { type: "boolean" } } }],
       },
       Base_VersionStructure: { properties: { a: { type: "string" } } },
     };
-    expect(collectExtraProps(defs, "DerivedEntity", "Base_VersionStructure")).toEqual(["x", "y", "z"]);
+    expect(collectExtraProps(netexLibrary, "DerivedEntity", "Base_VersionStructure")).toEqual(["x", "y", "z"]);
   });
 
   it("collects props from two intermediate levels", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       DeepEntity: { $ref: "#/definitions/Deep_VersionStructure", "x-netex-role": "entity" },
       Deep_VersionStructure: {
         allOf: [{ $ref: "#/definitions/Mid_VersionStructure" }, { properties: { d1: { type: "string" } } }],
@@ -900,7 +900,7 @@ describe("collectExtraProps", () => {
       },
       Base_VersionStructure: { properties: { a: { type: "string" } } },
     };
-    const extras = collectExtraProps(defs, "DeepEntity", "Base_VersionStructure");
+    const extras = collectExtraProps(netexLibrary, "DeepEntity", "Base_VersionStructure");
     expect(extras).toContain("d1");
     expect(extras).toContain("m1");
     expect(extras).toContain("m2");
@@ -908,14 +908,14 @@ describe("collectExtraProps", () => {
   });
 
   it("handles $ref alias entities (common NeTEx pattern)", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       AliasEntity: { $ref: "#/definitions/Alias_VersionStructure", "x-netex-role": "entity" },
       Alias_VersionStructure: {
         allOf: [{ $ref: "#/definitions/Base_VS" }, { properties: { extra: { type: "string" } } }],
       },
       Base_VS: { properties: { base: { type: "string" } } },
     };
-    expect(collectExtraProps(defs, "AliasEntity", "Base_VS")).toEqual(["extra"]);
+    expect(collectExtraProps(netexLibrary, "AliasEntity", "Base_VS")).toEqual(["extra"]);
   });
 });
 
@@ -963,7 +963,7 @@ describe("canonicalPropName", () => {
 
 describe("unwrapMixed", () => {
   it("returns inner element type for mixed-content wrapper", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Wrapper: {
         type: "object",
         "x-netex-mixed": true,
@@ -975,22 +975,22 @@ describe("unwrapMixed", () => {
       },
       Inner: { type: "object" },
     };
-    expect(unwrapMixed(defs, "Wrapper")).toBe("Inner");
+    expect(unwrapMixed(netexLibrary, "Wrapper")).toBe("Inner");
   });
 
   it("returns null when x-netex-mixed is absent", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Plain: {
         type: "object",
         description: "*Either* blah",
         properties: { Text: { type: "array", items: { $ref: "#/definitions/T" } } },
       },
     };
-    expect(unwrapMixed(defs, "Plain")).toBeNull();
+    expect(unwrapMixed(netexLibrary, "Plain")).toBeNull();
   });
 
   it("returns null when description lacks *Either*", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       NoSignal: {
         type: "object",
         "x-netex-mixed": true,
@@ -998,7 +998,7 @@ describe("unwrapMixed", () => {
         properties: { Text: { type: "array", items: { $ref: "#/definitions/T" } } },
       },
     };
-    expect(unwrapMixed(defs, "NoSignal")).toBeNull();
+    expect(unwrapMixed(netexLibrary, "NoSignal")).toBeNull();
   });
 
   it("returns null for missing definition", () => {
@@ -1006,7 +1006,7 @@ describe("unwrapMixed", () => {
   });
 
   it("resolveDefType uses unwrapMixed to resolve as inner type array, with via", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Mixed: {
         type: "object",
         "x-netex-mixed": true,
@@ -1018,7 +1018,7 @@ describe("unwrapMixed", () => {
       },
       ItemType: { type: "object", properties: { value: { type: "string" } } },
     };
-    const result = resolveDefType(defs, "Mixed");
+    const result = resolveDefType(netexLibrary, "Mixed");
     expect(result.ts).toBe("ItemType[]");
     expect(result.complex).toBe(true);
     expect(result.via).toEqual([{ name: "Mixed", rule: "mixed-unwrap" }]);
@@ -1049,19 +1049,19 @@ describe("defRole", () => {
 
 describe("countRoles", () => {
   it("counts definitions per role", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { "x-netex-role": "entity" },
       B: { "x-netex-role": "entity" },
       C: { "x-netex-role": "structure" },
     };
-    const counts = countRoles(["A", "B", "C"], defs);
+    const counts = countRoles(["A", "B", "C"], netexLibrary);
     expect(counts.get("entity")).toBe(2);
     expect(counts.get("structure")).toBe(1);
   });
 
   it("groups missing roles under unclassified", () => {
-    const defs: Defs = { A: { type: "object" }, B: {} };
-    const counts = countRoles(["A", "B"], defs);
+    const netexLibrary: NetexLibrary = { A: { type: "object" }, B: {} };
+    const counts = countRoles(["A", "B"], netexLibrary);
     expect(counts.get("unclassified")).toBe(2);
   });
 });
@@ -1070,11 +1070,11 @@ describe("countRoles", () => {
 
 describe("presentRoles", () => {
   it("returns only roles present in the data", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { "x-netex-role": "entity" },
       B: { "x-netex-role": "reference" },
     };
-    const roles = presentRoles(["A", "B"], defs);
+    const roles = presentRoles(["A", "B"], netexLibrary);
     const keys = roles.map((r) => r.role);
     expect(keys).toContain("entity");
     expect(keys).toContain("reference");
@@ -1082,18 +1082,18 @@ describe("presentRoles", () => {
   });
 
   it("includes unclassified when definitions lack x-netex-role", () => {
-    const defs: Defs = { A: { "x-netex-role": "entity" }, B: { type: "object" } };
-    const roles = presentRoles(["A", "B"], defs);
+    const netexLibrary: NetexLibrary = { A: { "x-netex-role": "entity" }, B: { type: "object" } };
+    const roles = presentRoles(["A", "B"], netexLibrary);
     expect(roles.map((r) => r.role)).toContain("unclassified");
   });
 
   it("respects ROLE_DISPLAY_ORDER", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { "x-netex-role": "reference" },
       B: { "x-netex-role": "entity" },
       C: { "x-netex-role": "abstract" },
     };
-    const roles = presentRoles(["A", "B", "C"], defs);
+    const roles = presentRoles(["A", "B", "C"], netexLibrary);
     const keys = roles.map((r) => r.role);
     // entity < abstract < reference per ROLE_DISPLAY_ORDER
     expect(keys.indexOf("entity")).toBeLessThan(keys.indexOf("abstract"));
@@ -1101,22 +1101,22 @@ describe("presentRoles", () => {
   });
 
   it("includes correct counts", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { "x-netex-role": "entity" },
       B: { "x-netex-role": "entity" },
       C: { "x-netex-role": "structure" },
     };
-    const roles = presentRoles(["A", "B", "C"], defs);
+    const roles = presentRoles(["A", "B", "C"], netexLibrary);
     expect(roles.find((r) => r.role === "entity")?.count).toBe(2);
     expect(roles.find((r) => r.role === "structure")?.count).toBe(1);
   });
 
   it("uses ROLE_LABELS for display names", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { "x-netex-role": "frameMember" },
       B: { "x-netex-role": "enumeration" },
     };
-    const roles = presentRoles(["A", "B"], defs);
+    const roles = presentRoles(["A", "B"], netexLibrary);
     expect(roles.find((r) => r.role === "frameMember")?.label).toBe("Frame member");
     expect(roles.find((r) => r.role === "enumeration")?.label).toBe("Enum");
   });
@@ -1144,10 +1144,10 @@ describe("ROLE_DISPLAY_ORDER", () => {
 
 describe("buildInheritanceChain", () => {
   it("returns single node for type with only properties", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Foo: { properties: { x: { type: "string" }, y: { type: "number" } } },
     };
-    const chain = buildInheritanceChain(defs, "Foo");
+    const chain = buildInheritanceChain(netexLibrary, "Foo");
     expect(chain).toHaveLength(1);
     expect(chain[0].name).toBe("Foo");
     expect(chain[0].ownProps).toHaveLength(2);
@@ -1155,7 +1155,7 @@ describe("buildInheritanceChain", () => {
   });
 
   it("builds chain with allOf inheritance (root first)", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Child: {
         allOf: [
           { $ref: "#/definitions/Parent" },
@@ -1164,7 +1164,7 @@ describe("buildInheritanceChain", () => {
       },
       Parent: { properties: { a: { type: "string" } } },
     };
-    const chain = buildInheritanceChain(defs, "Child");
+    const chain = buildInheritanceChain(netexLibrary, "Child");
     expect(chain).toHaveLength(2);
     expect(chain[0].name).toBe("Parent");
     expect(chain[1].name).toBe("Child");
@@ -1173,32 +1173,32 @@ describe("buildInheritanceChain", () => {
   });
 
   it("follows $ref aliases", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Alias: { $ref: "#/definitions/Real" },
       Real: { properties: { x: { type: "string" } } },
     };
-    const chain = buildInheritanceChain(defs, "Alias");
+    const chain = buildInheritanceChain(netexLibrary, "Alias");
     expect(chain).toHaveLength(1);
     expect(chain[0].name).toBe("Real");
   });
 
   it("handles circular references without infinite loop", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       A: { allOf: [{ $ref: "#/definitions/B" }, { properties: { x: { type: "string" } } }] },
       B: { allOf: [{ $ref: "#/definitions/A" }, { properties: { y: { type: "string" } } }] },
     };
-    const chain = buildInheritanceChain(defs, "A");
+    const chain = buildInheritanceChain(netexLibrary, "A");
     expect(chain.length).toBeGreaterThan(0);
   });
 
   it("deduplicates own properties from allOf and direct properties", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       T: {
         allOf: [{ properties: { x: { type: "string" } } }],
         properties: { x: { type: "string" }, y: { type: "number" } },
       },
     };
-    const chain = buildInheritanceChain(defs, "T");
+    const chain = buildInheritanceChain(netexLibrary, "T");
     expect(chain).toHaveLength(1);
     // x appears in allOf entry, so the direct x should be deduped
     const propNames = chain[0].ownProps.map(p => p.name);
@@ -1215,7 +1215,7 @@ describe("buildInheritanceChain", () => {
 
 describe("inlineSingleRefs", () => {
   it("inlines a single-$ref target's inner properties", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1234,8 +1234,8 @@ describe("inlineSingleRefs", () => {
         },
       },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     // Code should be replaced by value and type
     expect(result.some((p) => p.prop[1] === "Code")).toBe(false);
     expect(result.some((p) => p.prop[1] === "value")).toBe(true);
@@ -1247,7 +1247,7 @@ describe("inlineSingleRefs", () => {
   });
 
   it("uses parentProp_innerProp when name conflicts exist", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1266,8 +1266,8 @@ describe("inlineSingleRefs", () => {
         },
       },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     // "value" is already taken → should become "Code_value"
     expect(result.some((p) => p.prop[1] === "Code_value")).toBe(true);
     // "extra" is free → should stay as-is
@@ -1277,7 +1277,7 @@ describe("inlineSingleRefs", () => {
   });
 
   it("skips reference-role targets", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1297,8 +1297,8 @@ describe("inlineSingleRefs", () => {
         "x-netex-atom": "simpleObj",
       },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     // Should NOT inline — Ref stays as-is
     expect(result).toHaveLength(1);
     expect(result[0].prop[1]).toBe("Ref");
@@ -1306,7 +1306,7 @@ describe("inlineSingleRefs", () => {
   });
 
   it("skips collection-role targets", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1325,15 +1325,15 @@ describe("inlineSingleRefs", () => {
       },
       Thing: { type: "object", properties: { name: { type: "string" } } },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     expect(result).toHaveLength(1);
     expect(result[0].prop[1]).toBe("Items");
     expect(result[0].inlinedFrom).toBeUndefined();
   });
 
   it("skips atom targets", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1352,8 +1352,8 @@ describe("inlineSingleRefs", () => {
         "x-netex-atom": "simpleObj",
       },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     // Should NOT inline — atom types are transparent wrappers
     expect(result).toHaveLength(1);
     expect(result[0].prop[1]).toBe("Code");
@@ -1361,16 +1361,16 @@ describe("inlineSingleRefs", () => {
   });
 
   it("returns props unchanged when no candidates exist", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: { properties: { x: { type: "string" }, y: { type: "number" } } },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     expect(result).toEqual(props);
   });
 
   it("handles multiple inlined props with cross-conflict detection", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1390,8 +1390,8 @@ describe("inlineSingleRefs", () => {
         properties: { shared: { type: "number" } },
       },
     };
-    const props = flattenAllOf(defs, "Root");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Root");
+    const result = inlineSingleRefs(netexLibrary, props);
     // First "shared" from A is free
     expect(result.some((p) => p.prop[1] === "shared" && p.inlinedFrom === "A")).toBe(true);
     // Second "shared" from B conflicts → B_shared
@@ -1402,7 +1402,7 @@ describe("inlineSingleRefs", () => {
     // Simulates: Parent inherits BaseStruct → MiddleStruct, then has a single-$ref
     // to TargetStruct which also inherits BaseStruct → MiddleStruct.
     // Only TargetStruct's own props should be inlined.
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       BaseStruct: {
         type: "object",
         properties: {
@@ -1447,8 +1447,8 @@ describe("inlineSingleRefs", () => {
         ],
       },
     };
-    const props = flattenAllOf(defs, "Parent");
-    const result = inlineSingleRefs(defs, props);
+    const props = flattenAllOf(netexLibrary, "Parent");
+    const result = inlineSingleRefs(netexLibrary, props);
 
     // Shared-ancestor props should NOT appear as inlined from Detail
     const detailInlined = result.filter((p) => p.inlinedFrom === "Detail");
@@ -1477,14 +1477,14 @@ describe("inlineSingleRefs", () => {
 
 describe("collectDependencyTree", () => {
   it("returns empty for an enumeration", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       MyEnum: { enum: ["a", "b"], "x-netex-role": "enumeration" },
     };
-    expect(collectDependencyTree(defs, "MyEnum")).toHaveLength(0);
+    expect(collectDependencyTree(netexLibrary, "MyEnum")).toHaveLength(0);
   });
 
   it("collects direct ref-typed dependencies", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1498,7 +1498,7 @@ describe("collectDependencyTree", () => {
       NameType: { type: "string", "x-netex-atom": "string" },
       CodeType: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     expect(tree).toHaveLength(2);
     expect(tree.map((n) => n.name).sort()).toEqual(["CodeType", "NameType"]);
     expect(tree.every((n) => n.depth === 0)).toBe(true);
@@ -1506,21 +1506,21 @@ describe("collectDependencyTree", () => {
   });
 
   it("resolves $ref aliases before enqueuing", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [{ properties: { Thing: { $ref: "#/definitions/Alias" } } }],
       },
       Alias: { $ref: "#/definitions/RealType" },
       RealType: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     expect(tree).toHaveLength(1);
     expect(tree[0].name).toBe("RealType");
     expect(tree[0].via).toBe("Thing");
   });
 
   it("marks duplicate entries and skips recursion", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1533,7 +1533,7 @@ describe("collectDependencyTree", () => {
       },
       Shared: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     expect(tree).toHaveLength(2);
     const first = tree.find((n) => !n.duplicate)!;
     const second = tree.find((n) => n.duplicate)!;
@@ -1543,7 +1543,7 @@ describe("collectDependencyTree", () => {
   });
 
   it("recurses into complex types at increasing depth", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [{ properties: { Child: { $ref: "#/definitions/ChildStruct" } } }],
       },
@@ -1554,7 +1554,7 @@ describe("collectDependencyTree", () => {
       },
       LeafType: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     expect(tree).toHaveLength(2);
     const child = tree.find((n) => n.name === "ChildStruct")!;
     const leaf = tree.find((n) => n.name === "LeafType")!;
@@ -1563,7 +1563,7 @@ describe("collectDependencyTree", () => {
   });
 
   it("stops at references (x-netex-role: reference)", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1581,25 +1581,25 @@ describe("collectDependencyTree", () => {
       InnerStruct: { type: "string", "x-netex-atom": "string" },
       Nested: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     // ThingRef is emitted but not recursed — Nested should NOT appear
     expect(tree.find((n) => n.name === "ThingRef")).toBeDefined();
     expect(tree.find((n) => n.name === "Nested")).toBeUndefined();
   });
 
   it("excludes root from output", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [{ properties: { X: { $ref: "#/definitions/Leaf" } } }],
       },
       Leaf: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     expect(tree.every((n) => n.name !== "Root")).toBe(true);
   });
 
   it("handles refArray properties", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [
           {
@@ -1611,14 +1611,14 @@ describe("collectDependencyTree", () => {
       },
       ItemType: { type: "string", "x-netex-atom": "string" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     expect(tree).toHaveLength(1);
     expect(tree[0].name).toBe("ItemType");
     expect(tree[0].via).toBe("Items");
   });
 
   it("resolves allOf-passthrough wrappers to the underlying definition", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         properties: {
           Code: { $ref: "#/definitions/PrivateCode" },
@@ -1638,7 +1638,7 @@ describe("collectDependencyTree", () => {
         "x-netex-atom": "simpleObj",
       },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     // Should collect PrivateCodeStructure (the resolved target), not PrivateCode (the wrapper)
     const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
     expect(names).toContain("PrivateCodeStructure");
@@ -1646,7 +1646,7 @@ describe("collectDependencyTree", () => {
   });
 
   it("collects enumeration targets from anyOf union properties", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         properties: {
           Category: {
@@ -1661,14 +1661,14 @@ describe("collectDependencyTree", () => {
       FooEnumeration: { enum: ["a", "b"], "x-netex-role": "enumeration" },
       BarEnumeration: { enum: ["x", "y"], "x-netex-role": "enumeration" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
     expect(names).toContain("FooEnumeration");
     expect(names).toContain("BarEnumeration");
   });
 
   it("skips x-fixed-single-enum refs in dependency tree", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       MyEntity: {
         properties: {
           nameOfClass: {
@@ -1684,14 +1684,14 @@ describe("collectDependencyTree", () => {
       BigEnum: { enum: ["A", "B", "C"], "x-netex-role": "enumeration" },
       SmallEnum: { enum: ["x", "y"], "x-netex-role": "enumeration" },
     };
-    const deps = collectDependencyTree(defs, "MyEntity");
+    const deps = collectDependencyTree(netexLibrary, "MyEntity");
     const names = deps.map((d) => d.name);
     expect(names).toContain("SmallEnum");
     expect(names).not.toContain("BigEnum");
   });
 
   it("collects enumeration targets from array-of-enum list wrappers", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         properties: {
           Facilities: { $ref: "#/definitions/FacilityList" },
@@ -1708,13 +1708,13 @@ describe("collectDependencyTree", () => {
       },
       FacilityEnumeration: { enum: ["wifi", "power"], "x-netex-role": "enumeration" },
     };
-    const tree = collectDependencyTree(defs, "Root");
+    const tree = collectDependencyTree(netexLibrary, "Root");
     const names = tree.filter((n) => !n.duplicate).map((n) => n.name);
     expect(names).toContain("FacilityEnumeration");
   });
 
   it("excludeRootProps skips matching seeds", () => {
-    const defs: Defs = {
+    const netexLibrary: NetexLibrary = {
       Root: {
         allOf: [{
           properties: {
@@ -1728,11 +1728,11 @@ describe("collectDependencyTree", () => {
       Shared: { type: "string", "x-netex-atom": "string" },
     };
     // Without exclusion: OnlyViaA + Shared (+ duplicate Shared)
-    const full = collectDependencyTree(defs, "Root");
+    const full = collectDependencyTree(netexLibrary, "Root");
     expect(full.filter(n => !n.duplicate)).toHaveLength(2);
 
     // Exclude A → OnlyViaA gone, Shared still reachable via B/C
-    const excl = collectDependencyTree(defs, "Root", new Set(["A"]));
+    const excl = collectDependencyTree(netexLibrary, "Root", new Set(["A"]));
     expect(excl.filter(n => !n.duplicate).map(n => n.name)).toEqual(["Shared"]);
   });
 });

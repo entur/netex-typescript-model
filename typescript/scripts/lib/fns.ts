@@ -3,7 +3,7 @@
  *
  * These are the canonical implementations — bundled via esbuild (through
  * bundle-entry.ts) into an IIFE for the HTML page. Bound wrappers close over
- * a page-level `defs` variable instead of taking `defs` as a parameter.
+ * a page-level `netexLibrary` variable instead of taking `netexLibrary` as a parameter.
  *
  * Data generation functions (`fake`, `buildXml`, `toXmlShape`, `serialize`)
  * live in `data-faker.ts` and are re-exported here for backward compatibility.
@@ -38,7 +38,7 @@
 
 /** A JSON Schema definition (loose typing — mirrors what the viewer receives). */
 export type Def = Record<string, any>;
-export type Defs = Record<string, Def>;
+export type NetexLibrary = Record<string, Def>;
 
 export interface ViaHop {
   name: string;
@@ -96,8 +96,8 @@ function deref(ref: string): string {
  *
  * Returns the element type name (e.g. "TextType") or null if not a mixed wrapper.
  */
-export function unwrapMixed(defs: Defs, name: string): string | null {
-  const def = defs[name];
+export function unwrapMixed(netexLibrary: NetexLibrary, name: string): string | null {
+  const def = netexLibrary[name];
   if (!def) return null;
   if (def["x-netex-mixed"] !== true) return null;
   if (typeof def.description !== "string" || def.description.indexOf("*Either*") === -1)
@@ -193,14 +193,14 @@ export function refTarget(prop: Def): string | null {
 // ── Inheritance chain ────────────────────────────────────────────────────────
 
 /** Flatten allOf inheritance to a list of properties with their origin type. */
-export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
+export function flattenAllOf(netexLibrary: NetexLibrary, name: string): FlatProperty[] {
   const results: FlatProperty[] = [];
   const visited = new Set<string>();
 
   function walk(n: string): void {
     if (visited.has(n)) return;
     visited.add(n);
-    const def = defs[n];
+    const def = netexLibrary[n];
     if (!def) return;
     if (def.$ref) {
       walk(deref(def.$ref));
@@ -242,14 +242,14 @@ export function flattenAllOf(defs: Defs, name: string): FlatProperty[] {
 }
 
 /** Collect all required property names from the inheritance chain. */
-export function collectRequired(defs: Defs, name: string): Set<string> {
+export function collectRequired(netexLibrary: NetexLibrary, name: string): Set<string> {
   const req = new Set<string>();
   const visited = new Set<string>();
 
   function walk(n: string): void {
     if (visited.has(n)) return;
     visited.add(n);
-    const def = defs[n];
+    const def = netexLibrary[n];
     if (!def) return;
     if (def.$ref) {
       walk(deref(def.$ref));
@@ -278,11 +278,11 @@ export function collectRequired(defs: Defs, name: string): Set<string> {
  * Returns `{ complex: true }` for types with own properties that can't
  * be reduced to a primitive.
  */
-export function resolveDefType(defs: Defs, name: string, visited?: Set<string>): ResolvedType {
+export function resolveDefType(netexLibrary: NetexLibrary, name: string, visited?: Set<string>): ResolvedType {
   if (!visited) visited = new Set();
   if (visited.has(name)) return { ts: name, complex: true };
   visited.add(name);
-  const def = defs[name];
+  const def = netexLibrary[name];
   if (!def) return { ts: name, complex: true };
 
   /** Prepend a hop to the via chain of an inner result. */
@@ -291,7 +291,7 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   }
 
   // Pure $ref alias
-  if (def.$ref) return withHop(resolveDefType(defs, deref(def.$ref), visited), name, "ref");
+  if (def.$ref) return withHop(resolveDefType(netexLibrary, deref(def.$ref), visited), name, "ref");
 
   // allOf with single $ref (wrapper or inheritance)
   if (def.allOf) {
@@ -302,10 +302,10 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
         (def.properties && Object.keys(def.properties).length > 0) ||
         def.allOf.some((e: Def) => e.properties && Object.keys(e.properties).length > 0);
       if (!hasOwnProps) {
-        return withHop(resolveDefType(defs, target, visited), name, "allOf-passthrough");
+        return withHop(resolveDefType(netexLibrary, target, visited), name, "allOf-passthrough");
       }
       // Speculatively follow parent — use result if primitive
-      const parentResult = resolveDefType(defs, target, new Set(visited));
+      const parentResult = resolveDefType(netexLibrary, target, new Set(visited));
       if (!parentResult.complex) return withHop(parentResult, name, "allOf-speculative");
     }
   }
@@ -324,7 +324,7 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   // anyOf union — branches diverge, no single linear chain
   if (def.anyOf) {
     const parts = def.anyOf.map((branch: Def) => {
-      if (branch.$ref) return resolveDefType(defs, deref(branch.$ref), new Set(visited));
+      if (branch.$ref) return resolveDefType(netexLibrary, deref(branch.$ref), new Set(visited));
       if (branch.enum)
         return {
           ts: branch.enum.map((v: unknown) => JSON.stringify(v)).join(" | "),
@@ -344,7 +344,7 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   if (atom === "array" && def.type === "array" && def.items) {
     const itemShape = classifySchema(def.items);
     if (itemShape.kind === "ref") {
-      const inner = resolveDefType(defs, itemShape.target, new Set(visited));
+      const inner = resolveDefType(netexLibrary, itemShape.target, new Set(visited));
       return withHop(
         { ts: inner.ts + "[]", complex: inner.complex, via: inner.via },
         name,
@@ -366,7 +366,7 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
   }
 
   // Mixed-content wrapper — resolve as the inner element type array
-  const mixedTarget = unwrapMixed(defs, name);
+  const mixedTarget = unwrapMixed(netexLibrary, name);
   if (mixedTarget)
     return { ts: mixedTarget + "[]", complex: true, via: [{ name, rule: "mixed-unwrap" }] };
 
@@ -376,8 +376,8 @@ export function resolveDefType(defs: Defs, name: string, visited?: Set<string>):
     const keys = Object.keys(def.properties);
     if (keys.length === 1) {
       const shape = classifySchema(def.properties[keys[0]]);
-      if (shape.kind === "refArray" && resolveAtom(defs, shape.target)) {
-        const inner = resolveDefType(defs, shape.target, new Set(visited));
+      if (shape.kind === "refArray" && resolveAtom(netexLibrary, shape.target)) {
+        const inner = resolveDefType(netexLibrary, shape.target, new Set(visited));
         return withHop(
           { ts: inner.ts + "[]", complex: inner.complex, via: inner.via },
           name,
@@ -419,7 +419,7 @@ export function isDynNocRef(schema: Def): boolean {
  * Delegates to resolveDefType for $ref targets. Handles arrays, enums,
  * and inline primitives directly.
  */
-export function resolvePropertyType(defs: Defs, schema: Def, context?: string): ResolvedType {
+export function resolvePropertyType(netexLibrary: NetexLibrary, schema: Def, context?: string): ResolvedType {
   if (context && typeof schema["x-fixed-single-enum"] === "string") {
     return {
       ts: JSON.stringify(context),
@@ -433,9 +433,9 @@ export function resolvePropertyType(defs: Defs, schema: Def, context?: string): 
   const shape = classifySchema(schema);
   switch (shape.kind) {
     case "ref":
-      return resolveDefType(defs, shape.target);
+      return resolveDefType(netexLibrary, shape.target);
     case "refArray": {
-      const inner = resolveDefType(defs, shape.target);
+      const inner = resolveDefType(netexLibrary, shape.target);
       return { ts: inner.ts + "[]", complex: inner.complex, via: inner.via };
     }
     case "array":
@@ -465,15 +465,15 @@ export function resolvePropertyType(defs: Defs, schema: Def, context?: string): 
  * types get `"simpleObj"`. Follows $ref and allOf single-ref chains
  * (e.g. PrivateCode → PrivateCodeStructure). Returns the annotation value or null.
  */
-export function resolveAtom(defs: Defs, name: string): string | null {
-  const def = defs[name];
+export function resolveAtom(netexLibrary: NetexLibrary, name: string): string | null {
+  const def = netexLibrary[name];
   if (!def) return null;
-  if (def.$ref) return resolveAtom(defs, deref(def.$ref));
+  if (def.$ref) return resolveAtom(netexLibrary, deref(def.$ref));
   if (def["x-netex-atom"]) return def["x-netex-atom"];
   // Walk allOf single-ref wrappers (e.g. PrivateCode → PrivateCodeStructure)
   if (def.allOf) {
     const ref = allOfRef(def.allOf);
-    if (ref) return resolveAtom(defs, ref);
+    if (ref) return resolveAtom(netexLibrary, ref);
   }
   return null;
 }
@@ -495,14 +495,14 @@ export interface InheritanceNode {
  *
  * Used by the Graph tab to render the SVG inheritance diagram.
  */
-export function buildInheritanceChain(defs: Defs, name: string): InheritanceNode[] {
+export function buildInheritanceChain(netexLibrary: NetexLibrary, name: string): InheritanceNode[] {
   const chain: InheritanceNode[] = [];
   const visited = new Set<string>();
 
   function walk(n: string): void {
     if (visited.has(n)) return;
     visited.add(n);
-    const def = defs[n];
+    const def = netexLibrary[n];
     if (!def) return;
     if (def.$ref) {
       walk(deref(def.$ref));
@@ -534,10 +534,10 @@ export function buildInheritanceChain(defs: Defs, name: string): InheritanceNode
 // ── Reverse index ────────────────────────────────────────────────────────────
 
 /** Build a map of definition name → list of definitions that reference it. */
-export function buildReverseIndex(defs: Defs): Record<string, string[]> {
+export function buildReverseIndex(netexLibrary: NetexLibrary): Record<string, string[]> {
   const idx: Record<string, string[]> = {};
   const needle = "#/definitions/";
-  for (const [name, def] of Object.entries(defs)) {
+  for (const [name, def] of Object.entries(netexLibrary)) {
     const json = JSON.stringify(def);
     let start = 0;
     while (true) {
@@ -607,7 +607,7 @@ export function findTransitiveEntityUsers(
  * @returns A single entity name, an array of entity names (abstract expansion), or null.
  */
 export function resolveRefEntity(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   refDefName: string,
   _visited?: Set<string>,
 ): string | string[] | null {
@@ -615,7 +615,7 @@ export function resolveRefEntity(
   if (visited.has(refDefName)) return null;
   visited.add(refDefName);
 
-  const def = defs[refDefName];
+  const def = netexLibrary[refDefName];
   // 1. Read stamp or fall back to name stripping
   let target: string | undefined = def?.["x-netex-refTarget"];
   if (!target) {
@@ -623,29 +623,29 @@ export function resolveRefEntity(
     else if (refDefName.endsWith("_RefStructure")) target = refDefName.slice(0, -13);
     else if (refDefName.endsWith("RefStructure")) target = refDefName.slice(0, -12);
   }
-  if (!target || !defs[target]) return null;
+  if (!target || !netexLibrary[target]) return null;
 
-  const role = defRole(defs[target]);
+  const role = defRole(netexLibrary[target]);
   // 2. Direct entity
   if (role === "entity") return target;
   // 3. Abstract — expand sg-members recursively
   //    Members may be on the target itself or on a parallel `_Dummy` element.
   if (role === "abstract") {
-    let members: string[] = defs[target]?.["x-netex-sg-members"] ?? [];
+    let members: string[] = netexLibrary[target]?.["x-netex-sg-members"] ?? [];
     if (members.length === 0) {
-      members = defs[target + "_Dummy"]?.["x-netex-sg-members"] ?? [];
+      members = netexLibrary[target + "_Dummy"]?.["x-netex-sg-members"] ?? [];
     }
     const entities: string[] = [];
     for (const m of members) {
       // Try via Ref first
-      const resolved = resolveRefEntity(defs, m + "Ref", visited);
+      const resolved = resolveRefEntity(netexLibrary, m + "Ref", visited);
       if (typeof resolved === "string") {
         if (!entities.includes(resolved)) entities.push(resolved);
       } else if (Array.isArray(resolved)) {
         for (const e of resolved) if (!entities.includes(e)) entities.push(e);
       }
       // If the member itself is an entity, include it directly
-      if (defRole(defs[m]) === "entity" && !entities.includes(m)) entities.push(m);
+      if (defRole(netexLibrary[m]) === "entity" && !entities.includes(m)) entities.push(m);
     }
     return entities.length > 0 ? entities.sort() : null;
   }
@@ -665,14 +665,14 @@ export interface RefPropEntry {
  * Walks the full allOf chain via `flattenAllOf`, filters to `isRefType` properties,
  * resolves each through `resolveRefEntity`, and returns only those with resolvable targets.
  */
-export function collectRefProps(defs: Defs, name: string): RefPropEntry[] {
-  const props = flattenAllOf(defs, name);
+export function collectRefProps(netexLibrary: NetexLibrary, name: string): RefPropEntry[] {
+  const props = flattenAllOf(netexLibrary, name);
   const result: RefPropEntry[] = [];
   for (const p of props) {
     if (!isRefType(p.schema)) continue;
     const target = refTarget(p.schema);
     if (!target) continue;
-    const entities = resolveRefEntity(defs, target);
+    const entities = resolveRefEntity(netexLibrary, target);
     if (!entities) continue;
     const targetEntities = typeof entities === "string" ? [entities] : entities;
     result.push({ propName: p.prop[0], refDefName: target, targetEntities });
@@ -686,9 +686,9 @@ export function collectRefProps(defs: Defs, name: string): RefPropEntry[] {
  * Walks the allOf chain from the entity's backing structure up to (but not including)
  * `baseStructure`, collecting own property names at each intermediate level.
  */
-export function collectExtraProps(defs: Defs, entityName: string, baseStructure: string): string[] {
-  // Resolve entity → backing structure (entity defs are $ref aliases)
-  const entityDef = defs[entityName];
+export function collectExtraProps(netexLibrary: NetexLibrary, entityName: string, baseStructure: string): string[] {
+  // Resolve entity → backing structure (entities are $ref aliases)
+  const entityDef = netexLibrary[entityName];
   if (!entityDef) return [];
   let struct = entityDef.$ref ? deref(entityDef.$ref) : null;
   if (!struct) {
@@ -703,7 +703,7 @@ export function collectExtraProps(defs: Defs, entityName: string, baseStructure:
   const visited = new Set<string>();
   while (current && current !== baseStructure && !visited.has(current)) {
     visited.add(current);
-    const d = defs[current];
+    const d = netexLibrary[current];
     if (!d) break;
     // Collect own properties from this level
     if (d.properties) {
@@ -756,10 +756,10 @@ export function defRole(def: Def | undefined): string {
 }
 
 /** Count definitions per role. Returns a Map keyed by role string. */
-export function countRoles(defNames: string[], defs: Defs): Map<string, number> {
+export function countRoles(defNames: string[], netexLibrary: NetexLibrary): Map<string, number> {
   const counts = new Map<string, number>();
   for (const name of defNames) {
-    const role = defRole(defs[name]);
+    const role = defRole(netexLibrary[name]);
     counts.set(role, (counts.get(role) ?? 0) + 1);
   }
   return counts;
@@ -771,9 +771,9 @@ export function countRoles(defNames: string[], defs: Defs): Map<string, number> 
  */
 export function presentRoles(
   defNames: string[],
-  defs: Defs,
+  netexLibrary: NetexLibrary,
 ): Array<{ role: string; label: string; count: number }> {
-  const counts = countRoles(defNames, defs);
+  const counts = countRoles(defNames, netexLibrary);
   return ROLE_DISPLAY_ORDER.filter((r) => counts.has(r)).map((role) => ({
     role,
     label: ROLE_LABELS[role] ?? role,
@@ -808,16 +808,16 @@ export function canonicalPropName(xsdName: string, schema: Def | undefined): str
  * the original entry. Inner prop names that collide with existing names get
  * prefixed with `parentProp_`.
  */
-export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatProperty[] {
+export function inlineSingleRefs(netexLibrary: NetexLibrary, props: FlatProperty[]): FlatProperty[] {
   // Identify candidate indices
   const candidates: { idx: number; targetName: string }[] = [];
   for (let i = 0; i < props.length; i++) {
     const p = props[i];
     const shape = classifySchema(p.schema);
     if (shape.kind !== "ref") continue;
-    const resolved = resolvePropertyType(defs, p.schema);
+    const resolved = resolvePropertyType(netexLibrary, p.schema);
     if (!resolved.complex || resolved.ts.endsWith("[]")) continue;
-    const targetDef = defs[resolved.ts];
+    const targetDef = netexLibrary[resolved.ts];
     if (!targetDef) continue;
     const role = defRole(targetDef);
     if (role === "collection" || role === "reference") continue;
@@ -848,7 +848,7 @@ export function inlineSingleRefs(defs: Defs, props: FlatProperty[]): FlatPropert
     if (nextCandidate < candidates.length && candidates[nextCandidate].idx === i) {
       const cand = candidates[nextCandidate++];
       const parentTsName = props[i].prop[1];
-      const innerProps = flattenAllOf(defs, cand.targetName);
+      const innerProps = flattenAllOf(netexLibrary, cand.targetName);
       for (const ip of innerProps) {
         // Skip props whose origin is already in the parent chain (shared ancestor)
         if (ip.origin && parentOrigins.has(ip.origin)) continue;
@@ -892,7 +892,7 @@ export interface DepTreeNode {
  *
  * The root itself is excluded from the output.
  */
-export function collectDependencyTree(defs: Defs, rootName: string, excludeRootProps?: Set<string>): DepTreeNode[] {
+export function collectDependencyTree(netexLibrary: NetexLibrary, rootName: string, excludeRootProps?: Set<string>): DepTreeNode[] {
   const result: DepTreeNode[] = [];
   const emitted = new Set<string>();
   emitted.add(rootName);
@@ -903,7 +903,7 @@ export function collectDependencyTree(defs: Defs, rootName: string, excludeRootP
     let current = name;
     while (!visited.has(current)) {
       visited.add(current);
-      const def = defs[current];
+      const def = netexLibrary[current];
       if (!def) break;
       if (def.$ref) {
         current = deref(def.$ref);
@@ -929,24 +929,24 @@ export function collectDependencyTree(defs: Defs, rootName: string, excludeRootP
 
   /** Should we stop recursion at this definition? */
   function isLeaf(name: string): boolean {
-    const def = defs[name];
+    const def = netexLibrary[name];
     if (!def) return true;
     const role = defRole(def);
     if (role === "enumeration" || role === "reference") return true;
-    const atom = resolveAtom(defs, name);
+    const atom = resolveAtom(netexLibrary, name);
     if (atom && atom !== "simpleObj") return true;
-    const resolved = resolveDefType(defs, name);
+    const resolved = resolveDefType(netexLibrary, name);
     if (!resolved.complex) return true;
     return false;
   }
 
   /** Extract ref-typed property targets from a definition. */
   function refTargets(name: string): Array<{ target: string; via: string; canonical: string }> {
-    const def = defs[name];
+    const def = netexLibrary[name];
     const targets: Array<{ target: string; via: string; canonical: string }> = [];
 
     // Walk properties for ref/refArray targets
-    const props = flattenAllOf(defs, name);
+    const props = flattenAllOf(netexLibrary, name);
     for (const p of props) {
       // x-fixed-single-enum resolves to a literal — the $ref target is unused
       if (typeof p.schema["x-fixed-single-enum"] === "string") continue;
@@ -1010,7 +1010,7 @@ export function collectDependencyTree(defs: Defs, rootName: string, excludeRootP
     if (leaf) {
       // Even for leaves, follow array items and anyOf branches on the def itself
       // (e.g. list-of-enum wrappers need their item type collected)
-      const def = defs[name];
+      const def = netexLibrary[name];
       if (def && def.type === "array" && def.items) {
         const itemShape = classifySchema(def.items);
         if (itemShape.kind === "ref") {

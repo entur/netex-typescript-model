@@ -14,7 +14,7 @@ import {
   resolvePropertyType,
   lcFirst,
   defRole,
-  type Defs,
+  type NetexLibrary,
   type Def,
   type FlatProperty,
   type ResolvedType,
@@ -25,12 +25,12 @@ import { escHtml } from "./codegens.js";
  * Resolve an abstract element head to the first concrete substitution group member.
  * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
  */
-function resolveConcreteElement(defs: Defs, name: string): string {
+function resolveConcreteElement(netexLibrary: NetexLibrary, name: string): string {
   const visited = new Set<string>();
   let current = name;
   while (!visited.has(current)) {
     visited.add(current);
-    const d = defs[current];
+    const d = netexLibrary[current];
     if (!d) break;
     const members = d["x-netex-sg-members"] as string[] | undefined;
     if (!members || members.length === 0) break;
@@ -44,14 +44,14 @@ function resolveConcreteElement(defs: Defs, name: string): string {
  * (primitive or empty array from `fake`) rather than a complex object that
  * needs `toXmlShape` delegation.
  */
-function shouldDirectAssign(defs: Defs, refTarget: string, resolved: ResolvedType): boolean {
-  const targetDef = defs[refTarget];
+function shouldDirectAssign(netexLibrary: NetexLibrary, refTarget: string, resolved: ResolvedType): boolean {
+  const targetDef = netexLibrary[refTarget];
   if (!targetDef) return false;
 
   const role = defRole(targetDef);
   if (role === "collection" || role === "enumeration") return true;
 
-  const atom = resolveAtom(defs, refTarget);
+  const atom = resolveAtom(netexLibrary, refTarget);
   if (atom && atom !== "simpleObj") return true;
 
   return !resolved.complex;
@@ -103,12 +103,12 @@ function makeTaggers(html: boolean) {
  * override entries (complex/renamed) are emitted explicitly.
  */
 export function makeInlinedToXmlShape(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: InlineOptions,
 ): string {
-  const props = opts?.props ?? flattenAllOf(defs, name);
-  const isSimpleContent = resolveAtom(defs, name) === "simpleObj";
+  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
+  const isSimpleContent = resolveAtom(netexLibrary, name) === "simpleObj";
   const fnName = lcFirst(name) + "ToXmlShape";
 
   // ── Syntax-highlighting helpers ─────────────────────────────────────────
@@ -168,12 +168,12 @@ export function makeInlinedToXmlShape(
 
     // Resolve abstract elements to first concrete member
     if (refTarget) {
-      const targetDef = defs[refTarget];
+      const targetDef = netexLibrary[refTarget];
       if (
         targetDef?.["x-netex-role"] === "abstract" &&
         targetDef?.["x-netex-sg-members"]
       ) {
-        const concrete = resolveConcreteElement(defs, refTarget);
+        const concrete = resolveConcreteElement(netexLibrary, refTarget);
         xmlName = concrete;
         refTarget = concrete;
       }
@@ -183,14 +183,14 @@ export function makeInlinedToXmlShape(
     let expr: string;
 
     if (shape.kind === "ref" && refTarget) {
-      const resolved = resolvePropertyType(defs, p.schema);
+      const resolved = resolvePropertyType(netexLibrary, p.schema);
       const isMixed = resolved.via?.some((h) => h.rule === "mixed-unwrap") ?? false;
 
       if (isMixed && resolved.ts.endsWith("[]")) {
         const innerType = resolved.ts.slice(0, -2);
         expr = `obj[${lit("'" + canonName + "'")}].map(${kw("function")}(item) { ${kw("return")} ${cb}(${lit("'" + innerType + "'")}, item); })`;
         isOverride = true;
-      } else if (!shouldDirectAssign(defs, refTarget, resolved)) {
+      } else if (!shouldDirectAssign(netexLibrary, refTarget, resolved)) {
         expr = `${cb}(${lit("'" + refTarget + "'")}, obj[${lit("'" + canonName + "'")}])`;
         isOverride = true;
       } else if (xmlName !== canonName) {
@@ -263,11 +263,11 @@ export function makeInlinedToXmlShape(
  * callback parameter.
  */
 export function makeInlineCodeBlock(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: { props?: FlatProperty[]; html?: boolean },
 ): string {
-  const props = opts?.props ?? flattenAllOf(defs, name);
+  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
   const html = opts?.html ?? false;
   const { kw, lit, cmt } = makeTaggers(html);
 
@@ -286,12 +286,12 @@ export function makeInlineCodeBlock(
     if (!refTarget) continue;
 
     // Resolve abstract elements
-    const targetDef = defs[refTarget];
+    const targetDef = netexLibrary[refTarget];
     if (
       targetDef?.["x-netex-role"] === "abstract" &&
       targetDef?.["x-netex-sg-members"]
     ) {
-      refTarget = resolveConcreteElement(defs, refTarget);
+      refTarget = resolveConcreteElement(netexLibrary, refTarget);
     }
 
     // Check if this property needs delegation (same logic as Phase 1)
@@ -299,13 +299,13 @@ export function makeInlineCodeBlock(
       if (!seen.has(refTarget)) targets.push(refTarget);
       seen.add(refTarget);
     } else if (shape.kind === "ref") {
-      const resolved = resolvePropertyType(defs, p.schema);
+      const resolved = resolvePropertyType(netexLibrary, p.schema);
       const isMixed = resolved.via?.some((h) => h.rule === "mixed-unwrap") ?? false;
       if (isMixed && resolved.ts.endsWith("[]")) {
         const innerType = resolved.ts.slice(0, -2);
         if (!seen.has(innerType)) targets.push(innerType);
         seen.add(innerType);
-      } else if (!shouldDirectAssign(defs, refTarget, resolved)) {
+      } else if (!shouldDirectAssign(netexLibrary, refTarget, resolved)) {
         if (!seen.has(refTarget)) targets.push(refTarget);
         seen.add(refTarget);
       }
@@ -323,7 +323,7 @@ export function makeInlineCodeBlock(
 
   if (targets.length === 0) {
     // Leaf entity — no dispatch, no callback
-    const entityFn = makeInlinedToXmlShape(defs, name, {
+    const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
       props,
       callbackName: "reshapeComplex",
       callbackAsParam: false,
@@ -344,7 +344,7 @@ export function makeInlineCodeBlock(
   dispatchLines.push("  }");
   dispatchLines.push("}");
 
-  const entityFn = makeInlinedToXmlShape(defs, name, {
+  const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
     props,
     callbackName: "reshapeComplex",
     callbackAsParam: false,

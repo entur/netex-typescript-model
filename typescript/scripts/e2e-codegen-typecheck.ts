@@ -9,15 +9,15 @@ import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import {
   generateRootDefBlock,
-  generateSubTypeDefsBlock,
-  type Defs,
+  generateSubTypesBlock,
+  type NetexLibrary,
 } from "./lib/codegens.js";
 
 // ── Schema loading ──────────────────────────────────────────────────────────
 
 const jsonschemaDir = resolve(import.meta.dirname, "../../generated-src/base");
 
-function loadDefs(): Defs {
+function loadNetexLibrary(): NetexLibrary {
   if (!existsSync(jsonschemaDir)) {
     throw new Error(`Base jsonschema dir not found at ${jsonschemaDir}.\nRun "make all" first.`);
   }
@@ -32,18 +32,18 @@ function loadDefs(): Defs {
 
 const TARGETS = ["VehicleType", "Vehicle", "DeckPlan"];
 
-const defs = loadDefs();
+const netexLibrary = loadNetexLibrary();
 let allPassed = true;
 
 for (const name of TARGETS) {
-  if (!defs[name]) {
+  if (!netexLibrary[name]) {
     console.error(`SKIP ${name}: not found in schema`);
     allPassed = false;
     continue;
   }
 
-  const root = generateRootDefBlock(defs, name);
-  const subs = generateSubTypeDefsBlock(defs, name);
+  const root = generateRootDefBlock(netexLibrary, name);
+  const subs = generateSubTypesBlock(netexLibrary, name);
   const fullSource = (subs ? root + "\n\n" + subs : root) + "\n";
   const outPath = `/tmp/${name}.ts`;
   writeFileSync(outPath, fullSource);

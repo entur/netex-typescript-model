@@ -48,7 +48,7 @@ export {
   generateTypeGuard,
   generateFactory,
   generateRootDefBlock,
-  generateSubTypeDefsBlock,
+  generateSubTypesBlock,
   collectRenderableDeps,
   toConstName,
   escHtml,

@@ -1,7 +1,7 @@
 /**
  * Code generators extracted from schema-viewer-host-app.js.
  *
- * Each function takes `(defs, name, opts?)` and returns generated TypeScript
+ * Each function takes `(netexLibrary, name, opts?)` and returns generated TypeScript
  * code. When `opts.html` is true (default), output includes `<span>` tags and
  * `<a>` links for browser rendering. When false, output is plain text —
  * testable and CLI-usable.
@@ -17,11 +17,11 @@ import {
   refTarget,
   defRole,
   collectDependencyTree,
-  type Defs,
+  type NetexLibrary,
   type FlatProperty,
 } from "./fns.js";
 
-export type { Defs };
+export type { NetexLibrary };
 
 import { defaultForType } from "./data-faker.js";
 
@@ -61,7 +61,7 @@ export function toConstName(name: string): string {
 
 /** Render a resolved TypeScript type as a formatted string (HTML or plain). */
 function renderTypeStr(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   resolved: { ts: string; complex: boolean },
   html: boolean,
   name: string,
@@ -82,7 +82,7 @@ function renderTypeStr(
     } else {
       result = typeName + suffix;
     }
-    const atom = resolveAtom(defs, typeName);
+    const atom = resolveAtom(netexLibrary, typeName);
     if (atom && atom !== "simpleObj") {
       result += html
         ? ' <span class="if-cmt">// \u2192 ' + e(atom) + "</span>"
@@ -90,7 +90,7 @@ function renderTypeStr(
     }
     return result;
   }
-  if (defs[resolved.ts]) {
+  if (netexLibrary[resolved.ts]) {
     // Named def resolved as non-complex (e.g. stamped enum) — still linkable
     return html
       ? '<a class="if-ref explorer-type-link" href="#' +
@@ -171,7 +171,7 @@ export interface FactoryOpts {
  * Non-enum produces `type FooRef = string;`.
  */
 export function generateTypeAlias(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   resolved: { ts: string; complex: boolean; via?: Array<{ name: string; rule: string }> },
   opts?: TypeAliasOpts,
@@ -182,12 +182,12 @@ export function generateTypeAlias(
 
   // Find the enum values — walk through the via chain to find the def with .enum
   let enumValues: unknown[] | null = null;
-  const def = defs[name];
+  const def = netexLibrary[name];
   if (def && def.enum) {
     enumValues = def.enum;
   } else if (resolved.via) {
     for (const hop of resolved.via) {
-      const hopDef = defs[hop.name];
+      const hopDef = netexLibrary[hop.name];
       if (hopDef && hopDef.enum) {
         enumValues = hopDef.enum;
         break;
@@ -246,7 +246,7 @@ export function generateTypeAlias(
     }
   } else {
     // Non-enum type alias
-    const typeStr = renderTypeStr(defs, resolved, html, name);
+    const typeStr = renderTypeStr(netexLibrary, resolved, html, name);
     if (html) {
       lines.push('<span class="if-kw">type</span> ' + e(name) + " = " + typeStr + ";");
     } else {
@@ -269,7 +269,7 @@ export function generateTypeAlias(
  * When flattenAllOf returns empty props, delegates to `generateTypeAlias`.
  */
 export function generateInterface(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: InterfaceOpts,
 ): { text: string; isAlias: boolean } {
@@ -279,18 +279,18 @@ export function generateInterface(
   const excludeCb = html && (opts?.excludeCheckboxes ?? false);
   const e = escFn(html);
 
-  let flat = opts?.preProps || flattenAllOf(defs, name);
+  let flat = opts?.preProps || flattenAllOf(netexLibrary, name);
 
   // If no properties, try to render as a type alias
   if (flat.length === 0) {
-    const resolved = resolveDefType(defs, name);
+    const resolved = resolveDefType(netexLibrary, name);
     const isAlias = !resolved.complex || resolved.ts !== name;
     if (isAlias) {
-      return generateTypeAlias(defs, name, resolved, { html, metaComments });
+      return generateTypeAlias(netexLibrary, name, resolved, { html, metaComments });
     }
   }
 
-  const props = metaComments && inlineRefs ? inlineSingleRefs(defs, flat) : flat;
+  const props = metaComments && inlineRefs ? inlineSingleRefs(netexLibrary, flat) : flat;
   const lines: string[] = [];
 
   if (metaComments) {
@@ -363,8 +363,8 @@ export function generateInterface(
       }
     }
 
-    const resolved = resolvePropertyType(defs, p.schema, name);
-    const typeStr = renderTypeStr(defs, resolved, html, name);
+    const resolved = resolvePropertyType(netexLibrary, p.schema, name);
+    const typeStr = renderTypeStr(netexLibrary, resolved, html, name);
     if (html) {
       let viaAttr = "";
       if (metaComments && resolved.via && resolved.via.length > 0) {
@@ -397,13 +397,13 @@ export function generateInterface(
  * Array.isArray checks for each property.
  */
 export function generateTypeGuard(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: TypeGuardOpts,
 ): string {
   const html = opts?.html !== false;
   const e = escFn(html);
-  const props = opts?.preProps || flattenAllOf(defs, name);
+  const props = opts?.preProps || flattenAllOf(netexLibrary, name);
 
   const lines: string[] = [];
   if (html) {
@@ -427,7 +427,7 @@ export function generateTypeGuard(
   }
 
   for (const p of props) {
-    const resolved = resolvePropertyType(defs, p.schema, name);
+    const resolved = resolvePropertyType(netexLibrary, p.schema, name);
     let check: string;
 
     if (resolved.ts.endsWith("[]")) {
@@ -503,14 +503,14 @@ export function generateTypeGuard(
  * default values for required fields.
  */
 export function generateFactory(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: FactoryOpts,
 ): string {
   const html = opts?.html !== false;
   const e = escFn(html);
-  const props = opts?.preProps || flattenAllOf(defs, name);
-  const required = opts?.preRequired || collectRequired(defs, name);
+  const props = opts?.preProps || flattenAllOf(netexLibrary, name);
+  const required = opts?.preRequired || collectRequired(netexLibrary, name);
 
   const lines: string[] = [];
   if (html) {
@@ -533,7 +533,7 @@ export function generateFactory(
     }
     for (const fp of props) {
       if (!required.has(fp.prop[0])) continue;
-      const fresolved = resolvePropertyType(defs, fp.schema, name);
+      const fresolved = resolvePropertyType(netexLibrary, fp.schema, name);
       const defVal = defaultForType(fresolved.ts);
       if (html) {
         lines.push(
@@ -573,11 +573,11 @@ export function generateFactory(
  * Generate the root interface block for a definition (with meta comments).
  */
 export function generateRootDefBlock(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: { html?: boolean },
 ): string {
-  return generateInterface(defs, name, { html: opts?.html ?? false }).text;
+  return generateInterface(netexLibrary, name, { html: opts?.html ?? false }).text;
 }
 
 /**
@@ -585,15 +585,15 @@ export function generateRootDefBlock(
  * names for a definition. Extracted from the host-app's inline 3-filter logic
  * so it can be tested and reused.
  */
-export function collectRenderableDeps(defs: Defs, name: string, excludedMembers?: Set<string>): string[] {
+export function collectRenderableDeps(netexLibrary: NetexLibrary, name: string, excludedMembers?: Set<string>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
 
-  for (const n of collectDependencyTree(defs, name, excludedMembers)) {
+  for (const n of collectDependencyTree(netexLibrary, name, excludedMembers)) {
     if (n.duplicate || seen.has(n.name)) continue;
     seen.add(n.name);
-    const r = resolveDefType(defs, n.name);
-    if (!r.complex && defRole(defs[n.name]) !== "enumeration") continue;
+    const r = resolveDefType(netexLibrary, n.name);
+    if (!r.complex && defRole(netexLibrary[n.name]) !== "enumeration") continue;
     if (r.complex && r.ts !== n.name) continue;
     out.push(n.name);
   }
@@ -601,9 +601,9 @@ export function collectRenderableDeps(defs: Defs, name: string, excludedMembers?
 }
 
 /** Collect enum names targeted by any x-fixed-single-enum stamp. */
-function collectFixedEnumTargets(defs: Defs): Set<string> {
+function collectFixedEnumTargets(netexLibrary: NetexLibrary): Set<string> {
   const targets = new Set<string>();
-  for (const d of Object.values(defs)) {
+  for (const d of Object.values(netexLibrary)) {
     for (const ao of [d, ...(d.allOf ?? [])]) {
       if (!ao.properties) continue;
       for (const ps of Object.values(ao.properties)) {
@@ -619,22 +619,22 @@ function collectFixedEnumTargets(defs: Defs): Set<string> {
  * Generate compact interface blocks for all transitive subtypes of a
  * definition, excluding the root itself.
  */
-export function generateSubTypeDefsBlock(
-  defs: Defs,
+export function generateSubTypesBlock(
+  netexLibrary: NetexLibrary,
   name: string,
   opts?: { html?: boolean; excludedMembers?: Set<string> },
 ): string {
   const html = opts?.html ?? false;
-  const fixedEnumTargets = collectFixedEnumTargets(defs);
+  const fixedEnumTargets = collectFixedEnumTargets(netexLibrary);
 
-  return collectRenderableDeps(defs, name, opts?.excludedMembers)
+  return collectRenderableDeps(netexLibrary, name, opts?.excludedMembers)
     .map((n) => {
       if (fixedEnumTargets.has(n)) {
         return html
           ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
           : `type ${n} = string;`;
       }
-      return generateInterface(defs, n, { html, metaComments: false }).text;
+      return generateInterface(netexLibrary, n, { html, metaComments: false }).text;
     })
     .join("\n\n");
 }

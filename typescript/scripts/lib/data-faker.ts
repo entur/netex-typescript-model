@@ -17,7 +17,7 @@ import {
   defRole,
   classifySchema,
   isDynNocRef,
-  type Defs,
+  type NetexLibrary,
   type Def,
 } from "./fns.js";
 
@@ -47,16 +47,16 @@ export function defaultForType(ts: string): string {
 // ── Sample data generation ──────────────────────────────────────────────────
 
 /** Build a fake ref object: `{ value: "XXX:Name:1", $ref: "XXX:Name:1" }`. */
-function fakeRef(defs: Defs, targetName: string): Record<string, unknown> {
+function fakeRef(netexLibrary: NetexLibrary, targetName: string): Record<string, unknown> {
   // Strip trailing "Ref", "RefStructure", "_RefStructure" to get a readable entity name
   const clean = targetName
     .replace(/_?RefStructure$/, "")
     .replace(/Ref$/, "");
   const id = `XXX:${clean || targetName}:1`;
   // Walk the ref target's props to include any attributes
-  const def = defs[targetName];
+  const def = netexLibrary[targetName];
   if (def) {
-    const props = flattenAllOf(defs, targetName);
+    const props = flattenAllOf(netexLibrary, targetName);
     const result: Record<string, unknown> = {};
     for (const p of props) {
       const propName = p.prop[1];
@@ -97,12 +97,12 @@ function fakeRef(defs: Defs, targetName: string): Record<string, unknown> {
  * Calls `flattenAllOf` once — returns null if any property is complex or there are no props.
  * Used both for the simpleObj atom path and for shallow-complex array/ref handling.
  */
-function tryFakeShallow(defs: Defs, typeName: string): Record<string, unknown> | null {
-  const props = flattenAllOf(defs, typeName);
+function tryFakeShallow(netexLibrary: NetexLibrary, typeName: string): Record<string, unknown> | null {
+  const props = flattenAllOf(netexLibrary, typeName);
   if (props.length === 0) return null;
   const result: Record<string, unknown> = {};
   for (const p of props) {
-    const r = resolvePropertyType(defs, p.schema);
+    const r = resolvePropertyType(netexLibrary, p.schema);
     if (r.complex) return null;
     const propName = p.prop[1];
     const shape = classifySchema(p.schema);
@@ -117,7 +117,7 @@ function tryFakeShallow(defs: Defs, typeName: string): Record<string, unknown> |
     } else if (shape.kind === "enum") {
       result[propName] = shape.values[0] ?? "string";
     } else if (shape.kind === "ref") {
-      const innerDef = defs[shape.target];
+      const innerDef = netexLibrary[shape.target];
       if (innerDef?.enum) {
         result[propName] = innerDef.enum[0] ?? "string";
       } else {
@@ -133,12 +133,12 @@ function tryFakeShallow(defs: Defs, typeName: string): Record<string, unknown> |
  * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
  * Returns the original name unchanged if not abstract.
  */
-function resolveConcreteElement(defs: Defs, name: string): string {
+function resolveConcreteElement(netexLibrary: NetexLibrary, name: string): string {
   const visited = new Set<string>();
   let current = name;
   while (!visited.has(current)) {
     visited.add(current);
-    const d = defs[current];
+    const d = netexLibrary[current];
     if (!d) break;
     const members = d["x-netex-sg-members"] as string[] | undefined;
     if (!members || members.length === 0) break;
@@ -148,12 +148,12 @@ function resolveConcreteElement(defs: Defs, name: string): string {
 }
 
 /** Follow $ref / allOf-single-ref chains to find the terminal definition name. */
-function resolveRefTarget(defs: Defs, name: string): string {
+function resolveRefTarget(netexLibrary: NetexLibrary, name: string): string {
   const visited = new Set<string>();
   let current = name;
   while (!visited.has(current)) {
     visited.add(current);
-    const d = defs[current];
+    const d = netexLibrary[current];
     if (!d) break;
     if (d.$ref) {
       current = d.$ref.replace("#/definitions/", "");
@@ -179,8 +179,8 @@ function resolveRefTarget(defs: Defs, name: string): string {
  * Returns an object with one key (the child element name) mapped to a
  * one-element array containing a fake child, or null if the pattern doesn't match.
  */
-function fakeCollectionWrapper(defs: Defs, structName: string): Record<string, unknown> | null {
-  const def = defs[structName];
+function fakeCollectionWrapper(netexLibrary: NetexLibrary, structName: string): Record<string, unknown> | null {
+  const def = netexLibrary[structName];
   if (!def?.properties) return null;
   const keys = Object.keys(def.properties);
   if (keys.length !== 1) return null;
@@ -190,7 +190,7 @@ function fakeCollectionWrapper(defs: Defs, structName: string): Record<string, u
   const itemShape = classifySchema(childSchema.items);
   if (itemShape.kind !== "ref" && itemShape.kind !== "refArray") return null;
   const itemTarget = itemShape.kind === "ref" ? itemShape.target : itemShape.target;
-  const shallow = tryFakeShallow(defs, itemTarget);
+  const shallow = tryFakeShallow(netexLibrary, itemTarget);
   if (shallow) return { [keys[0]]: [shallow] };
   return null;
 }
@@ -201,8 +201,8 @@ function fakeCollectionWrapper(defs: Defs, structName: string): Record<string, u
  * Uses `flattenAllOf` (pre-inline) to collect all properties, then fills
  * each with a sensible default value based on its resolved type.
  */
-export function fake(defs: Defs, name: string): Record<string, unknown> {
-  const props = flattenAllOf(defs, name);
+export function fake(netexLibrary: NetexLibrary, name: string): Record<string, unknown> {
+  const props = flattenAllOf(netexLibrary, name);
   const result: Record<string, unknown> = {};
   const usedChoiceGroups = new Set<string>();
 
@@ -241,13 +241,13 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
       continue;
     }
 
-    const resolved = resolvePropertyType(defs, schema, name);
+    const resolved = resolvePropertyType(netexLibrary, schema, name);
 
     // Enum name (stamped enumeration)
     if (resolved.via && resolved.via.length > 0) {
       const lastHop = resolved.via[resolved.via.length - 1];
       if (lastHop.rule === "enum") {
-        const enumDef = defs[lastHop.name];
+        const enumDef = netexLibrary[lastHop.name];
         if (enumDef?.enum) {
           // Enum list (x-netex-atom:array)
           if (resolved.ts.endsWith("[]")) {
@@ -263,15 +263,15 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
     // Reference type
     const shape = classifySchema(schema);
     if (shape.kind === "ref") {
-      const targetDef = defs[shape.target];
+      const targetDef = netexLibrary[shape.target];
       const role = defRole(targetDef);
       if (role === "reference") {
-        result[propName] = fakeRef(defs, shape.target);
+        result[propName] = fakeRef(netexLibrary, shape.target);
         continue;
       }
       if (role === "abstract" && targetDef?.["x-netex-sg-members"]) {
-        const concrete = resolveConcreteElement(defs, shape.target);
-        result[propName] = fakeRef(defs, concrete);
+        const concrete = resolveConcreteElement(netexLibrary, shape.target);
+        result[propName] = fakeRef(netexLibrary, concrete);
         continue;
       }
       if (role === "collection") {
@@ -280,8 +280,8 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
       }
 
       // Empty-object types (e.g. Extensions — xsd:any wrapper, no properties)
-      const resolvedTarget = resolveRefTarget(defs, shape.target);
-      const resolvedDef = defs[resolvedTarget];
+      const resolvedTarget = resolveRefTarget(netexLibrary, shape.target);
+      const resolvedDef = netexLibrary[resolvedTarget];
       if (resolvedDef && resolvedDef.type === "object" && !resolvedDef.properties && !resolvedDef.allOf) {
         // Skip — emitting content for an element-only empty type causes validation errors
         continue;
@@ -290,7 +290,7 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
       // Unannotated collection wrapper (e.g. keyList → KeyListStructure, privateCodes → PrivateCodesStructure)
       // Single array property, no role/atom — emit one child element
       if (resolvedDef && !resolvedDef["x-netex-role"] && !resolvedDef["x-netex-atom"]) {
-        const child = fakeCollectionWrapper(defs, resolvedTarget);
+        const child = fakeCollectionWrapper(netexLibrary, resolvedTarget);
         if (child) {
           result[propName] = child;
           continue;
@@ -298,15 +298,15 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
       }
 
       // Atom types (simpleObj)
-      const atom = resolveAtom(defs, shape.target);
+      const atom = resolveAtom(netexLibrary, shape.target);
       if (atom === "simpleObj") {
-        result[propName] = tryFakeShallow(defs, shape.target) ?? {};
+        result[propName] = tryFakeShallow(netexLibrary, shape.target) ?? {};
         continue;
       }
       // Single-prop atom collapses to primitive — check format on terminal def
       if (atom && atom !== "array") {
-        const terminalName = resolveRefTarget(defs, shape.target);
-        const fmt = defs[terminalName]?.format;
+        const terminalName = resolveRefTarget(netexLibrary, shape.target);
+        const fmt = netexLibrary[terminalName]?.format;
         if (fmt === "duration") result[propName] = "PT1H";
         else if (fmt === "date-time") result[propName] = "2025-01-01T00:00:00";
         else if (fmt === "date") result[propName] = "2025-01-01";
@@ -368,14 +368,14 @@ export function fake(defs: Defs, name: string): Record<string, unknown> {
       if (resolved.ts.endsWith("[]")) {
         // Array type (e.g. TextType[], KeyValueStructure[]) — one-element sample
         const itemType = resolved.ts.slice(0, -2);
-        const shallow = defs[itemType] ? tryFakeShallow(defs, itemType) : null;
+        const shallow = netexLibrary[itemType] ? tryFakeShallow(netexLibrary, itemType) : null;
         if (shallow) {
           result[propName] = [shallow];
           continue;
         }
       } else if (shape.kind === "ref") {
         // Single ref (e.g. PassengerCapacity → PassengerCapacityStructure)
-        const shallow = defs[shape.target] ? tryFakeShallow(defs, shape.target) : null;
+        const shallow = netexLibrary[shape.target] ? tryFakeShallow(netexLibrary, shape.target) : null;
         if (shallow) {
           result[propName] = shallow;
           continue;
@@ -463,19 +463,19 @@ function toXmlShapePlain(obj: Record<string, unknown>): Record<string, unknown> 
  * 5. **Ref-typed properties** — recurse with the ref target's definition.
  * 6. **Arrays** — map items recursively for ref-typed arrays.
  *
- * @param defs  JSON Schema definitions.
+ * @param netexLibrary  JSON Schema definitions.
  * @param name  Definition name (follows $ref chains via `flattenAllOf`).
  * @param obj   Stem object (e.g. from `fake`).
  */
 export function toXmlShape(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   obj: Record<string, unknown>,
 ): Record<string, unknown> {
-  const schemaProps = flattenAllOf(defs, name);
+  const schemaProps = flattenAllOf(netexLibrary, name);
   if (schemaProps.length === 0) return toXmlShapePlain(obj);
 
-  const isSimpleContent = resolveAtom(defs, name) === "simpleObj";
+  const isSimpleContent = resolveAtom(netexLibrary, name) === "simpleObj";
   const out: Record<string, unknown> = {};
   const processed = new Set<string>();
 
@@ -505,9 +505,9 @@ export function toXmlShape(
     let xmlName = canonName;
     let refTarget = shape.kind === "ref" ? shape.target : shape.kind === "refArray" ? shape.target : undefined;
     if (refTarget) {
-      const targetDef = defs[refTarget];
+      const targetDef = netexLibrary[refTarget];
       if (targetDef?.["x-netex-role"] === "abstract" && targetDef?.["x-netex-sg-members"]) {
-        const concrete = resolveConcreteElement(defs, refTarget);
+        const concrete = resolveConcreteElement(netexLibrary, refTarget);
         xmlName = concrete;
         refTarget = concrete;
       }
@@ -519,7 +519,7 @@ export function toXmlShape(
       if (shape.kind === "refArray") {
         out[xmlName] = val.map((item) =>
           typeof item === "object" && item !== null
-            ? toXmlShape(defs, refTarget!, item as Record<string, unknown>)
+            ? toXmlShape(netexLibrary, refTarget!, item as Record<string, unknown>)
             : typeof item === "boolean"
               ? String(item)
               : item,
@@ -536,7 +536,7 @@ export function toXmlShape(
     } else if (typeof val === "object" && val !== null) {
       if (shape.kind === "ref") {
         out[xmlName] = toXmlShape(
-          defs,
+          netexLibrary,
           refTarget!,
           val as Record<string, unknown>,
         );
@@ -582,14 +582,14 @@ export function toXmlShape(
  * formatting). This is the recommended single-call API for producing valid
  * XML from `fake` output.
  *
- * @param defs  JSON Schema definitions.
+ * @param netexLibrary  JSON Schema definitions.
  * @param name  Definition name (root element name in XML).
  * @param obj   Stem object (e.g. from `fake`).
  */
 export function serialize(
-  defs: Defs,
+  netexLibrary: NetexLibrary,
   name: string,
   obj: Record<string, unknown>,
 ): string {
-  return buildXml(name, toXmlShape(defs, name, obj));
+  return buildXml(name, toXmlShape(netexLibrary, name, obj));
 }
