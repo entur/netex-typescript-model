@@ -390,7 +390,6 @@ describe("generateRootDefBlock", () => {
 
 describe("generateSubTypeDefsBlock", () => {
   it("returns empty string for type with no complex deps", () => {
-    // Authority only has string properties — no complex transitive deps
     const text = generateSubTypeDefsBlock(defs, "Authority", { html: false });
     expect(text).toBe("");
   });
@@ -430,6 +429,16 @@ describe("generateSubTypeDefsBlock", () => {
     expect(text).not.toContain("type NameOfClass");
   });
 
+  it("excludedMembers removes deps seeded by excluded props", () => {
+    const full = generateSubTypeDefsBlock(defs, "WithArrayProp", { html: false });
+    expect(full).toContain("interface Authority {");
+    const excluded = generateSubTypeDefsBlock(defs, "WithArrayProp", {
+      html: false,
+      excludedMembers: new Set(["Items"]),
+    });
+    expect(excluded).not.toContain("Authority");
+  });
+
   it("collapses fixed-enum-target deps to string", () => {
     const text = generateSubTypeDefsBlock(defs, "WithUnstampedStatusRef", { html: false });
     expect(text).toContain("type StatusEnum = string;");
@@ -453,5 +462,12 @@ describe("collectRenderableDeps", () => {
   it("excludes NameOfClass for dynamic refs", () => {
     const names = collectRenderableDeps(defs, "WithDynClassRef");
     expect(names).not.toContain("NameOfClass");
+  });
+
+  it("excludedMembers filters deps seeded by excluded props", () => {
+    const full = collectRenderableDeps(defs, "WithArrayProp");
+    expect(full).toContain("Authority");
+    const excluded = collectRenderableDeps(defs, "WithArrayProp", new Set(["Items"]));
+    expect(excluded).not.toContain("Authority");
   });
 });

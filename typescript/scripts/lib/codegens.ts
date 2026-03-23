@@ -587,18 +587,17 @@ export function generateRootDefBlock(
  */
 export function collectRenderableDeps(defs: Defs, name: string, excludedMembers?: Set<string>): string[] {
   const seen = new Set<string>();
+  const out: string[] = [];
 
-  return collectDependencyTree(defs, name, excludedMembers)
-    .filter((n) => !n.duplicate && !seen.has(n.name) && (seen.add(n.name), true))
-    .map((n) => ({ name: n.name, r: resolveDefType(defs, n.name) }))
-    .filter(({ name: n, r }) => {
-      // Skip primitive aliases (already shown as inline atom comments)
-      if (!r.complex && defRole(defs[n]) !== "enumeration") return false;
-      // Skip transparent wrappers (e.g. KeyListStructure → KeyValueStructure[])
-      if (r.complex && r.ts !== n) return false;
-      return true;
-    })
-    .map(({ name: n }) => n);
+  for (const n of collectDependencyTree(defs, name, excludedMembers)) {
+    if (n.duplicate || seen.has(n.name)) continue;
+    seen.add(n.name);
+    const r = resolveDefType(defs, n.name);
+    if (!r.complex && defRole(defs[n.name]) !== "enumeration") continue;
+    if (r.complex && r.ts !== n.name) continue;
+    out.push(n.name);
+  }
+  return out;
 }
 
 /** Collect enum names targeted by any x-fixed-single-enum stamp. */
