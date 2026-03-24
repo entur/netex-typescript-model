@@ -101,7 +101,11 @@ describe.each(TEST_ENTITIES)("$name (role: $role)", ({ name }) => {
     const mock = fake(netexLibrary, name);
     const xml = serialize(netexLibrary, name, mock);
     const full = wrapInPublicationDelivery(name, xml);
-    const { stderr } = validateWithXmllint(full);
+    const { valid, stderr } = validateWithXmllint(full);
+    if (valid) return; // fully valid — nothing to check
+    // xmllint failed: stderr must contain recognizable validation lines,
+    // otherwise the binary crashed or wasn't found
+    expect(stderr, `xmllint failed for ${name} with unexpected output`).toContain("validity");
     const errors = nonKeyrefErrors(stderr);
     expect(errors, `xmllint errors for ${name}:\n${errors.join("\n")}`).toEqual([]);
   });

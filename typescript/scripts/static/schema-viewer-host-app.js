@@ -671,7 +671,7 @@
           // Strip excluded property lines from plain-text output
           if (Object.keys(excludedProps).length > 0) {
             plain = plain.split('\n').filter(function(line) {
-              var m = line.match(/^\s+(\w+)\?:/);
+              var m = line.match(/^\s+(\$?\w+)\?:/);
               return !m || !excludedProps[m[1]];
             }).join('\n');
           }
