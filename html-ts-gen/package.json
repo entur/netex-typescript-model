@@ -18,7 +18,7 @@
     "@types/json-schema": "^7.0.15",
     "ajv": "^8.18.0",
     "esbuild": "^0.27.3",
-    "fast-xml-parser": "^5.3.6",
+    "fast-xml-parser": "^5.5.7",
     "json-schema-to-typescript": "^15.0.4",
     "tsx": "^4.0",
     "typedoc": "^0.28.17",
