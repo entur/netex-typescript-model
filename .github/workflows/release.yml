@@ -24,6 +24,8 @@ jobs:
           cache: npm
           cache-dependency-path: html-ts-gen/package-lock.json
 
+      - run: sudo apt-get install -y libxml2-utils
+
       - run: npm ci
         working-directory: html-ts-gen
 
