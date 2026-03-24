@@ -252,7 +252,7 @@ if (typeSourceMap.size > 0) {
 // Type-check the generated output
 console.log("\nType-checking generated output...");
 try {
-  execSync("npx --prefix typescript tsc --noEmit -p tsconfig.generated.json", { cwd: REPO_ROOT, stdio: "pipe" });
+  execSync("npx --prefix html-ts-gen tsc --noEmit -p tsconfig.generated.json", { cwd: REPO_ROOT, stdio: "pipe" });
   console.log("  Type-check passed (zero errors)");
 } catch (e: any) {
   const stderr = e.stderr?.toString() || "";
