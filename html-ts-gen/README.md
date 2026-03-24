@@ -1,4 +1,4 @@
-# typescript/ — Node.js Pipeline
+# html-ts-gen/ — Node.js Pipeline
 
 JSON Schema → TypeScript interfaces, interactive schema HTML viewer, TypeDoc documentation.
 

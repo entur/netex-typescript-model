@@ -1,7 +1,7 @@
 node_modules/
-typescript/dist/
+html-ts-gen/dist/
 generated-src/
-typescript/src/generated/
+html-ts-gen/src/generated/
 docs-site/
 xsd/
 NeTEx-*.zip

@@ -26,7 +26,7 @@ graph LR
 - Node.js 22+
 
 ```bash
-cd typescript && npm install   # once
+cd html-ts-gen && npm install   # once
 ```
 
 ## Quick Start
@@ -91,7 +91,7 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 ### Documentation
 
 ```bash
-cd typescript
+cd html-ts-gen
 npm run docs                          # TypeDoc HTML per assembly
 npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
@@ -138,7 +138,7 @@ Makefile                              # build entry point
 assembly-config.json                  # NeTEx version, parts, output paths
 tsconfig.generated.json               # type-check config for generated output
 docs/                                 # design docs (subset selection guide, etc.)
-typescript/                           # Node.js/TypeScript tooling
+html-ts-gen/                          # Node.js/TypeScript tooling
   scripts/
     generate.ts                       # JSON Schema → TypeScript (positional arg)
     split-output.ts                   # split monolithic .ts into per-category modules
@@ -175,7 +175,7 @@ generated-src/                        # output (gitignored)
     netex-schema.html                 # interactive schema viewer
 ```
 
-## npm Scripts (typescript/)
+## npm Scripts (html-ts-gen/)
 
 | Script                                 | Description                                 |
 | -------------------------------------- | ------------------------------------------- |

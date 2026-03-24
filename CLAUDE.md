@@ -5,7 +5,7 @@
 netex-typescript-model generates TypeScript interfaces from NeTEx XSD schemas. It is the TypeScript counterpart to `netex-java-model` (which uses JAXB). TypeDoc API documentation is deployed to GitHub Pages via CI.
 
 The project has two sub-directories:
-- **`typescript/`** — Node.js/TypeScript pipeline (npm scripts, json-schema-to-typescript, TypeDoc)
+- **`html-ts-gen/`** — Node.js/TypeScript pipeline (npm scripts, json-schema-to-typescript, TypeDoc)
 - **`json-schema/`** — GraalVM JavaScript pipeline (Maven, Java DOM — the primary XSD → JSON Schema converter)
 
 A root `Makefile` orchestrates the full pipeline: XSD download → JSON Schema → schema HTML → TypeScript interfaces → TypeDoc. `make all` runs everything.
@@ -17,7 +17,7 @@ Shared artifacts live at the repo root: `xsd/` (downloaded schemas), `generated-
 ### Quick start (Makefile)
 
 ```bash
-cd typescript && npm install     # install Node.js dependencies (once)
+cd html-ts-gen && npm install     # install Node.js dependencies (once)
 make all                         # full pipeline: XSD → JSON Schema → HTML → TypeScript → TypeDoc
 make all ASSEMBLY=network        # generate a variant (parts derived from assembly name)
 ```
@@ -25,7 +25,7 @@ make all ASSEMBLY=network        # generate a variant (parts derived from assemb
 ### TypeScript interface generation (standalone)
 
 ```bash
-cd typescript
+cd html-ts-gen
 npx tsx scripts/generate.ts ../generated-src/base/base.schema.json
 ```
 
@@ -42,10 +42,10 @@ mvn generate-resources                    # download JARs, write classpath.txt
 mvn exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../assembly-config.json"
 ```
 
-### typescript/ (Node.js pipeline)
+### html-ts-gen/ (Node.js pipeline)
 
 ```bash
-cd typescript
+cd html-ts-gen
 npm install                # install dependencies
 npm run test               # run tests (vitest)
 npm run docs               # generate TypeDoc HTML per assembly (requires generated interfaces)
@@ -60,7 +60,7 @@ npm run docs               # generate TypeDoc HTML per assembly (requires genera
 - `tsconfig.generated.json` — type-check configuration for generated output in `generated-src/`
 - `TODO.md` — project roadmap and planned improvements
 
-### typescript/
+### html-ts-gen/
 
 - `scripts/lib/config.ts` — shared configuration module: `Config` class, `PartConfig`/`RootXsdConfig` interfaces, `REQUIRED_PARTS`, `REQUIRED_ROOT_XSDS`, `NATURAL_NAMES`, and `resolveAssembly()`. `applyCliParts()` accepts both config keys (`part1_network`) and natural names (`network`)
 - `scripts/lib/types.ts` — shared type definitions (`NetexLibrary`, `FlatProperty`, `ViaHop`, `ResolvedType`, `DepTreeNode`, `SchemaShape`, etc.)
@@ -127,7 +127,7 @@ XSD (all files) → xsd-to-jsonschema.js (Java DOM) → JSON Schema (with descri
   → build-schema-html.ts → netex-schema.html
 ```
 
-**Stage 2: JSON Schema → TypeScript (typescript/)**
+**Stage 2: JSON Schema → TypeScript (html-ts-gen/)**
 ```
 JSON Schema → generate.ts → inject @see links into clone
   → json-schema-to-typescript → monolithic .ts
@@ -198,7 +198,7 @@ Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `v2.0`.
 - `xsd/` — downloaded XSD schemas
 - `NeTEx-*.zip` — cached download
 - `generated-src/` — generated output (per-assembly directories)
-- `typescript/dist/` — compiled TypeScript
+- `html-ts-gen/dist/` — compiled TypeScript
 - `docs-site/` — assembled GitHub Pages site
 - `node_modules/`
 - `json-schema/target/` — Maven build output
