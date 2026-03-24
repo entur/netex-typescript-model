@@ -530,14 +530,13 @@
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name, preProps, metaComments) {
-      var omni = metaComments && hideOmniEnabled;
       var result = generateInterface(netexLibrary, name, {
         html: true,
         metaComments: metaComments,
         inlineRefs: metaComments && inlineRefsEnabled,
-        preProps: omni ? undefined : (preProps || undefined),
+        preProps: hideOmniEnabled ? undefined : (preProps || undefined),
         excludeCheckboxes: metaComments,
-        excludeOmni: omni,
+        excludeOmni: hideOmniEnabled,
       });
       var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
       var html = '<div class="' + blockClass + '">' + result.text;
