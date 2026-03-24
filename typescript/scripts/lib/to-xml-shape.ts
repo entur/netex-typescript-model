@@ -7,18 +7,11 @@
  * Complex ref-typed properties delegate to a `toXmlShape` callback.
  */
 
-import {
-  flattenAllOf,
-  classifySchema,
-  resolveAtom,
-  resolvePropertyType,
-  lcFirst,
-  defRole,
-  type NetexLibrary,
-  type Def,
-  type FlatProperty,
-  type ResolvedType,
-} from "./fns.js";
+import type { NetexLibrary, Def, FlatProperty, ResolvedType } from "./types.js";
+import { lcFirst } from "./util.js";
+import { classifySchema, defRole } from "./classify.js";
+import { flattenAllOf } from "./schema-nav.js";
+import { resolvePropertyType, resolveAtom } from "./type-res.js";
 import { escHtml } from "./codegens.js";
 
 /**

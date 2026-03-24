@@ -122,7 +122,7 @@
         explorerPanel.querySelectorAll('.explorer-tab-content').forEach(function(c) { c.classList.remove('active'); });
         firstVisible.classList.add('active');
         document.getElementById(TAB_MAP[firstVisible.dataset.tab]).classList.add('active');
-        ifaceToggleLabel.style.display = (firstVisible.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
+        ifaceToggles.style.display = (firstVisible.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
       }
     }
 
@@ -134,7 +134,7 @@
       explorerPanel.querySelectorAll('.explorer-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById(TAB_MAP[tab.dataset.tab] || 'explorerProps').classList.add('active');
-      ifaceToggleLabel.style.display = (tab.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
+      ifaceToggles.style.display = (tab.dataset.tab === 'iface' && !currentIsAlias) ? '' : 'none';
     });
 
     /** HTML-escape a string using the DOM (createElement + textContent → innerHTML). */
@@ -507,9 +507,11 @@
     // ── TypeScript tab ─────────────────────────────────────────────────
 
     const explorerIface = document.getElementById('explorerIface');
-    const ifaceToggleLabel = document.getElementById('ifaceToggleLabel');
+    const ifaceToggles = document.getElementById('ifaceToggles');
     const inlineRefsCheck = document.getElementById('inlineRefsCheck');
+    const hideOmniCheck = document.getElementById('hideOmniCheck');
     var inlineRefsEnabled = false;
+    var hideOmniEnabled = true;
     var currentIsAlias = false;
     var currentExcluded = {};
 
@@ -528,12 +530,14 @@
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name, preProps, metaComments) {
+      var omni = metaComments && hideOmniEnabled;
       var result = generateInterface(netexLibrary, name, {
         html: true,
         metaComments: metaComments,
         inlineRefs: metaComments && inlineRefsEnabled,
-        preProps: preProps || undefined,
+        preProps: omni ? undefined : (preProps || undefined),
         excludeCheckboxes: metaComments,
+        excludeOmni: omni,
       });
       var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
       var html = '<div class="' + blockClass + '">' + result.text;
@@ -547,6 +551,10 @@
       inlineRefsEnabled = inlineRefsCheck.checked;
       if (currentExplored) renderInterface(currentExplored);
     });
+    hideOmniCheck.addEventListener('change', function() {
+      hideOmniEnabled = hideOmniCheck.checked;
+      if (currentExplored) renderInterface(currentExplored);
+    });
 
     /** Render the TypeScript tab into its container element. */
     function renderInterface(name, props) {
@@ -556,8 +564,9 @@
       currentIsAlias = result.isAlias;
       updateDepsSection();
       inlineRefsCheck.checked = inlineRefsEnabled;
+      hideOmniCheck.checked = hideOmniEnabled;
       var ifaceActive = explorerIface.classList.contains('active');
-      ifaceToggleLabel.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
+      ifaceToggles.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
     }
 
     /** (Re-)render the "+N subtypes" chip and dep blocks, respecting excluded props. */
@@ -657,8 +666,8 @@
             }
           }
           var excludedSet = new Set(Object.keys(excludedProps));
-          var root = generateRootDefBlock(currentExplored);
-          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet });
+          var root = generateRootDefBlock(currentExplored, { excludeOmni: hideOmniEnabled });
+          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeOmni: hideOmniEnabled });
           plain = subs ? root + '\n\n' + subs : root;
           // Strip excluded property lines from plain-text output
           if (Object.keys(excludedProps).length > 0) {
@@ -891,7 +900,7 @@
 
     /** Build all three sample panels once, then show the requested format. */
     function renderSampleData(name) {
-      _cachedSampleStem = genMockObject(name);
+      _cachedSampleStem = fake(name);
       _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
       _cachedSampleName = name;
 
@@ -963,7 +972,7 @@
       explorerPanel.style.width = '';
       currentExplored = null;
       currentMode = null;
-      ifaceToggleLabel.style.display = 'none';
+      ifaceToggles.style.display = 'none';
     }
 
     handle1.addEventListener('mousedown', e => {

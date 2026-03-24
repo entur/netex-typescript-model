@@ -2,24 +2,17 @@
  * Data generation functions extracted from fns.ts.
  *
  * Builds fully populated fake objects from JSON Schema definitions and
- * serializes them to XML via fast-xml-parser. The primary export is `fake`
- * (aliased as `genMockObject` for backward compat).
+ * serializes them to XML via fast-xml-parser. The primary export is `fake`.
  *
  * Depends on schema introspection functions from fns.ts for type resolution,
  * inheritance walking, and role classification.
  */
 
 import { XMLBuilder } from "fast-xml-parser";
-import {
-  flattenAllOf,
-  resolvePropertyType,
-  resolveAtom,
-  defRole,
-  classifySchema,
-  isDynNocRef,
-  type NetexLibrary,
-  type Def,
-} from "./fns.js";
+import type { NetexLibrary, Def } from "./types.js";
+import { classifySchema, defRole, isDynNocRef } from "./classify.js";
+import { flattenAllOf } from "./schema-nav.js";
+import { resolvePropertyType, resolveAtom } from "./type-res.js";
 
 // ── Code generation helpers ──────────────────────────────────────────────────
 

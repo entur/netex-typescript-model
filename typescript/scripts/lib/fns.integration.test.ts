@@ -11,7 +11,7 @@ import {
   defRole,
   unwrapMixed,
   inlineSingleRefs,
-  genMockObject,
+  fake,
   serialize,
   resolveRefEntity,
   collectRefProps,
@@ -796,32 +796,32 @@ describe("resolvePropertyType — x-fixed-single-enum (real schema)", () => {
   });
 });
 
-// ── genMockObject — real schema ─────────────────────────────────────────────
+// ── fake — real schema ─────────────────────────────────────────────
 
-describe("genMockObject — VehicleType (real schema)", () => {
+describe("fake — VehicleType (real schema)", () => {
   it("has $id containing VehicleType", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(mock.$id).toContain("VehicleType");
   });
 
   it("has $version set to '1'", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(mock.$version).toBe("1");
   });
 
   it("has TransportMode as a valid enum value", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(typeof mock.TransportMode).toBe("string");
     expect((mock.TransportMode as string).length).toBeGreaterThan(0);
   });
 
   it("has LowFloor as a boolean", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(typeof mock.LowFloor).toBe("boolean");
   });
 
   it("has BrandingRef as ref-pattern object", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const ref = mock.BrandingRef as Record<string, unknown>;
     expect(ref).toBeDefined();
     expect(typeof ref.value).toBe("string");
@@ -829,7 +829,7 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 
   it("has PropulsionTypes as array with enum value", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const pt = mock.PropulsionTypes;
     expect(Array.isArray(pt)).toBe(true);
     expect((pt as unknown[]).length).toBeGreaterThan(0);
@@ -837,7 +837,7 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 
   it("has $nameOfClass matching the entity name (XML attribute)", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     // nameOfClass is an XML attribute → canonical name is $nameOfClass
     expect(mock.$nameOfClass).toBe("VehicleType");
   });
@@ -850,7 +850,7 @@ describe("genMockObject — VehicleType (real schema)", () => {
     //   TransportType_VersionStructure   (TransportMode, PrivateCode, ...)
     //   VehicleType_VersionStructure     (LowFloor, Length, PropulsionTypes, ...)
     //
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
 
     // EntityStructure
     expect(mock.$id).toBeDefined();
@@ -880,7 +880,7 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 
   it("fills Name as TextType[] array with value and $lang (shallow-complex via mixed-unwrap)", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(Array.isArray(mock.Name)).toBe(true);
     const item = (mock.Name as Record<string, unknown>[])[0];
     expect(item).toBeDefined();
@@ -889,12 +889,12 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 
   it("fills Description as TextType[] (same shallow-complex path as Name)", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(Array.isArray(mock.Description)).toBe(true);
   });
 
   it("fills keyList as wrapper with KeyValue child array", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const wrapper = mock.keyList as Record<string, unknown>;
     expect(wrapper).toBeDefined();
     expect(typeof wrapper).toBe("object");
@@ -906,7 +906,7 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 
   it("fills privateCodes as wrapper with PrivateCode child array", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const wrapper = mock.privateCodes as Record<string, unknown>;
     expect(wrapper).toBeDefined();
     expect(typeof wrapper).toBe("object");
@@ -917,24 +917,24 @@ describe("genMockObject — VehicleType (real schema)", () => {
   });
 
   it("fills plain string properties with \"string\" default", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const pc = mock.PrivateCode as Record<string, unknown>;
     expect(pc.value).toBe("string");
   });
 
   it("fills $created as date-time string (inherited from EntityInVersionStructure)", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(mock.$created).toBe("2025-01-01T00:00:00");
   });
 
   it("fills $modification as first enum value (inherited from EntityInVersionStructure)", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     expect(typeof mock.$modification).toBe("string");
     expect((mock.$modification as string).length).toBeGreaterThan(0);
   });
 
   it("fills Length as a number (inherited from VehicleType_VersionStructure)", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     // Length → LengthType → atom collapse to number
     expect(typeof mock.Length).toBe("number");
   });
@@ -942,19 +942,19 @@ describe("genMockObject — VehicleType (real schema)", () => {
 
 describe("serialize — VehicleType (real schema)", () => {
   it("produces XML starting with <VehicleType", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const xml = serialize(netexLibrary, "VehicleType", mock);
     expect(xml).toContain("<VehicleType");
   });
 
   it("contains id= attribute", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const xml = serialize(netexLibrary, "VehicleType", mock);
     expect(xml).toContain('id=');
   });
 
   it("contains version= attribute", () => {
-    const mock = genMockObject(netexLibrary, "VehicleType");
+    const mock = fake(netexLibrary, "VehicleType");
     const xml = serialize(netexLibrary, "VehicleType", mock);
     expect(xml).toContain('version=');
   });

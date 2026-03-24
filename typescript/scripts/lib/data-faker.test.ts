@@ -44,7 +44,7 @@ describe("defaultForType", () => {
   });
 });
 
-// ── fake (née genMockObject) ────────────────────────────────────────────────
+// ── fake ────────────────────────────────────────────────────────────────────
 
 describe("fake", () => {
   const syntheticNetexLibrary: NetexLibrary = {

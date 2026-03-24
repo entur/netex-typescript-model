@@ -167,7 +167,6 @@ function buildViewerFnsScript(): string {
     function defRole(name) { return _viewerBundle.defRole(netexLibrary[name]); }
     function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(netexLibrary, n); }
     function fake(n) { return _viewerBundle.fake(netexLibrary, n); }
-    function genMockObject(n) { return _viewerBundle.fake(netexLibrary, n); }
     function toXmlShape(n, obj) { return _viewerBundle.toXmlShape(netexLibrary, n, obj); }
     function buildXml(n, obj) { return _viewerBundle.buildXml(n, obj); }
     function makeInlinedToXmlShape(n, props) { return _viewerBundle.makeInlinedToXmlShape(netexLibrary, n, props ? { props: props } : undefined); }
@@ -266,7 +265,7 @@ ${sections}
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
     <div class="explorer-tab-content" id="explorerRelations"><div class="relations-container" id="relationsContainer"></div></div>
-    <label class="iface-toggle" id="ifaceToggleLabel" style="display:none"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label>
+    <div class="iface-toggles" id="ifaceToggles" style="display:none"><label class="iface-toggle"><input type="checkbox" id="hideOmniCheck" checked> Hide base props</label><label class="iface-toggle"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label></div>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
     <div class="explorer-tab-content" id="explorerSample"></div>

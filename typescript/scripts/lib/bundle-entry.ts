@@ -1,39 +1,41 @@
 /**
  * esbuild entry point for the schema viewer IIFE bundle.
  *
- * Re-exports all public functions from fns.ts and data-faker.ts.
+ * Re-exports all public functions from the semantic modules.
  * esbuild bundles this into a single IIFE with `globalName: "_viewerBundle"`,
  * embedding fast-xml-parser and all viewer functions in the HTML page.
  */
+export { lcFirst, canonicalPropName } from "./util.js";
 export {
   resolveType,
   isRefType,
   refTarget,
-  flattenAllOf,
-  collectRequired,
-  resolveDefType,
-  resolvePropertyType,
-  resolveAtom,
-  buildReverseIndex,
-  findTransitiveEntityUsers,
+  classifySchema,
   defRole,
-  lcFirst,
-  buildInheritanceChain,
-  inlineSingleRefs,
-  canonicalPropName,
+  isDynNocRef,
   unwrapMixed,
   countRoles,
   presentRoles,
+} from "./classify.js";
+export {
+  OMNIPRESENT_DEFS,
+  flattenAllOf,
+  collectRequired,
+  buildInheritanceChain,
+  inlineSingleRefs,
+} from "./schema-nav.js";
+export { resolveDefType, resolvePropertyType, resolveAtom } from "./type-res.js";
+export {
+  buildReverseIndex,
+  findTransitiveEntityUsers,
   resolveRefEntity,
   collectRefProps,
   collectExtraProps,
   collectDependencyTree,
-  isDynNocRef,
-} from "./fns.js";
+} from "./dep-graph.js";
 
 export {
   fake,
-  fake as genMockObject,
   defaultForType,
   buildXml,
   toXmlShape,

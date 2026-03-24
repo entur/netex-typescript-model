@@ -3,7 +3,7 @@ import { readFileSync, existsSync, readdirSync, writeFileSync, mkdtempSync, rmSy
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { genMockObject, serialize, defRole, type NetexLibrary } from "./fns.js";
+import { fake, serialize, defRole, type NetexLibrary } from "./fns.js";
 
 // ── Schema loading (eager — needed at describe.each time) ────────────────────
 
@@ -109,7 +109,7 @@ function nonKeyrefErrors(stderr: string): string[] {
 
 describe.each(TEST_ENTITIES)("$name (role: $role)", ({ name }) => {
   it("validates against NeTEx XSD (ignoring keyref)", { timeout: 30_000 }, () => {
-    const mock = genMockObject(netexLibrary, name);
+    const mock = fake(netexLibrary, name);
     const xml = serialize(netexLibrary, name, mock);
     const full = wrapInPublicationDelivery(name, xml);
     const { stderr } = validateWithXmllint(full);

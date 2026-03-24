@@ -534,6 +534,7 @@
     .relations-svg-container svg { display: block; }
 
     /* Interface tab */
+    .iface-toggles { display: inline-flex; gap: 0.75rem; }
     .iface-toggle {
       display: inline-flex;
       align-items: center;
