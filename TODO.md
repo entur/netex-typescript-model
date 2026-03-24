@@ -1,69 +1,25 @@
 # TODO
 
-## Link TypeDoc and schema viewer back to upstream XSD source
+Tracked in [GitHub Issues](https://github.com/entur/netex-typescript-model/issues).
 
-Each JSON Schema definition already carries an `x-netex-source` annotation with the relative XSD path (e.g. `netex_framework/netex_reusable/netex_address_version.xsd`). Use this to generate clickable links to the NeTEx-CEN GitHub repo (`https://github.com/NeTEx-CEN/NeTEx/blob/v2.0/xsd/...`) in:
+## Schema HTML Viewer
 
-1. **TypeDoc JSDoc** (`generate.ts`) — add a second `@see` tag linking to the source XSD on GitHub
-2. **Schema HTML viewer** (`build-schema-html.ts`) — show an "XSD source" link per definition
+- [#15](https://github.com/entur/netex-typescript-model/issues/15) — Link definitions to upstream XSD source on GitHub
 
-## Address known XSD parser limitations using Java DOM
+## XSD Parser Improvements
 
-Remaining XSD parser limitations (see CLAUDE.md for full list):
+- [#16](https://github.com/entur/netex-typescript-model/issues/16) — Emit oneOf/anyOf for substitution group unions
+- [#17](https://github.com/entur/netex-typescript-model/issues/17) — Support xsd:any / xsd:anyAttribute
+- [#18](https://github.com/entur/netex-typescript-model/issues/18) — Propagate attribute use="required"
+- [#19](https://github.com/entur/netex-typescript-model/issues/19) — Model mixed content with $value property
+- [#20](https://github.com/entur/netex-typescript-model/issues/20) — Eliminate unclassified x-netex-role types
 
-- **Substitution group unions** — annotations are stamped (`x-netex-substitutionGroup` / `x-netex-sg-members`), but polymorphic element references don't yet emit `oneOf`/`anyOf` unions
-- **`xsd:any` / `xsd:anyAttribute`** — could emit `additionalProperties: true` or a typed wildcard
-- **Attribute `use="required"`** — propagate to JSON Schema `required` arrays
-- **Mixed content** — `x-netex-mixed` is now stamped; remaining: add a `_text` or `$value` string property to the schema output
-- **Namespace-qualified names** — Java DOM preserves namespace URIs; could disambiguate collisions if needed
+## Generation & Docs
 
-## Make x-netex-role comprehensive — eliminate unclassified types
+- [#21](https://github.com/entur/netex-typescript-model/issues/21) — Consider filtering TypeScript output by role
+- [#22](https://github.com/entur/netex-typescript-model/issues/22) — Link docs index to GitHub Release tarballs
 
-968 of 3055 definitions (base assembly) have no `x-netex-role`. The viewer groups these under "Unclassified", and `x-netex-atom` acts as a classification fallback in `resolveDefType` — a design smell where two annotations compensate for each other's gaps.
+## Future
 
-Fix by extending `classifyDefinitions()` in `xsd-to-jsonschema.js` with catch-all rules after the existing suffix/ancestry cascade:
-
-- **Naked primitive aliases** (136 types: `ObjectIdType→string`, `LengthType→number`, etc.) — `type` is not `object`, no properties → role `"primitive"`
-- **Atomic structs** (32 types: `PrivateCodeStructure`, `TextType`, `ClosedTimeRangeStructure`, etc.) — object with only inline-primitive props, no `$ref` → role `"structure"`
-- **$ref aliases** (372 types) — inherit role from target, or default `"structure"`
-- **allOf types** (324 types) — they extend something, classify as `"structure"`
-- **Remaining with-ref objects** (87 types) — object with `$ref` in properties → `"structure"`
-
-Goal: near-zero unclassified. Then `x-netex-atom` stays purely as rendering metadata ("what's the underlying primitive"), not a classification crutch.
-
-## Consider limiting TypeScript interface generation to key roles
-
-Currently `generate.ts` emits interfaces for every JSON Schema definition. Most consumers only need entities and frame members — not every internal structure, abstract base, or collection wrapper. Plan whether to filter by `x-netex-role`:
-
-- **entity** and **frameMember** are the primary public-facing types users would import
-- Structures, references, enumerations etc. could remain in the schema but be excluded from (or tree-shaken out of) the TypeScript output
-- Would reduce generated code size and make the TypeDoc surface more navigable
-- Need to verify that entity/frameMember interfaces don't reference excluded types (or inline them)
-
-## Add test suite using netex-validator-java XML fixtures
-
-The [netex-validator-java](https://github.com/entur/netex-validator-java) repo contains real NeTEx XML fixtures. Use these to build a validation/round-trip test suite for the generated schemas and (future) parser. See [docs/netex-testing-landscape.md](docs/netex-testing-landscape.md) for an overview of existing NeTEx test infrastructure.
-
-Also evaluate [openapi-sampler](https://github.com/Redocly/openapi-sampler) (or `json-schema-faker`) for generating sample data from the JSON Schema, then roundtrip-testing: JSON Schema → generate sample object → parse into TypeScript interfaces → serialize to XML → verify valid NeTEx XML.
-
-## Implement NeTEx XML parser
-
-Build a TypeScript parser that can read NeTEx XML documents into the generated interfaces. See [docs/PARSER.md](docs/PARSER.md) for the design plan.
-
-## Quality-improve build-docs-index.ts
-
-`build-docs-index.ts` generates the GitHub Pages welcome page. It has hardcoded assembly descriptions and no connection to releases. Improve:
-
-- **Link to GitHub Releases** — the welcome page should link to the latest release tarball for each assembly (the release workflow already produces `netex-<version>-<assembly>-v<tag>.tgz` artifacts). Use the GitHub API or a static convention to construct download links
-- **Reduce template hardcoding** — the inline HTML/CSS is a long string literal; extract into a template file
-
-## Quality-improve build-schema-html.ts
-
-`build-schema-html.ts` (354 lines) assembles the viewer from extracted files (`schema-viewer.css`, `fns.ts`, `schema-viewer-host-app.js`). Remaining refactoring:
-
-- **Extract text/HTML templates** into `.templ` files — tab renderers (Interface, Mapping, Utilities, Graph, Properties) are long template-string blocks that would be clearer as separate files with placeholder substitution
-- **More functional style** — the tab render functions use imperative loops building HTML strings; refactor toward composable helpers (e.g. `renderPropRow`, `renderTypeLink`, `renderCodeBlock`) that return fragments
-
-## Sync GitHub Actions with Entur conventions
-
-Review Entur's shared workflow conventions (reusable workflows, naming, artifact registries) and align `docs.yml` and `release.yml` if useful.
+- [#23](https://github.com/entur/netex-typescript-model/issues/23) — Implement NeTEx XML parser (design: `journal/PARSER.md`)
+- [#24](https://github.com/entur/netex-typescript-model/issues/24) — Sync GitHub Actions with Entur conventions
