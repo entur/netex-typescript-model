@@ -72,7 +72,7 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 
 1. Maven Ant plugin downloads the NeTEx ZIP from GitHub (`next` branch)
 2. GraalJS runs `json-schema/xsd-to-jsonschema.js` on stock JDK via Java DOM APIs
-3. Each definition is stamped with nine `x-netex-*` annotations (source, assembly, role, atom, frames, mixed, substitutionGroup, sg-members, collapsed) — see [`json-schema/README.md`](json-schema/README.md) for details
+3. Each definition is stamped with `x-netex-*` annotations (source, assembly, role, atom, frames, mixed, substitutionGroup, sg-members, refTarget, collapsed) plus per-property `x-netex-choice` — see [`json-schema/README.md`](json-schema/README.md) for details
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
 
@@ -146,13 +146,23 @@ typescript/                           # Node.js/TypeScript tooling
     build-schema-html.ts              # interactive JSON Schema HTML viewer
     generate-docs.ts                  # TypeDoc HTML per assembly
     build-docs-index.ts               # docs-site/ welcome page
+    e2e-codegen-typecheck.ts          # e2e validation: assembled codegen → tsc --strict
     lib/
+      types.ts                        # shared type definitions (NetexLibrary, FlatProperty, etc.)
+      util.ts                         # low-level helpers (deref, lcFirst, canonicalPropName)
+      classify.ts                     # schema classification, role detection, mixed-content
+      schema-nav.ts                   # inheritance walking, property flattening, inlining
+      type-res.ts                     # deep type resolution (def/property → TS type)
+      dep-graph.ts                    # reverse index, dependency tree, ref-entity resolution
+      data-faker.ts                   # fake data generation + XML serialization
+      to-xml-shape.ts                 # static stem→XML projection generators
+      codegens.ts                     # TypeScript code generators (interface, guard, factory)
       config.ts                       # shared configuration (Config class, part resolution)
-      fns.ts                          # schema introspection functions (bundled via esbuild)
-      data-faker.ts                   # data generation: fake(), serialize, toXmlShape (bundled via esbuild)
-      bundle-entry.ts                 # esbuild entry point (re-exports fns + data-faker)
+      bundle-entry.ts                 # esbuild entry point (re-exports lib modules for browser)
+    static/
       schema-viewer-host-app.js       # browser-side controller (embedded in HTML)
       schema-viewer.css               # viewer CSS (embedded in HTML)
+    lib/__tests__/                    # per-module unit + integration tests
 json-schema/                          # Java DOM pipeline
   pom.xml                             # Maven POM (GraalJS + Xerces, XSD download)
   xsd-to-jsonschema.js                # primary XSD → JSON Schema converter (Java DOM APIs)
