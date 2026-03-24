@@ -1,26 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { resolve, join } from "node:path";
 import { makeInlinedToXmlShape, makeInlineCodeBlock } from "./to-xml-shape.js";
 import { fake, toXmlShape as dataFakerToXmlShape } from "./data-faker.js";
-import { lcFirst, type NetexLibrary } from "./fns.js";
-
-// ── Schema loading (eager — needed at describe.each time) ────────────────────
-
-const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
-
-function loadNetexLibrary(): NetexLibrary {
-  if (!existsSync(jsonschemaDir)) {
-    throw new Error(
-      `Base jsonschema dir not found at ${jsonschemaDir}.\nRun "make all" first.`,
-    );
-  }
-  const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
-  if (!schemaFile) {
-    throw new Error(`No *.schema.json found in ${jsonschemaDir}.\nRun "make all" first.`);
-  }
-  return JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8")).definitions;
-}
+import { lcFirst } from "./util.js";
+import { loadNetexLibrary } from "./test-helpers.js";
 
 const netexLibrary = loadNetexLibrary();
 

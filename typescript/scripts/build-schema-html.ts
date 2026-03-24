@@ -15,7 +15,7 @@
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { buildSync } from "esbuild";
-import { defRole, presentRoles } from "./lib/fns.js";
+import { defRole, presentRoles } from "./lib/classify.js";
 
 // ── HTML builder ──────────────────────────────────────────────────────────────
 

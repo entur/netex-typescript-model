@@ -1,27 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { fake, serialize, defRole, type NetexLibrary } from "./fns.js";
+import { defRole } from "./classify.js";
+import { fake, serialize } from "./data-faker.js";
+import { loadNetexLibrary } from "./test-helpers.js";
 
-// ── Schema loading (eager — needed at describe.each time) ────────────────────
-
-const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
 const xsdRoot = resolve(import.meta.dirname, "../../../xsd/2.0/NeTEx_publication.xsd");
 
-function loadNetexLibrary(): NetexLibrary {
-  if (!existsSync(jsonschemaDir)) {
-    throw new Error(`Base jsonschema dir not found at ${jsonschemaDir}.\nRun "make all" first.`);
-  }
-  const schemaFile = readdirSync(jsonschemaDir).find((f) => f.endsWith(".schema.json"));
-  if (!schemaFile) {
-    throw new Error(`No *.schema.json found in ${jsonschemaDir}.\nRun "make all" first.`);
-  }
-  if (!existsSync(xsdRoot)) {
-    throw new Error(`XSD not found at ${xsdRoot}.\nRun "make xsd/2.0/NeTEx_publication.xsd" first.`);
-  }
-  return JSON.parse(readFileSync(join(jsonschemaDir, schemaFile), "utf-8")).definitions;
+if (!existsSync(xsdRoot)) {
+  throw new Error(`XSD not found at ${xsdRoot}.\nRun "make xsd/2.0/NeTEx_publication.xsd" first.`);
 }
 
 const netexLibrary = loadNetexLibrary();

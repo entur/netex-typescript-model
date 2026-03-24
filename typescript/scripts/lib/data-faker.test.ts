@@ -6,7 +6,7 @@ import {
   toXmlShape,
   serialize,
 } from "./data-faker.js";
-import type { NetexLibrary } from "./fns.js";
+import type { NetexLibrary } from "./types.js";
 
 // ── defaultForType ──────────────────────────────────────────────────────────
 

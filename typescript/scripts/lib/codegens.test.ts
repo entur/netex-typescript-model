@@ -9,7 +9,7 @@ import {
   collectRenderableDeps,
   toConstName,
 } from "./codegens.js";
-import type { NetexLibrary } from "./fns.js";
+import type { NetexLibrary } from "./types.js";
 
 // ── toConstName ─────────────────────────────────────────────────────────────
 
