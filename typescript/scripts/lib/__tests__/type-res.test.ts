@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { resolveDefType, resolvePropertyType, resolveAtom } from "./type-res.js";
-import type { NetexLibrary } from "./types.js";
+import { resolveDefType, resolvePropertyType, resolveAtom } from "../type-res.js";
+import type { NetexLibrary } from "../types.js";
 
 
 describe("resolveDefType", () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { makeInlinedToXmlShape, makeInlineCodeBlock } from "./to-xml-shape.js";
-import { fake, toXmlShape as dataFakerToXmlShape } from "./data-faker.js";
-import { lcFirst } from "./util.js";
+import { makeInlinedToXmlShape, makeInlineCodeBlock } from "../to-xml-shape.js";
+import { fake, toXmlShape as dataFakerToXmlShape } from "../data-faker.js";
+import { lcFirst } from "../util.js";
 import { loadNetexLibrary } from "./test-helpers.js";
 
 const netexLibrary = loadNetexLibrary();

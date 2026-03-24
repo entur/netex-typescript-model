@@ -1,8 +1,8 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
-import type { NetexLibrary } from "./types.js";
+import type { NetexLibrary } from "../types.js";
 
-const jsonschemaDir = resolve(import.meta.dirname, "../../../generated-src/base");
+const jsonschemaDir = resolve(import.meta.dirname, "../../../../generated-src/base");
 
 export function loadNetexLibrary(): NetexLibrary {
   if (!existsSync(jsonschemaDir)) {

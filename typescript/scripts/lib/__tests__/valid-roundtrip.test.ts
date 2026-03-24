@@ -3,11 +3,11 @@ import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "no
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { defRole } from "./classify.js";
-import { fake, serialize } from "./data-faker.js";
+import { defRole } from "../classify.js";
+import { fake, serialize } from "../data-faker.js";
 import { loadNetexLibrary } from "./test-helpers.js";
 
-const xsdRoot = resolve(import.meta.dirname, "../../../xsd/2.0/NeTEx_publication.xsd");
+const xsdRoot = resolve(import.meta.dirname, "../../../../xsd/2.0/NeTEx_publication.xsd");
 
 if (!existsSync(xsdRoot)) {
   throw new Error(`XSD not found at ${xsdRoot}.\nRun "make xsd/2.0/NeTEx_publication.xsd" first.`);

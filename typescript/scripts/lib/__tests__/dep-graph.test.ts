@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { defRole } from "./classify.js";
-import { buildReverseIndex, findTransitiveEntityUsers, resolveRefEntity, collectRefProps, collectExtraProps, collectDependencyTree } from "./dep-graph.js";
-import type { NetexLibrary } from "./types.js";
+import { defRole } from "../classify.js";
+import { buildReverseIndex, findTransitiveEntityUsers, resolveRefEntity, collectRefProps, collectExtraProps, collectDependencyTree } from "../dep-graph.js";
+import type { NetexLibrary } from "../types.js";
 
 
 describe("buildReverseIndex", () => {

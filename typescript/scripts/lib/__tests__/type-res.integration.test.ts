@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { resolveDefType, resolveAtom, resolvePropertyType } from "./type-res.js";
-import { unwrapMixed } from "./classify.js";
-import { flattenAllOf } from "./schema-nav.js";
+import { resolveDefType, resolveAtom, resolvePropertyType } from "../type-res.js";
+import { unwrapMixed } from "../classify.js";
+import { flattenAllOf } from "../schema-nav.js";
 import { loadNetexLibrary } from "./test-helpers.js";
-import type { NetexLibrary } from "./types.js";
+import type { NetexLibrary } from "../types.js";
 
 let lib: NetexLibrary;
 beforeAll(() => { lib = loadNetexLibrary(); });

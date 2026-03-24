@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lcFirst, canonicalPropName } from "./util.js";
+import { lcFirst, canonicalPropName } from "../util.js";
 
 
 describe("lcFirst", () => {

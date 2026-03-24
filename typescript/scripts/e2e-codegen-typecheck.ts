@@ -11,7 +11,7 @@ import {
   generateSubTypesBlock,
   type NetexLibrary,
 } from "./lib/codegens.js";
-import { loadNetexLibrary } from "./lib/test-helpers.js";
+import { loadNetexLibrary } from "./lib/__tests__/test-helpers.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

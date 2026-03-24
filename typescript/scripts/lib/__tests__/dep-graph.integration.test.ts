@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { defRole } from "./classify.js";
-import { buildReverseIndex, findTransitiveEntityUsers, resolveRefEntity, collectRefProps, collectExtraProps, collectDependencyTree } from "./dep-graph.js";
+import { defRole } from "../classify.js";
+import { buildReverseIndex, findTransitiveEntityUsers, resolveRefEntity, collectRefProps, collectExtraProps, collectDependencyTree } from "../dep-graph.js";
 import { loadNetexLibrary } from "./test-helpers.js";
-import type { NetexLibrary } from "./types.js";
+import type { NetexLibrary } from "../types.js";
 
 let lib: NetexLibrary;
 beforeAll(() => { lib = loadNetexLibrary(); });

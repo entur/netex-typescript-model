@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { defRole } from "./classify.js";
+import { defRole } from "../classify.js";
 import { loadNetexLibrary } from "./test-helpers.js";
-import type { NetexLibrary } from "./types.js";
+import type { NetexLibrary } from "../types.js";
 
 let lib: NetexLibrary;
 beforeAll(() => { lib = loadNetexLibrary(); });

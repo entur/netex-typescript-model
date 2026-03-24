@@ -5,8 +5,8 @@ import {
   buildXml,
   toXmlShape,
   serialize,
-} from "./data-faker.js";
-import type { NetexLibrary } from "./types.js";
+} from "../data-faker.js";
+import type { NetexLibrary } from "../types.js";
 
 // ── defaultForType ──────────────────────────────────────────────────────────
 

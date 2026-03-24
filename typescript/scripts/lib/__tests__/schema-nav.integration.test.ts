@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { flattenAllOf, inlineSingleRefs } from "./schema-nav.js";
+import { flattenAllOf, inlineSingleRefs } from "../schema-nav.js";
 import { loadNetexLibrary } from "./test-helpers.js";
-import type { NetexLibrary } from "./types.js";
+import type { NetexLibrary } from "../types.js";
 
 let lib: NetexLibrary;
 beforeAll(() => { lib = loadNetexLibrary(); });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { fake, serialize } from "./data-faker.js";
+import { fake, serialize } from "../data-faker.js";
 import { loadNetexLibrary } from "./test-helpers.js";
-import type { NetexLibrary } from "./types.js";
+import type { NetexLibrary } from "../types.js";
 
 let lib: NetexLibrary;
 let vtMock: Record<string, unknown>;

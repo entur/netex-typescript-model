@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { resolveType, isRefType, refTarget, unwrapMixed, defRole, countRoles, presentRoles, ROLE_DISPLAY_ORDER, ROLE_LABELS, isDynNocRef } from "./classify.js";
-import type { NetexLibrary } from "./types.js";
+import { resolveType, isRefType, refTarget, unwrapMixed, defRole, countRoles, presentRoles, ROLE_DISPLAY_ORDER, ROLE_LABELS, isDynNocRef } from "../classify.js";
+import type { NetexLibrary } from "../types.js";
 
 describe("resolveType", () => {
   it("returns $ref target name", () => {

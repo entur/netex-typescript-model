@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { flattenAllOf, collectRequired, buildInheritanceChain, inlineSingleRefs } from "./schema-nav.js";
-import type { NetexLibrary } from "./types.js";
+import { flattenAllOf, collectRequired, buildInheritanceChain, inlineSingleRefs } from "../schema-nav.js";
+import type { NetexLibrary } from "../types.js";
 
 
 describe("flattenAllOf", () => {
