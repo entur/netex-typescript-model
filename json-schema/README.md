@@ -1,8 +1,25 @@
 # json-schema/ — XSD to JSON Schema Converter
 
-## Annotation Stamping
+## OpenAPI 3.x XML Annotations
 
-The converter (`xsd-to-jsonschema.js`) stamps nine custom `x-netex-*` annotations on JSON Schema definitions. These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
+The converter stamps OpenAPI 3.x [`xml` objects](https://spec.openapis.org/oas/v3.1.1.html#xml-object) on properties derived from XSD attributes:
+
+```json
+"id": {
+  "type": "string",
+  "xml": { "attribute": true }
+}
+```
+
+This distinguishes XML attributes (`<Foo id="...">`) from XML elements (`<Foo><Id>...</Id></Foo>`) in the generated schema. Downstream consumers use this to:
+
+- **`canonicalPropName()`** — prefix attribute properties with `$` (e.g. `id` → `$id`) to avoid collisions with element properties
+- **`toXmlShape()`** — map `$`-prefixed properties to `@_`-prefixed keys for `fast-xml-parser` XMLBuilder
+- **`unwrapMixed()`** — skip `xml.attribute` properties when detecting the inner element type of mixed-content wrappers
+
+## NeTEx Annotation Stamping
+
+The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on JSON Schema definitions (ten per-definition, one per-property). These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
 
 ### `x-netex-source` (string)
 
@@ -58,6 +75,14 @@ Stamped per-definition on elements that declare a `substitutionGroup` attribute.
 ### `x-netex-sg-members` (string[])
 
 Stamped on head elements of substitution groups. Lists the concrete members (e.g. `["StopPlace", "TopographicPlace", ...]`). Built from a reverse map populated during element parsing. Used by `pruneToSubGraph()` to include substitution group members when the head is reachable.
+
+### `x-netex-refTarget` (string)
+
+Stamped per-definition on reference-role definitions. Records the target element name that this reference points to (e.g. `TransportTypeRef` → `"TransportType"`, `TransportTypeRefStructure` → `"TransportType"`). Built by matching the `Ref`/`RefStructure` suffix against the element registry. Framework refs like `VersionOfObjectRef` that don't map to a specific entity get no stamp. Used by `resolveRefEntity()` in the schema viewer's Relations tab to resolve ref-typed properties to their target entities.
+
+### `x-netex-choice` (string[], per-property)
+
+Stamped per-property (not per-definition). Set on properties that originate from an `xsd:choice` group. Contains the names of sibling properties from the same choice group. Used by the data faker to emit only the first alternative from each choice group rather than all properties simultaneously.
 
 ### `x-netex-collapsed` (number)
 

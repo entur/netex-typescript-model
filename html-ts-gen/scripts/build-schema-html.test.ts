@@ -5,36 +5,36 @@ import { buildSidebarItems, buildRoleFilter } from "./build-schema-html.js";
 
 describe("buildSidebarItems", () => {
   it("stamps data-role from x-netex-role", () => {
-    const defs = { Foo: { "x-netex-role": "entity" } };
-    const html = buildSidebarItems(["Foo"], defs);
+    const netexLibrary = { Foo: { "x-netex-role": "entity" } };
+    const html = buildSidebarItems(["Foo"], netexLibrary);
     expect(html).toContain('data-role="entity"');
   });
 
   it('uses "unclassified" when x-netex-role is missing', () => {
-    const defs = { Bar: { type: "object" } };
-    const html = buildSidebarItems(["Bar"], defs);
+    const netexLibrary = { Bar: { type: "object" } };
+    const html = buildSidebarItems(["Bar"], netexLibrary);
     expect(html).toContain('data-role="unclassified"');
   });
 
   it('uses "unclassified" when definition is undefined', () => {
-    const defs = {};
-    const html = buildSidebarItems(["Missing"], defs);
+    const netexLibrary = {};
+    const html = buildSidebarItems(["Missing"], netexLibrary);
     expect(html).toContain('data-role="unclassified"');
   });
 
   it("stamps data-name in lowercase", () => {
-    const defs = { MyType: { "x-netex-role": "structure" } };
-    const html = buildSidebarItems(["MyType"], defs);
+    const netexLibrary = { MyType: { "x-netex-role": "structure" } };
+    const html = buildSidebarItems(["MyType"], netexLibrary);
     expect(html).toContain('data-name="mytype"');
     expect(html).toContain('data-role="structure"');
   });
 
   it("generates one <li> per definition", () => {
-    const defs = {
+    const netexLibrary = {
       A: { "x-netex-role": "entity" },
       B: { "x-netex-role": "reference" },
     };
-    const html = buildSidebarItems(["A", "B"], defs);
+    const html = buildSidebarItems(["A", "B"], netexLibrary);
     const liCount = (html.match(/<li>/g) ?? []).length;
     expect(liCount).toBe(2);
   });
@@ -44,30 +44,30 @@ describe("buildSidebarItems", () => {
 
 describe("buildRoleFilter", () => {
   it("returns chips only for roles present in the data", () => {
-    const defs = {
+    const netexLibrary = {
       A: { "x-netex-role": "entity" },
       B: { "x-netex-role": "reference" },
     };
-    const html = buildRoleFilter(["A", "B"], defs);
+    const html = buildRoleFilter(["A", "B"], netexLibrary);
     expect(html).toContain('data-role="entity"');
     expect(html).toContain('data-role="reference"');
     expect(html).not.toContain('data-role="abstract"');
   });
 
   it("renders count in chip label", () => {
-    const defs = {
+    const netexLibrary = {
       A: { "x-netex-role": "entity" },
       B: { "x-netex-role": "entity" },
       C: { "x-netex-role": "structure" },
     };
-    const html = buildRoleFilter(["A", "B", "C"], defs);
+    const html = buildRoleFilter(["A", "B", "C"], netexLibrary);
     expect(html).toContain("Entity (2)");
     expect(html).toContain("Structure (1)");
   });
 
   it("renders role-chip buttons", () => {
-    const defs = { A: { "x-netex-role": "view" } };
-    const html = buildRoleFilter(["A"], defs);
+    const netexLibrary = { A: { "x-netex-role": "view" } };
+    const html = buildRoleFilter(["A"], netexLibrary);
     expect(html).toContain('<button class="role-chip"');
     expect(html).toContain("View (1)");
   });

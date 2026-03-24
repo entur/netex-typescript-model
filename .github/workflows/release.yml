@@ -22,10 +22,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: typescript/package-lock.json
+          cache-dependency-path: html-ts-gen/package-lock.json
 
       - run: npm ci
-        working-directory: typescript
+        working-directory: html-ts-gen
 
       - name: Extract version from tag
         id: version
@@ -41,8 +41,12 @@ jobs:
         run: make all tarball SUB_GRAPH=ResourceFrame COLLAPSE=1 VERSION=${{ steps.version.outputs.value }}
 
       - name: Run tests
-        working-directory: typescript
+        working-directory: html-ts-gen
         run: npx vitest run
+
+      - name: Run e2e codegen type-check
+        working-directory: html-ts-gen
+        run: npx tsx scripts/e2e-codegen-typecheck.ts
 
       - name: Create GitHub Release
         env:

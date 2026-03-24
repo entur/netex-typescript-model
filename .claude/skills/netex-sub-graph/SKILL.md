@@ -68,6 +68,6 @@ toJsonSchema(filter)     → assemble output, stamp x-netex-source, add placehol
 ## When editing this file
 
 - Run full pipeline after changes: `make all ASSEMBLY=base`
-- Validate output: `cd typescript && npx tsx scripts/validate-generated-schemas.ts`
+- Validate output: `cd html-ts-gen && npx tsx scripts/validate-generated-schemas.ts`
 - Check role/atom counts in output schema match expectations
 - No test suite for xsd-to-jsonschema.js itself — validation is end-to-end via generated TypeScript type-checking

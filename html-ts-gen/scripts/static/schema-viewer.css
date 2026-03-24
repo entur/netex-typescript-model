@@ -513,14 +513,28 @@
     }
     .explorer-tab:hover { color: var(--fg); }
     .explorer-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .explorer-tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; }
-    .explorer-tab-content.active { display: block; }
+    .explorer-tab-content { display: none; flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+    .explorer-tab-content.active { display: flex; flex-direction: column; }
+    .explorer-tab-content.active > * { flex-shrink: 0; }
+    #explorerSample .interface-block,
+    #explorerIface .interface-block,
+    #explorerMapping .interface-block { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+    #explorerMapping .mapping-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #explorerUtils .interface-block { max-height: 60vh; overflow-y: auto; overflow-x: auto; }
     .graph-container { width: 100%; }
     .graph-container svg { display: block; }
     .graph-node { cursor: pointer; }
     .graph-node:hover rect { opacity: 0.8; }
 
+    /* Relations tab */
+    .relations-container { width: 100%; }
+    .relations-controls { padding: 8px 12px 4px; }
+    .relations-select { font-size: 12px; padding: 2px 6px; border: 1px solid var(--card-border); border-radius: 4px; background: var(--card-bg); color: var(--fg); }
+    .relations-svg-container { width: 100%; overflow-y: auto; overflow-x: auto; }
+    .relations-svg-container svg { display: block; }
+
     /* Interface tab */
+    .iface-toggles { display: inline-flex; gap: 0.75rem; }
     .iface-toggle {
       display: inline-flex;
       align-items: center;
@@ -551,6 +565,36 @@
     .if-cmt { color: var(--muted); font-style: italic; }
     .if-ref { color: var(--link-color); text-decoration: underline dotted; cursor: pointer; }
     .if-ref:hover { text-decoration-style: solid; }
+    /* Exclude-from-codegen checkbox */
+    .excl-cb {
+      appearance: none;
+      width: 0.7em; height: 0.7em;
+      border: 1px solid var(--muted);
+      border-radius: 2px;
+      vertical-align: middle;
+      cursor: pointer;
+      position: relative;
+      margin: 0 0.3em 0 0;
+    }
+    .excl-cb:checked::after {
+      content: '\00d7';
+      color: #e53e3e;
+      position: absolute;
+      top: -0.2em; left: 0.05em;
+      font-size: 0.75em;
+      font-weight: bold;
+      line-height: 1;
+    }
+    .if-line.excludeInCodeGen {
+      color: #aaa !important;
+      text-decoration: line-through;
+    }
+    .if-line.excludeInCodeGen .if-prop,
+    .if-line.excludeInCodeGen .if-ref,
+    .if-line.excludeInCodeGen .if-prim,
+    .if-line.excludeInCodeGen .if-lit {
+      color: #aaa !important;
+    }
     .via-popup {
       position: fixed;
       z-index: 1000;
@@ -582,12 +626,46 @@
       color: var(--muted);
     }
     .copy-btn:hover { color: var(--fg); border-color: var(--accent); }
+
+    /* "+N more types" expansion chip */
+    .deps-expand-chip {
+      display: inline-block;
+      margin: 0.5rem 0;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.8rem;
+      font-family: ui-monospace, monospace;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.25rem;
+      color: var(--link-color);
+      cursor: pointer;
+    }
+    .deps-expand-chip:hover {
+      border-color: var(--accent);
+      background: var(--card-bg);
+    }
+    .deps-expand-chip.expanded {
+      border-color: var(--accent);
+    }
+    #ifaceDepBlocks .interface-block {
+      margin-top: 0.5rem;
+    }
+    /* Compact dep blocks — smaller than full interface blocks */
+    #ifaceDepBlocks .dep-block {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      line-height: 1.5;
+    }
+
+
     .spinner {
       width: 24px; height: 24px; margin: 2rem auto;
       border: 3px solid var(--card-border); border-top-color: var(--accent);
       border-radius: 50%; animation: spin 0.6s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes chip-flash { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+    .chip-flash { animation: chip-flash .3s ease; }
 
     /* Loading overlay (shown until JS setup completes) */
     .loading-overlay {
@@ -642,6 +720,12 @@
     .mapping-intro { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem 0; }
     .utils-section { margin-bottom: 0.5rem; }
     .utils-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); }
+
+    /* Sample data pill toggle */
+    .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; position: sticky; top: 0; z-index: 1; background: var(--sidebar-bg); }
+    .sample-pill { padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; background: var(--card-bg); color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
+    .sample-pill.active { background: var(--accent); color: #fff; }
+    .sample-pill input[type="radio"] { display: none; }
 
     /* Resize handles */
     .resize-handle {

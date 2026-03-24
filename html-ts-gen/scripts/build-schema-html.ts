@@ -14,8 +14,8 @@
 
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
-import ts from "typescript";
-import { defRole, presentRoles } from "./lib/schema-viewer-fns.js";
+import { buildSync } from "esbuild";
+import { defRole, presentRoles } from "./lib/classify.js";
 
 // ── HTML builder ──────────────────────────────────────────────────────────────
 
@@ -68,27 +68,27 @@ function highlightJson(obj: unknown, indent = 0): string {
   return escapeHtml(String(obj));
 }
 
-export function buildRoleFilter(defNames: string[], defs: Record<string, unknown>): string {
-  const chips = presentRoles(defNames, defs as Record<string, Record<string, any>>).map(
+export function buildRoleFilter(defNames: string[], netexLibrary: Record<string, unknown>): string {
+  const chips = presentRoles(defNames, netexLibrary as Record<string, Record<string, any>>).map(
     ({ role, label, count }) =>
       `<button class="role-chip" data-role="${escapeHtml(role)}">${escapeHtml(label)} (${count})</button>`,
   );
   return chips.join("\n      ");
 }
 
-export function buildSidebarItems(defNames: string[], defs: Record<string, unknown>): string {
+export function buildSidebarItems(defNames: string[], netexLibrary: Record<string, unknown>): string {
   return defNames
     .map((name) => {
-      const role = defRole(defs[name] as Record<string, any> | undefined);
+      const role = defRole(netexLibrary[name] as Record<string, any> | undefined);
       return `        <li><a href="#${escapeHtml(name)}" class="sidebar-link" data-name="${escapeHtml(name.toLowerCase())}" data-role="${escapeHtml(role)}">${escapeHtml(name)}</a></li>`;
     })
     .join("\n");
 }
 
-function buildDefinitionSections(defs: Record<string, unknown>, defNames: string[]): string {
+function buildDefinitionSections(netexLibrary: Record<string, unknown>, defNames: string[]): string {
   return defNames
     .map((name) => {
-      const def = defs[name] as Record<string, unknown>;
+      const def = netexLibrary[name] as Record<string, unknown>;
       const role = defRole(def as Record<string, any> | undefined);
       const desc = typeof def.description === "string" ? def.description : "";
       // Show the definition without the top-level description (it's shown separately)
@@ -113,99 +113,94 @@ function buildDefinitionSections(defs: Record<string, unknown>, defNames: string
 
 /** Read the extracted CSS for the schema viewer page. */
 function buildCss(): string {
-  return readFileSync(resolve(import.meta.dirname, "lib/schema-viewer.css"), "utf-8");
+  return readFileSync(resolve(import.meta.dirname, "static/schema-viewer.css"), "utf-8");
 }
 
 /** Read the extracted app script and splice in the transpiled viewer functions. */
 function buildAppScript(): string {
-  const raw = readFileSync(resolve(import.meta.dirname, "lib/schema-viewer-host-app.js"), "utf-8");
+  const raw = readFileSync(resolve(import.meta.dirname, "static/schema-viewer-host-app.js"), "utf-8");
   const viewerFns = buildViewerFnsScript();
-  return raw.replace("/*@@VIEWER_FNS@@*/", viewerFns).trimEnd();
+  return raw.replace("/*@@VIEWER_FNS@@*/", () => viewerFns).trimEnd();
 }
 
 /**
- * Read the canonical viewer functions from schema-viewer-fns.ts and compile
- * to plain JS via the TypeScript compiler API.
+ * Bundle the canonical viewer functions from fns.ts via esbuild.
  *
- * The util functions take `defs` as an explicit first parameter. The browser
- * wrappers close over the page-level `defs` variable and bind it automatically.
+ * esbuild bundles the entry point (which re-exports all public functions)
+ * into a single IIFE with `globalName: "_viewerBundle"`. This also bundles
+ * fast-xml-parser so `buildXml` works in-browser.
+ *
+ * The util functions take `netexLibrary` as an explicit first parameter. The browser
+ * wrappers close over the page-level `netexLibrary` variable and bind it automatically.
  */
 function buildViewerFnsScript(): string {
-  const src = readFileSync(resolve(import.meta.dirname, "lib/schema-viewer-fns.ts"), "utf-8");
-
-  // Strip `export` keywords before transpiling — ts.transpileModule still
-  // emits `exports.x = x` for exported declarations even with ModuleKind.None.
-  const stripped = src.replace(/^export /gm, "");
-
-  const { outputText: js } = ts.transpileModule(stripped, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.None,
-      removeComments: false,
-    },
+  const result = buildSync({
+    entryPoints: [resolve(import.meta.dirname, "lib/bundle-entry.ts")],
+    bundle: true,
+    format: "iife",
+    globalName: "_viewerBundle",
+    platform: "browser",
+    target: "es2020",
+    minify: false,
+    write: false,
+    treeShaking: true,
   });
+  const bundleJs = result.outputFiles[0].text;
 
-  // The util functions take `defs` as first arg. Create bound wrappers that
-  // close over the page-level `defs` for use in the rest of the inline script.
   const bound = `
-    // ── Viewer functions (generated from scripts/lib/schema-viewer-fns.ts) ──
-    var _fns = (function() {
-      ${js}
-      return {
-        resolveType: resolveType,
-        isRefType: isRefType,
-        refTarget: refTarget,
-        flattenAllOf: flattenAllOf,
-        collectRequired: collectRequired,
-        resolveDefType: resolveDefType,
-        resolvePropertyType: resolvePropertyType,
-        resolveAtom: resolveAtom,
-        buildReverseIndex: buildReverseIndex,
-        findTransitiveEntityUsers: findTransitiveEntityUsers,
-        defRole: defRole,
-        defaultForType: defaultForType,
-        lcFirst: lcFirst,
-        buildInheritanceChain: buildInheritanceChain,
-        inlineSingleRefs: inlineSingleRefs,
-        canonicalPropName: canonicalPropName
-      };
-    })();
+    // ── Viewer functions (bundled from scripts/lib/fns.ts via esbuild) ──
+    ${bundleJs}
 
-    // Bound wrappers — close over page-level defs
-    function resolveType(p) { return _fns.resolveType(p); }
-    function isRefType(p) { return _fns.isRefType(p); }
-    function refTarget(p) { return _fns.refTarget(p); }
-    function flattenAllOf(d, n) { return _fns.flattenAllOf(d, n); }
-    function collectRequired(d, n) { return _fns.collectRequired(d, n); }
-    function resolveDefType(n, v) { return _fns.resolveDefType(defs, n, v); }
-    function resolvePropertyType(s, ctx) { return _fns.resolvePropertyType(defs, s, ctx); }
-    function resolveAtom(n) { return _fns.resolveAtom(defs, n); }
-    function defaultForType(t) { return _fns.defaultForType(t); }
+    // Bound wrappers — close over page-level netexLibrary
+    function resolveType(p) { return _viewerBundle.resolveType(p); }
+    function isRefType(p) { return _viewerBundle.isRefType(p); }
+    function refTarget(p) { return _viewerBundle.refTarget(p); }
+    function flattenAllOf(d, n, o) { return _viewerBundle.flattenAllOf(d, n, o); }
+    function collectRequired(d, n, o) { return _viewerBundle.collectRequired(d, n, o); }
+    function resolveDefType(n, v) { return _viewerBundle.resolveDefType(netexLibrary, n, v); }
+    function resolvePropertyType(s, ctx) { return _viewerBundle.resolvePropertyType(netexLibrary, s, ctx); }
+    function resolveAtom(n) { return _viewerBundle.resolveAtom(netexLibrary, n); }
+    function defaultForType(t) { return _viewerBundle.defaultForType(t); }
 
-    function inlineSingleRefs(props) { return _fns.inlineSingleRefs(defs, props); }
-    function canonicalPropName(n, s) { return _fns.canonicalPropName(n, s); }
-    function defRole(name) { return _fns.defRole(defs[name]); }
-    function buildInheritanceChain(n) { return _fns.buildInheritanceChain(defs, n); }
+    function inlineSingleRefs(props) { return _viewerBundle.inlineSingleRefs(netexLibrary, props); }
+    function canonicalPropName(n, s) { return _viewerBundle.canonicalPropName(n, s); }
+    function defRole(name) { return _viewerBundle.defRole(netexLibrary[name]); }
+    function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(netexLibrary, n); }
+    function fake(n) { return _viewerBundle.fake(netexLibrary, n); }
+    function toXmlShape(n, obj) { return _viewerBundle.toXmlShape(netexLibrary, n, obj); }
+    function buildXml(n, obj) { return _viewerBundle.buildXml(n, obj); }
+    function makeInlinedToXmlShape(n, props) { return _viewerBundle.makeInlinedToXmlShape(netexLibrary, n, props ? { props: props } : undefined); }
+    function makeInlineCodeBlock(n, props, opts) { return _viewerBundle.makeInlineCodeBlock(netexLibrary, n, Object.assign({}, opts || {}, props ? { props: props } : {})); }
+    function collectRefProps(name) { return _viewerBundle.collectRefProps(netexLibrary, name); }
+    function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(netexLibrary, entityName, baseStructure); }
+    function collectDependencyTree(name, excludeRootProps) { return _viewerBundle.collectDependencyTree(netexLibrary, name, excludeRootProps); }
+    function collectRenderableDeps(name, excludedMembers) { return _viewerBundle.collectRenderableDeps(netexLibrary, name, excludedMembers); }
+    function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(netexLibrary, refDefName); }
+    var generateInterface = _viewerBundle.generateInterface;
+    var generateTypeGuard = _viewerBundle.generateTypeGuard;
+    var generateFactory = _viewerBundle.generateFactory;
+    function generateRootDefBlock(name, opts) { return _viewerBundle.generateRootDefBlock(netexLibrary, name, opts); }
+    function generateSubTypesBlock(name, opts) { return _viewerBundle.generateSubTypesBlock(netexLibrary, name, opts); }
     var _reverseIdx = null;
     function buildReverseIndex() {
-      if (!_reverseIdx) _reverseIdx = _fns.buildReverseIndex(defs);
+      if (!_reverseIdx) _reverseIdx = _viewerBundle.buildReverseIndex(netexLibrary);
       return _reverseIdx;
     }
     function findTransitiveEntityUsers(name) {
-      return _fns.findTransitiveEntityUsers(name, buildReverseIndex(), (n) => _fns.defRole(defs[n]) === "entity");
+      return _viewerBundle.findTransitiveEntityUsers(name, buildReverseIndex(), (n) => _viewerBundle.defRole(netexLibrary[n]) === "entity");
     }`;
   return bound;
 }
 
 function buildHtml(
   assembly: string,
-  defs: Record<string, unknown>,
+  netexLibrary: Record<string, unknown>,
   defNames: string[],
   version: string,
 ): string {
-  const sidebarItems = buildSidebarItems(defNames, defs);
-  const roleFilterHtml = buildRoleFilter(defNames, defs);
-  const sections = buildDefinitionSections(defs, defNames);
+  const sidebarItems = buildSidebarItems(defNames, netexLibrary);
+  const roleFilterHtml = buildRoleFilter(defNames, netexLibrary);
+  const sections = buildDefinitionSections(netexLibrary, defNames);
   const appScript = buildAppScript();
   const css = buildCss();
 
@@ -260,16 +255,20 @@ ${sections}
     <p class="explorer-subtitle" id="explorerSubtitle"></p>
     <div class="explorer-tabs">
       <button class="explorer-tab active" data-tab="props">Properties</button>
-      <button class="explorer-tab" data-tab="graph">Graph</button>
+      <button class="explorer-tab" data-tab="graph">Inheritance</button>
+      <button class="explorer-tab" data-tab="relations">Relations</button>
       <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">XML Mapping</button>
+      <button class="explorer-tab" data-tab="sample">Sample data</button>
       <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
-    <label class="iface-toggle" id="ifaceToggleLabel" style="display:none"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label>
+    <div class="explorer-tab-content" id="explorerRelations"><div class="relations-container" id="relationsContainer"></div></div>
+    <div class="iface-toggles" id="ifaceToggles" style="display:none"><label class="iface-toggle"><input type="checkbox" id="hideOmniCheck" checked> Hide base props</label><label class="iface-toggle"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label></div>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
+    <div class="explorer-tab-content" id="explorerSample"></div>
     <div class="explorer-tab-content" id="explorerUtils"></div>
   </aside>
 
@@ -293,7 +292,7 @@ ${sections}
     </div>
   </div>
 
-  <script id="schema-data" type="application/json">${JSON.stringify(defs)}</script>
+  <script id="schema-data" type="application/json">${JSON.stringify(netexLibrary)}</script>
 
   <script>
 ${appScript}
@@ -330,8 +329,8 @@ if (_isDirectRun) {
 
     const assembly = entry.name;
     const schema = JSON.parse(readFileSync(join(assemblyDir, schemaFile), "utf-8"));
-    const defs = schema.definitions ?? {};
-    const defNames = Object.keys(defs).sort((a, b) =>
+    const netexLibrary = schema.definitions ?? {};
+    const defNames = Object.keys(netexLibrary).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
 
@@ -340,7 +339,7 @@ if (_isDirectRun) {
       continue;
     }
 
-    const html = buildHtml(assembly, defs, defNames, config.netex.version);
+    const html = buildHtml(assembly, netexLibrary, defNames, config.netex.version);
     const outPath = join(generatedBase, assembly, "netex-schema.html");
     writeFileSync(outPath, html);
     console.log(`  ${assembly}: ${defNames.length} definitions → netex-schema.html`);

@@ -26,7 +26,7 @@ graph LR
 - Node.js 22+
 
 ```bash
-cd typescript && npm install   # once
+cd html-ts-gen && npm install   # once
 ```
 
 ## Quick Start
@@ -72,7 +72,7 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 
 1. Maven Ant plugin downloads the NeTEx ZIP from GitHub (`next` branch)
 2. GraalJS runs `json-schema/xsd-to-jsonschema.js` on stock JDK via Java DOM APIs
-3. Each definition is stamped with `x-netex-source` (provenance) and `x-netex-atom` annotations
+3. Each definition is stamped with `x-netex-*` annotations (source, assembly, role, atom, frames, mixed, substitutionGroup, sg-members, refTarget, collapsed) plus per-property `x-netex-choice` — see [`json-schema/README.md`](json-schema/README.md) for details
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
 
@@ -91,12 +91,12 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 ### Documentation
 
 ```bash
-cd typescript
+cd html-ts-gen
 npm run docs                          # TypeDoc HTML per assembly
 npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
 
-CI builds `base` and `network+timetable` assemblies, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
+CI builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` (collapsed sub-graph) assemblies, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
 
 ## XSD Subset
 
@@ -137,19 +137,36 @@ All settings live in [`assembly-config.json`](assembly-config.json):
 Makefile                              # build entry point
 assembly-config.json                  # NeTEx version, parts, output paths
 tsconfig.generated.json               # type-check config for generated output
-typescript/                           # Node.js/TypeScript tooling
+docs/                                 # design docs (subset selection guide, etc.)
+html-ts-gen/                          # Node.js/TypeScript tooling
   scripts/
     generate.ts                       # JSON Schema → TypeScript (positional arg)
-    xsd-to-jsonschema-1st-try.ts      # reference XSD → JSON Schema converter (fast-xml-parser)
     split-output.ts                   # split monolithic .ts into per-category modules
     validate-generated-schemas.ts     # validate JSON Schema against Draft 07 meta-schema
     build-schema-html.ts              # interactive JSON Schema HTML viewer
     generate-docs.ts                  # TypeDoc HTML per assembly
     build-docs-index.ts               # docs-site/ welcome page
-json-schema/                          # Java DOM pipeline (feature-parity port)
+    e2e-codegen-typecheck.ts          # e2e validation: assembled codegen → tsc --strict
+    lib/
+      types.ts                        # shared type definitions (NetexLibrary, FlatProperty, etc.)
+      util.ts                         # low-level helpers (deref, lcFirst, canonicalPropName)
+      classify.ts                     # schema classification, role detection, mixed-content
+      schema-nav.ts                   # inheritance walking, property flattening, inlining
+      type-res.ts                     # deep type resolution (def/property → TS type)
+      dep-graph.ts                    # reverse index, dependency tree, ref-entity resolution
+      data-faker.ts                   # fake data generation + XML serialization
+      to-xml-shape.ts                 # static stem→XML projection generators
+      codegens.ts                     # TypeScript code generators (interface, guard, factory)
+      config.ts                       # shared configuration (Config class, part resolution)
+      bundle-entry.ts                 # esbuild entry point (re-exports lib modules for browser)
+    static/
+      schema-viewer-host-app.js       # browser-side controller (embedded in HTML)
+      schema-viewer.css               # viewer CSS (embedded in HTML)
+    lib/__tests__/                    # per-module unit + integration tests
+json-schema/                          # Java DOM pipeline
   pom.xml                             # Maven POM (GraalJS + Xerces, XSD download)
-  xsd-to-jsonschema.js                # JS converter using Java DOM APIs
-  verify-parity.sh                    # diff output against typescript/ reference
+  xsd-to-jsonschema.js                # primary XSD → JSON Schema converter (Java DOM APIs)
+  README.md                           # annotation documentation (x-netex-* stamps)
 generated-src/                        # output (gitignored)
   <assembly>/
     <assembly>.schema.json            # JSON Schema
@@ -158,7 +175,7 @@ generated-src/                        # output (gitignored)
     netex-schema.html                 # interactive schema viewer
 ```
 
-## npm Scripts (typescript/)
+## npm Scripts (html-ts-gen/)
 
 | Script                                 | Description                                 |
 | -------------------------------------- | ------------------------------------------- |

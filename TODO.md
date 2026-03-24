@@ -59,7 +59,7 @@ Build a TypeScript parser that can read NeTEx XML documents into the generated i
 
 ## Quality-improve build-schema-html.ts
 
-`build-schema-html.ts` (354 lines) assembles the viewer from extracted files (`schema-viewer.css`, `schema-viewer-fns.ts`, `schema-viewer-host-app.js`). Remaining refactoring:
+`build-schema-html.ts` (354 lines) assembles the viewer from extracted files (`schema-viewer.css`, `fns.ts`, `schema-viewer-host-app.js`). Remaining refactoring:
 
 - **Extract text/HTML templates** into `.templ` files — tab renderers (Interface, Mapping, Utilities, Graph, Properties) are long template-string blocks that would be clearer as separate files with placeholder substitution
 - **More functional style** — the tab render functions use imperative loops building HTML strings; refactor toward composable helpers (e.g. `renderPropRow`, `renderTypeLink`, `renderCodeBlock`) that return fragments

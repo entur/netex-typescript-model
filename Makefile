@@ -50,23 +50,23 @@ docs: $(GEN)/$(OUT_NAME)/docs/index.html
 
 # ── Schema HTML viewer ────────────────────────────────────────────────────────
 
-SCHEMA_HTML_SRCS := typescript/scripts/build-schema-html.ts \
-	typescript/scripts/lib/schema-viewer-fns.ts \
-	typescript/scripts/lib/schema-viewer-host-app.js \
-	typescript/scripts/lib/schema-viewer.css
+SCHEMA_HTML_SRCS := html-ts-gen/scripts/build-schema-html.ts \
+	$(wildcard html-ts-gen/scripts/lib/*.ts) \
+	html-ts-gen/scripts/static/schema-viewer-host-app.js \
+	html-ts-gen/scripts/static/schema-viewer.css
 
 $(GEN)/$(OUT_NAME)/netex-schema.html: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(SCHEMA_HTML_SRCS)
-	npx --prefix typescript tsx typescript/scripts/build-schema-html.ts
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-schema-html.ts
 
 # ── TypeScript interfaces ─────────────────────────────────────────────────────
 
 $(GEN)/$(OUT_NAME)/interfaces/index.ts: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
-	npx --prefix typescript tsx typescript/scripts/generate.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/generate.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 
 # ── TypeDoc documentation ─────────────────────────────────────────────────────
 
 $(GEN)/$(OUT_NAME)/docs/index.html: $(GEN)/$(OUT_NAME)/interfaces/index.ts
-	npx --prefix typescript tsx typescript/scripts/generate-docs.ts
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/generate-docs.ts
 
 # ── JSON Schema from XSD ──────────────────────────────────────────────────────
 
@@ -77,7 +77,7 @@ $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json: xsd/2.0/NeTEx_publication.xsd
 	       -cp "$$(cat target/classpath.txt)" com.oracle.truffle.js.shell.JSLauncher \
 	       --experimental-options --js.ecmascript-version=2022 --engine.WarnInterpreterOnly=false \
 	       xsd-to-jsonschema.js \
-	  && cd ../typescript && npm run validate:jsonschema
+	  && cd ../html-ts-gen && npm run validate:jsonschema
 
 # ── XSD download ──────────────────────────────────────────────────────────────
 

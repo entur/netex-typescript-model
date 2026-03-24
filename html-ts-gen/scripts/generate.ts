@@ -46,8 +46,8 @@ if (!schemaPath) {
  * Returns broken refs as [source definition, $ref target] pairs.
  */
 function validateRefs(schema: JsonSchema): [string, string][] {
-  const defs = schema.definitions ?? {};
-  const defNames = new Set(Object.keys(defs));
+  const netexLibrary = schema.definitions ?? {};
+  const defNames = new Set(Object.keys(netexLibrary));
   const broken: [string, string][] = [];
 
   function walk(obj: unknown, source: string): void {
@@ -64,7 +64,7 @@ function validateRefs(schema: JsonSchema): [string, string][] {
     }
   }
 
-  for (const [name, def] of Object.entries(defs)) {
+  for (const [name, def] of Object.entries(netexLibrary)) {
     walk(def, name);
   }
   return broken;
@@ -81,10 +81,10 @@ function countExports(ts: string): number {
  */
 function injectSchemaLinks(schema: JsonSchema, assembly: string): JsonSchema {
   const clone: JsonSchema = JSON.parse(JSON.stringify(schema));
-  const defs = clone.definitions ?? {};
+  const netexLibrary = clone.definitions ?? {};
   const schemaUrl = `${DOCS_BASE_URL}/${assembly}/netex-schema.html`;
 
-  for (const [name, def] of Object.entries(defs)) {
+  for (const [name, def] of Object.entries(netexLibrary)) {
     if (typeof def === "object" && def !== null) {
       const seeTag = `@see {@link ${schemaUrl}#${name} | JSON Schema definition}`;
       const record = def as Record<string, unknown>;
