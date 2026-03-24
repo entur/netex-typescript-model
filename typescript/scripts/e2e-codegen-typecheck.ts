@@ -47,6 +47,21 @@ function typeCheck(path: string, label: string): boolean {
   }
 }
 
+function runPass(
+  lib: NetexLibrary,
+  name: string,
+  suffix: string,
+  label: string,
+  opts?: { excludeOmni?: boolean },
+): boolean {
+  const root = generateRootDefBlock(lib, name, opts);
+  const subs = generateSubTypesBlock(lib, name, opts);
+  const src = (subs ? root + "\n\n" + subs : root) + "\n";
+  const path = `/tmp/${name}${suffix}.ts`;
+  writeFileSync(path, src);
+  return typeCheck(path, label);
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 const TARGETS = ["VehicleType", "Vehicle", "DeckPlan"];
@@ -61,21 +76,8 @@ for (const name of TARGETS) {
     continue;
   }
 
-  // Full output
-  const root = generateRootDefBlock(netexLibrary, name);
-  const subs = generateSubTypesBlock(netexLibrary, name);
-  const fullSource = (subs ? root + "\n\n" + subs : root) + "\n";
-  const outPath = `/tmp/${name}.ts`;
-  writeFileSync(outPath, fullSource);
-  allPassed = typeCheck(outPath, name) && allPassed;
-
-  // Without omnipresent base props
-  const rootOmni = generateRootDefBlock(netexLibrary, name, { excludeOmni: true });
-  const subsOmni = generateSubTypesBlock(netexLibrary, name, { excludeOmni: true });
-  const omniSrc = (subsOmni ? rootOmni + "\n\n" + subsOmni : rootOmni) + "\n";
-  const omniPath = `/tmp/${name}-no-omni.ts`;
-  writeFileSync(omniPath, omniSrc);
-  allPassed = typeCheck(omniPath, `${name} (no-omni)`) && allPassed;
+  allPassed = runPass(netexLibrary, name, "", name) && allPassed;
+  allPassed = runPass(netexLibrary, name, "-no-omni", `${name} (no-omni)`, { excludeOmni: true }) && allPassed;
 }
 
 process.exit(allPassed ? 0 : 1);

@@ -155,8 +155,8 @@ function buildViewerFnsScript(): string {
     function resolveType(p) { return _viewerBundle.resolveType(p); }
     function isRefType(p) { return _viewerBundle.isRefType(p); }
     function refTarget(p) { return _viewerBundle.refTarget(p); }
-    function flattenAllOf(d, n) { return _viewerBundle.flattenAllOf(d, n); }
-    function collectRequired(d, n) { return _viewerBundle.collectRequired(d, n); }
+    function flattenAllOf(d, n, o) { return _viewerBundle.flattenAllOf(d, n, o); }
+    function collectRequired(d, n, o) { return _viewerBundle.collectRequired(d, n, o); }
     function resolveDefType(n, v) { return _viewerBundle.resolveDefType(netexLibrary, n, v); }
     function resolvePropertyType(s, ctx) { return _viewerBundle.resolvePropertyType(netexLibrary, s, ctx); }
     function resolveAtom(n) { return _viewerBundle.resolveAtom(netexLibrary, n); }
