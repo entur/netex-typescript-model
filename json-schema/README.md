@@ -1,6 +1,23 @@
 # json-schema/ — XSD to JSON Schema Converter
 
-## Annotation Stamping
+## OpenAPI 3.x XML Annotations
+
+The converter stamps OpenAPI 3.x [`xml` objects](https://spec.openapis.org/oas/v3.1.1.html#xml-object) on properties derived from XSD attributes:
+
+```json
+"id": {
+  "type": "string",
+  "xml": { "attribute": true }
+}
+```
+
+This distinguishes XML attributes (`<Foo id="...">`) from XML elements (`<Foo><Id>...</Id></Foo>`) in the generated schema. Downstream consumers use this to:
+
+- **`canonicalPropName()`** — prefix attribute properties with `$` (e.g. `id` → `$id`) to avoid collisions with element properties
+- **`toXmlShape()`** — map `$`-prefixed properties to `@_`-prefixed keys for `fast-xml-parser` XMLBuilder
+- **`unwrapMixed()`** — skip `xml.attribute` properties when detecting the inner element type of mixed-content wrappers
+
+## NeTEx Annotation Stamping
 
 The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on JSON Schema definitions (ten per-definition, one per-property). These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
 
