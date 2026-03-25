@@ -205,7 +205,12 @@ function classifyProps(
         entries.push({ kind: "elem", canonName });
       }
     } else if (shape.kind === "refArray" && refTarget) {
-      entries.push({ kind: "array", canonName, xmlKey, refTarget });
+      const resolved = resolvePropertyType(netexLibrary, p.schema);
+      if (shouldDirectAssign(netexLibrary, refTarget, resolved)) {
+        entries.push({ kind: "elem", canonName });
+      } else {
+        entries.push({ kind: "array", canonName, xmlKey, refTarget });
+      }
     } else {
       entries.push({ kind: "elem", canonName });
     }

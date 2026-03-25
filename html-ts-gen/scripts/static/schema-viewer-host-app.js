@@ -598,7 +598,7 @@
         var chip = document.createElement('button');
         chip.className = 'deps-expand-chip';
         chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
-        if (excludedSet && excludedSet.size > 0) {
+        if (Object.keys(currentExcluded).length > 0) {
           chip.classList.add('chip-flash');
           chip.addEventListener('animationend', function() { chip.classList.remove('chip-flash'); }, { once: true });
         }
