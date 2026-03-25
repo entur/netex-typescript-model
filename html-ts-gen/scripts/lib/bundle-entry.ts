@@ -42,7 +42,7 @@ export {
   serialize,
 } from "./data-faker.js";
 
-export { makeInlinedToXmlShape, makeInlineCodeBlock } from "./to-xml-shape.js";
+export { makeInlinedToXmlShape, makeInlineCodeBlock, emitHelpers } from "./to-xml-shape.js";
 
 export {
   generateInterface,

@@ -1,22 +1,19 @@
 /**
  * Static code generator for stem→XML projection functions.
  *
- * `makeInlinedToXmlShape` emits a per-entity JavaScript function that builds
- * an output object via const-based spread entries. Each property gets an
- * explicit `...(obj['x'] !== undefined && { xmlName: expr })` entry.
- * Complex ref-typed properties delegate to a `toXmlShape` callback.
+ * `makeInlinedToXmlShape` emits a per-entity function that builds
+ * an output object via spread helper calls: `...attr(obj, 'key')`,
+ * `...elem(obj, 'key')`, `...child(obj, 'key', 'Type', rc)`, etc.
+ * Runtime helpers (`strVal`, `attr`, `elem`, `child`, `mapArr`, `text`)
+ * are appended at the bottom — function declarations hoist in JS.
  */
 
-import type { NetexLibrary, Def, FlatProperty, ResolvedType } from "./types.js";
+import type { NetexLibrary, FlatProperty, ResolvedType } from "./types.js";
 import { lcFirst } from "./util.js";
 import { classifySchema, defRole } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
 import { escHtml } from "./codegens.js";
-
-// Type annotation fragments appended to generated code when `typed: true`
-const T_REC = ": Record<string, unknown>";
-const T_RESHAPE = ": (n: string, o: Record<string, unknown>) => Record<string, unknown>";
 
 /**
  * Resolve an abstract element head to the first concrete substitution group member.
@@ -55,10 +52,6 @@ function shouldDirectAssign(netexLibrary: NetexLibrary, refTarget: string, resol
 }
 
 export interface InlineOptions {
-  /** Emit `...name(obj)` spread instead of per-property entries for base properties. */
-  baseCall?: string;
-  /** Emit `...name(obj)` spread for simpleContent types. */
-  baseSimpleCall?: string;
   /** Pre-computed flattened properties — avoids redundant `flattenAllOf` call. */
   props?: FlatProperty[];
   /** Callback name used in expressions (default: 'toXmlShape'). */
@@ -69,11 +62,8 @@ export interface InlineOptions {
   html?: boolean;
   /** Emit TypeScript type annotations on params/returns (default: false). */
   typed?: boolean;
-}
-
-/** Format a JS property key — unquoted if valid identifier, single-quoted otherwise. */
-function propKey(key: string): string {
-  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `'${key}'`;
+  /** Append runtime helper functions at the bottom (default: true). */
+  includeHelpers?: boolean;
 }
 
 /** Syntax-highlight tag helpers — return identity functions when html is false. */
@@ -88,49 +78,85 @@ function makeTaggers(html: boolean) {
   };
 }
 
+// ── Runtime helpers block ───────────────────────────────────────────────────
+
 /**
- * Generate a standalone JavaScript function that performs the same
- * stem→XMLBuilder-shape transform as `toXmlShape` for a specific definition.
- *
- * Builds a const-based object via per-property spread entries that handle
- * attribute rename (`$`→`@_`), boolean stringification, and simpleContent
- * `value`→`#text`. Complex ref-typed properties delegate to a `toXmlShape`
- * callback.
- *
- * When `opts.baseCall` / `opts.baseSimpleCall` is provided, non-override
- * properties are handled by spreading the base helper's result, and only
- * override entries (complex/renamed) are emitted explicitly.
+ * Emit the runtime helper functions used by generated entity functions.
+ * Function declarations hoist, so placing these at the bottom is safe.
  */
-export function makeInlinedToXmlShape(
-  netexLibrary: NetexLibrary,
-  name: string,
-  opts?: InlineOptions,
-): string {
-  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
-  const isSimpleContent = resolveAtom(netexLibrary, name) === "simpleObj";
-  const fnName = lcFirst(name) + "ToXmlShape";
+export function emitHelpers(opts?: { html?: boolean; typed?: boolean }): string {
+  const html = opts?.html ?? false;
+  const typed = opts?.typed ?? false;
+  const { kw, lit, prop } = makeTaggers(html);
 
-  // ── Syntax-highlighting helpers ─────────────────────────────────────────
+  const tUnk = typed ? ": unknown" : "";
+  const tObj = typed ? ": Obj" : "";
+  const tStr = typed ? ": string" : "";
+  const tRc = typed ? ": Reshape" : "";
+  const tOptStr = typed ? "?: string" : "";
+  const asObj = typed ? ` ${kw("as")} Obj` : "";
+  const asArr = typed ? ` ${kw("as")} Obj[]` : "";
+  const lines: string[] = [];
 
-  const { e: esc, kw, lit, prop: propTag, cmt } = makeTaggers(opts?.html ?? false);
-
-  // ── Phase 1: classify every property ──────────────────────────────────────
-
-  const cb = opts?.callbackName ?? "toXmlShape";
-
-  interface PropEmit {
-    canonName: string;
-    xmlName: string;
-    expr: string;
-    isOverride: boolean;
+  if (typed) {
+    lines.push(`${kw("type")} Obj = Record<string, unknown>;`);
+    lines.push(`${kw("type")} Reshape = (name${tStr}, obj${tObj}) => Obj;`);
+    lines.push("");
   }
 
-  const typed = opts?.typed ?? false;
-  const tItem = typed ? T_REC : "";
+  lines.push(
+    `${kw("function")} strVal(v${tUnk}) {` +
+    ` ${kw("return")} ${kw("typeof")} v === ${lit("'boolean'")} ? String(v) : v;` +
+    ` }`,
+  );
+  lines.push("");
+  lines.push(`${kw("function")} attr(obj${tObj}, key${tStr}) {`);
+  lines.push(`  ${kw("const")} v = obj[${lit("'$'")} + key];`);
+  lines.push(`  ${kw("return")} v !== ${kw("undefined")} ? { [${lit("'@_'")} + key]: strVal(v) } : {};`);
+  lines.push("}");
+  lines.push("");
+  lines.push(`${kw("function")} elem(obj${tObj}, key${tStr}) {`);
+  lines.push(`  ${kw("const")} v = obj[key];`);
+  lines.push(`  ${kw("return")} v !== ${kw("undefined")} ? { [key]: strVal(v) } : {};`);
+  lines.push("}");
+  lines.push("");
+  lines.push(`${kw("function")} child(obj${tObj}, key${tStr}, type${tStr}, rc${tRc}, xmlKey${tOptStr}) {`);
+  lines.push(`  ${kw("const")} k = xmlKey || key;`);
+  lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")} ? { [k]: rc(type, obj[key]${asObj}) } : {};`);
+  lines.push("}");
+  lines.push("");
+  lines.push(`${kw("function")} mapArr(obj${tObj}, key${tStr}, type${tStr}, rc${tRc}, xmlKey${tOptStr}) {`);
+  lines.push(`  ${kw("const")} k = xmlKey || key;`);
+  lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")}`);
+  lines.push(`    ? { [k]: (obj[key]${asArr}).map(${kw("function")}(item${tObj}) { ${kw("return")} rc(type, item); }) }`);
+  lines.push(`    : {};`);
+  lines.push("}");
+  lines.push("");
+  lines.push(`${kw("function")} text(obj${tObj}) {`);
+  lines.push(`  ${kw("return")} obj[${lit("'value'")}] !== ${kw("undefined")} ? { ${prop("'#text'")}: obj[${lit("'value'")}] } : {};`);
+  lines.push("}");
 
-  const boolStr = (prop: string): string =>
-    `${kw("typeof")} obj[${lit("'" + prop + "'")}] === ${lit("'boolean'")} ? String(obj[${lit("'" + prop + "'")}]) : obj[${lit("'" + prop + "'")}]`;
+  return lines.join("\n");
+}
 
+// ── Property classification ─────────────────────────────────────────────────
+
+type PropKind = "attr" | "elem" | "complex" | "array" | "text" | "rename";
+
+interface PropEmit {
+  kind: PropKind;
+  canonName: string;
+  xmlKey?: string;     // output key when different from canonName (abstract resolution)
+  refTarget?: string;  // type name for complex/array
+}
+
+/** Classify all properties of a definition into helper-call entries. */
+function classifyProps(
+  netexLibrary: NetexLibrary,
+  name: string,
+  props: FlatProperty[],
+): PropEmit[] {
+  const isSimpleContent = resolveAtom(netexLibrary, name) === "simpleObj";
   const entries: PropEmit[] = [];
   const processed = new Set<string>();
 
@@ -139,31 +165,18 @@ export function makeInlinedToXmlShape(
     if (processed.has(canonName)) continue;
     processed.add(canonName);
 
-    // Attribute ($foo → @_foo)
     if (canonName.startsWith("$")) {
-      entries.push({
-        canonName,
-        xmlName: "@_" + canonName.slice(1),
-        expr: boolStr(canonName),
-        isOverride: false,
-      });
+      entries.push({ kind: "attr", canonName });
       continue;
     }
 
-    // SimpleContent value → #text
     if (isSimpleContent && canonName === "value") {
-      entries.push({
-        canonName,
-        xmlName: "#text",
-        expr: `obj[${lit("'value'")}]`,
-        isOverride: false,
-      });
+      entries.push({ kind: "text", canonName });
       continue;
     }
 
-    // Classify the schema shape
     const shape = classifySchema(p.schema);
-    let xmlName = canonName;
+    let xmlKey: string | undefined;
     let refTarget: string | undefined;
     if (shape.kind === "ref") refTarget = shape.target;
     else if (shape.kind === "refArray") refTarget = shape.target;
@@ -171,158 +184,162 @@ export function makeInlinedToXmlShape(
     // Resolve abstract elements to first concrete member
     if (refTarget) {
       const targetDef = netexLibrary[refTarget];
-      if (
-        targetDef?.["x-netex-role"] === "abstract" &&
-        targetDef?.["x-netex-sg-members"]
-      ) {
+      if (targetDef?.["x-netex-role"] === "abstract" && targetDef?.["x-netex-sg-members"]) {
         const concrete = resolveConcreteElement(netexLibrary, refTarget);
-        xmlName = concrete;
+        if (concrete !== canonName) xmlKey = concrete;
         refTarget = concrete;
       }
     }
-
-    let isOverride = false;
-    let expr: string;
 
     if (shape.kind === "ref" && refTarget) {
       const resolved = resolvePropertyType(netexLibrary, p.schema);
       const isMixed = resolved.via?.some((h) => h.rule === "mixed-unwrap") ?? false;
 
       if (isMixed && resolved.ts.endsWith("[]")) {
-        const innerType = resolved.ts.slice(0, -2);
-        const arrCast = typed ? ` ${kw("as")} Record<string, unknown>[]` : "";
-        expr = `(obj[${lit("'" + canonName + "'")}]${arrCast}).map(${kw("function")}(item${tItem}) { ${kw("return")} ${cb}(${lit("'" + innerType + "'")}, item); })`;
-        isOverride = true;
+        entries.push({ kind: "array", canonName, xmlKey, refTarget: resolved.ts.slice(0, -2) });
       } else if (!shouldDirectAssign(netexLibrary, refTarget, resolved)) {
-        const objCast = typed ? ` ${kw("as")} Record<string, unknown>` : "";
-        expr = `${cb}(${lit("'" + refTarget + "'")}, obj[${lit("'" + canonName + "'")}]${objCast})`;
-        isOverride = true;
-      } else if (xmlName !== canonName) {
-        expr = `obj[${lit("'" + canonName + "'")}]`;
-        isOverride = true;
+        entries.push({ kind: "complex", canonName, xmlKey, refTarget });
+      } else if (xmlKey) {
+        entries.push({ kind: "rename", canonName, xmlKey });
       } else {
-        expr = boolStr(canonName);
+        entries.push({ kind: "elem", canonName });
       }
     } else if (shape.kind === "refArray" && refTarget) {
-      const arrCast = typed ? ` ${kw("as")} Record<string, unknown>[]` : "";
-      expr = `(obj[${lit("'" + canonName + "'")}]${arrCast}).map(${kw("function")}(item${tItem}) { ${kw("return")} ${cb}(${lit("'" + refTarget + "'")}, item); })`;
-      isOverride = true;
+      entries.push({ kind: "array", canonName, xmlKey, refTarget });
     } else {
-      expr = boolStr(canonName);
-    }
-
-    entries.push({ canonName, xmlName, expr, isOverride });
-  }
-
-  // ── Phase 2: emit function ──────────────────────────────────────────────
-
-  const lines: string[] = [];
-  const tObj = typed ? T_REC : "";
-  const tReshape = typed ? T_RESHAPE : "";
-  const cbParam = (opts?.callbackAsParam ?? true) ? `, ${cb}${tReshape}` : "";
-  lines.push(`${kw("function")} ${fnName}(obj${tObj}${cbParam})${tObj} {`);
-
-  const helperName = isSimpleContent ? opts?.baseSimpleCall : opts?.baseCall;
-
-  /** Format a spread entry: `...(obj['x'] !== undefined && { key: expr })` */
-  const spreadEntry = (canonName: string, xmlName: string, expr: string): string =>
-    `    ...(obj[${lit("'" + canonName + "'")}] !== ${kw("undefined")} && { ${propTag(propKey(xmlName))}: ${expr} }),`;
-
-  if (helperName) {
-    // baseCall mode: spread base helper + override-only entries
-    const overrides = entries.filter((en) => en.isOverride);
-    const renames = overrides.filter((en) => en.xmlName !== en.canonName);
-
-    if (renames.length > 0) {
-      const drops = renames.map((r, i) => `${r.canonName}: _drop${i}`).join(", ");
-      lines.push(`  ${kw("const")} { ${drops}, ...baseRest } = ${helperName}(obj);`);
-      lines.push(`  ${kw("const")} out = {`);
-      lines.push(`    ...baseRest,`);
-    } else {
-      lines.push(`  ${kw("const")} out = {`);
-      lines.push(`    ...${helperName}(obj),`);
-    }
-
-    for (const ov of overrides) {
-      lines.push(spreadEntry(ov.canonName, ov.xmlName, ov.expr));
-    }
-  } else {
-    // Standalone mode: per-property spread entries
-    lines.push(`  ${kw("const")} out = {`);
-    for (const en of entries) {
-      lines.push(spreadEntry(en.canonName, en.xmlName, en.expr));
+      entries.push({ kind: "elem", canonName });
     }
   }
-
-  lines.push(`  };`);
-  lines.push(`  ${kw("return")} out;`);
-  lines.push(`}`);
-
-  return lines.join("\n");
+  return entries;
 }
 
-/** Collect complex ref targets from flattened props that need delegation. */
-function collectComplexTargets(
-  netexLibrary: NetexLibrary,
-  props: FlatProperty[],
-): string[] {
-  const targets: string[] = [];
-  const seen = new Set<string>();
-  for (const p of props) {
-    const canonName = p.prop[1];
-    if (seen.has(canonName) || canonName.startsWith("$")) continue;
-    seen.add(canonName);
+// ── Entry formatting ────────────────────────────────────────────────────────
 
-    const shape = classifySchema(p.schema);
-    let refTarget: string | undefined;
-    if (shape.kind === "ref") refTarget = shape.target;
-    else if (shape.kind === "refArray") refTarget = shape.target;
-    if (!refTarget) continue;
+type Taggers = ReturnType<typeof makeTaggers>;
 
-    const targetDef = netexLibrary[refTarget];
-    if (
-      targetDef?.["x-netex-role"] === "abstract" &&
-      targetDef?.["x-netex-sg-members"]
-    ) {
-      refTarget = resolveConcreteElement(netexLibrary, refTarget);
+/** Format a single spread helper call for an entry. */
+function fmtEntry(e: PropEmit, cb: string, t: Taggers): string {
+  const { lit } = t;
+  switch (e.kind) {
+    case "attr":
+      return `...attr(obj, ${lit("'" + e.canonName.slice(1) + "'")})`;
+    case "elem":
+      return `...elem(obj, ${lit("'" + e.canonName + "'")})`;
+    case "text":
+      return `...text(obj)`;
+    case "complex": {
+      const xk = e.xmlKey ? `, ${lit("'" + e.xmlKey + "'")}` : "";
+      return `...child(obj, ${lit("'" + e.canonName + "'")}, ${lit("'" + e.refTarget + "'")}, ${cb}${xk})`;
     }
+    case "array": {
+      const xk = e.xmlKey ? `, ${lit("'" + e.xmlKey + "'")}` : "";
+      return `...mapArr(obj, ${lit("'" + e.canonName + "'")}, ${lit("'" + e.refTarget + "'")}, ${cb}${xk})`;
+    }
+    case "rename":
+      return `...(obj[${lit("'" + e.canonName + "'")}] !== undefined && { [${lit("'" + e.xmlKey + "'")}]: obj[${lit("'" + e.canonName + "'")}] })`;
+  }
+}
 
-    if (shape.kind === "refArray") {
-      if (!seen.has(refTarget)) targets.push(refTarget);
-      seen.add(refTarget);
-    } else if (shape.kind === "ref") {
-      const resolved = resolvePropertyType(netexLibrary, p.schema);
-      const isMixed = resolved.via?.some((h) => h.rule === "mixed-unwrap") ?? false;
-      if (isMixed && resolved.ts.endsWith("[]")) {
-        const innerType = resolved.ts.slice(0, -2);
-        if (!seen.has(innerType)) targets.push(innerType);
-        seen.add(innerType);
-      } else if (!shouldDirectAssign(netexLibrary, refTarget, resolved)) {
-        if (!seen.has(refTarget)) targets.push(refTarget);
-        seen.add(refTarget);
-      }
+/** Pack entries into indented lines, grouping consecutive same-kind entries. */
+function packEntries(entries: PropEmit[], cb: string, taggers: Taggers, html: boolean): string[] {
+  const plainT = html ? makeTaggers(false) : taggers;
+  const lines: string[] = [];
+  let curPlain = "";
+  let curFull = "";
+  let prevKind: PropKind | undefined;
+
+  for (const e of entries) {
+    const plain = fmtEntry(e, cb, plainT);
+    const full = html ? fmtEntry(e, cb, taggers) : plain;
+    const sep = curPlain ? " " : "";
+    const candidate = curPlain + sep + plain + ",";
+
+    if (e.kind !== prevKind || candidate.length > 100) {
+      if (curFull) lines.push("    " + curFull);
+      curPlain = plain + ",";
+      curFull = full + ",";
+    } else {
+      curPlain = candidate;
+      curFull += sep + full + ",";
+    }
+    prevKind = e.kind;
+  }
+  if (curFull) lines.push("    " + curFull);
+  return lines;
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Generate a JavaScript function that projects one definition to XMLBuilder shape.
+ *
+ * Uses spread helper calls (`attr`, `elem`, `child`, `mapArr`, `text`)
+ * defined by `emitHelpers`. When `includeHelpers` is true (default),
+ * the helpers are appended at the bottom of the output.
+ */
+export function makeInlinedToXmlShape(
+  netexLibrary: NetexLibrary,
+  name: string,
+  opts?: InlineOptions,
+): string {
+  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
+  const fnName = lcFirst(name) + "ToXmlShape";
+  const html = opts?.html ?? false;
+  const typed = opts?.typed ?? false;
+  const cb = opts?.callbackName ?? "toXmlShape";
+
+  const taggers = makeTaggers(html);
+  const { kw } = taggers;
+
+  const entries = classifyProps(netexLibrary, name, props);
+  const bodyLines = packEntries(entries, cb, taggers, html);
+
+  // Function signature
+  const tObj = typed ? ": Obj" : "";
+  const tRc = typed ? ": Reshape" : "";
+  const cbParam = (opts?.callbackAsParam ?? true) ? `, ${cb}${tRc}` : "";
+
+  const lines: string[] = [];
+  lines.push(`${kw("function")} ${fnName}(obj${tObj}${cbParam})${tObj} {`);
+  lines.push(`  ${kw("return")} {`);
+  lines.push(...bodyLines);
+  lines.push("  };");
+  lines.push("}");
+
+  const fn = lines.join("\n");
+  if (opts?.includeHelpers === false) return fn;
+  return fn + "\n\n" + emitHelpers({ html, typed });
+}
+
+/** Unique complex/array ref targets from classified entries. */
+function complexTargets(entries: PropEmit[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const e of entries) {
+    if ((e.kind === "complex" || e.kind === "array") && e.refTarget && !seen.has(e.refTarget)) {
+      seen.add(e.refTarget);
+      out.push(e.refTarget);
     }
   }
-  return targets;
+  return out;
 }
 
 /** BFS-walk transitive complex children starting from root's direct targets. */
 function collectAllTargets(
   netexLibrary: NetexLibrary,
   rootName: string,
-  rootProps: FlatProperty[],
+  rootEntries: PropEmit[],
 ): string[] {
   const all: string[] = [];
   const visited = new Set([rootName]);
-  const queue = collectComplexTargets(netexLibrary, rootProps);
-  while (queue.length) {
-    const t = queue.shift()!;
+  const queue = complexTargets(rootEntries);
+  for (let i = 0; i < queue.length; i++) {
+    const t = queue[i];
     if (visited.has(t)) continue;
     visited.add(t);
     all.push(t);
-    const childProps = flattenAllOf(netexLibrary, t);
-    for (const child of collectComplexTargets(netexLibrary, childProps)) {
-      if (!visited.has(child)) queue.push(child);
+    for (const c of complexTargets(classifyProps(netexLibrary, t, flattenAllOf(netexLibrary, t)))) {
+      if (!visited.has(c)) queue.push(c);
     }
   }
   return all;
@@ -333,7 +350,7 @@ function collectAllTargets(
  *
  * Emits typed functions for the root entity and all transitive complex
  * children, plus a `reshapeComplex` dispatch that routes by type name.
- * Leaf entities (no complex children) get just the entity function.
+ * Helpers are appended once at the very bottom.
  */
 export function makeInlineCodeBlock(
   netexLibrary: NetexLibrary,
@@ -347,7 +364,8 @@ export function makeInlineCodeBlock(
   const html = opts?.html ?? false;
   const { kw, lit, cmt } = makeTaggers(html);
 
-  const targets = collectAllTargets(netexLibrary, name, filteredProps);
+  const rootEntries = classifyProps(netexLibrary, name, filteredProps);
+  const targets = collectAllTargets(netexLibrary, name, rootEntries);
 
   const comment = cmt(
     "/*\n" +
@@ -357,19 +375,21 @@ export function makeInlineCodeBlock(
       " */",
   );
 
+  const sharedOpts = { callbackName: "reshapeComplex", html, typed: true, includeHelpers: false } as const;
+  const helpers = emitHelpers({ html, typed: true });
+
   if (targets.length === 0) {
     const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
+      ...sharedOpts,
       props: filteredProps,
-      callbackName: "reshapeComplex",
       callbackAsParam: false,
-      html,
-      typed: true,
     });
-    return comment + "\n" + entityFn;
+    return comment + "\n" + entityFn + "\n\n" + helpers;
   }
 
+  // Dispatch function
   const dispatchLines: string[] = [];
-  dispatchLines.push(`${kw("function")} reshapeComplex(name: string, obj${T_REC})${T_REC} {`);
+  dispatchLines.push(`${kw("function")} reshapeComplex(name: string, obj: Obj): Obj {`);
   dispatchLines.push(`  ${kw("switch")} (name) {`);
   for (const t of targets) {
     const fn = lcFirst(t) + "ToXmlShape";
@@ -380,21 +400,39 @@ export function makeInlineCodeBlock(
   dispatchLines.push("}");
 
   const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
+    ...sharedOpts,
     props: filteredProps,
-    callbackName: "reshapeComplex",
     callbackAsParam: false,
-    html,
-    typed: true,
   });
 
-  const childFns = targets.map((t) =>
-    makeInlinedToXmlShape(netexLibrary, t, {
-      callbackName: "reshapeComplex",
-      callbackAsParam: true,
-      html,
-      typed: true,
-    }),
-  );
+  // Dedup identical child functions: emit once, alias the rest
+  const childOpts = { ...sharedOpts, callbackAsParam: true } as const;
+  const fpByTarget = new Map<string, { fp: string; props: FlatProperty[] }>();
+  for (const t of targets) {
+    const props = flattenAllOf(netexLibrary, t);
+    const entries = classifyProps(netexLibrary, t, props);
+    const fp = entries.map(e => e.kind + ":" + e.canonName + ":" + (e.refTarget || "") + ":" + (e.xmlKey || "")).join("|");
+    fpByTarget.set(t, { fp, props });
+  }
 
-  return comment + "\n" + dispatchLines.join("\n") + "\n\n" + entityFn + "\n\n" + childFns.join("\n\n");
+  const emitted = new Map<string, string>();
+  const childBlocks: string[] = [];
+  for (const t of targets) {
+    const { fp, props } = fpByTarget.get(t)!;
+    const canon = emitted.get(fp);
+    if (canon) {
+      childBlocks.push(`${kw("const")} ${lcFirst(t)}ToXmlShape = ${lcFirst(canon)}ToXmlShape;`);
+    } else {
+      emitted.set(fp, t);
+      childBlocks.push(makeInlinedToXmlShape(netexLibrary, t, { ...childOpts, props }));
+    }
+  }
+
+  return (
+    comment + "\n" +
+    dispatchLines.join("\n") + "\n\n" +
+    entityFn + "\n\n" +
+    childBlocks.join("\n\n") + "\n\n" +
+    helpers
+  );
 }
