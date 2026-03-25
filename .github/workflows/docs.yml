@@ -49,6 +49,8 @@ jobs:
       - name: Run tests
         working-directory: html-ts-gen
         run: npx vitest run
+        env:
+          ROUNDTRIP_EXTENSIVE: "1"
 
       - name: Run e2e codegen type-check
         working-directory: html-ts-gen
