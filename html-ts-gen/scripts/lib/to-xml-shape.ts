@@ -14,6 +14,10 @@ import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
 import { escHtml } from "./codegens.js";
 
+// Type annotation fragments appended to generated code when `typed: true`
+const T_REC = ": Record<string, unknown>";
+const T_RESHAPE = ": (n: string, o: Record<string, unknown>) => Record<string, unknown>";
+
 /**
  * Resolve an abstract element head to the first concrete substitution group member.
  * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
@@ -63,6 +67,8 @@ export interface InlineOptions {
   callbackAsParam?: boolean;
   /** Emit `<span class="if-*">` syntax-highlighting tags (default: false). */
   html?: boolean;
+  /** Emit TypeScript type annotations on params/returns (default: false). */
+  typed?: boolean;
 }
 
 /** Format a JS property key — unquoted if valid identifier, single-quoted otherwise. */
@@ -118,6 +124,9 @@ export function makeInlinedToXmlShape(
     expr: string;
     isOverride: boolean;
   }
+
+  const typed = opts?.typed ?? false;
+  const tItem = typed ? T_REC : "";
 
   const boolStr = (prop: string): string =>
     `${kw("typeof")} obj[${lit("'" + prop + "'")}] === ${lit("'boolean'")} ? String(obj[${lit("'" + prop + "'")}]) : obj[${lit("'" + prop + "'")}]`;
@@ -181,10 +190,12 @@ export function makeInlinedToXmlShape(
 
       if (isMixed && resolved.ts.endsWith("[]")) {
         const innerType = resolved.ts.slice(0, -2);
-        expr = `obj[${lit("'" + canonName + "'")}].map(${kw("function")}(item) { ${kw("return")} ${cb}(${lit("'" + innerType + "'")}, item); })`;
+        const arrCast = typed ? ` ${kw("as")} Record<string, unknown>[]` : "";
+        expr = `(obj[${lit("'" + canonName + "'")}]${arrCast}).map(${kw("function")}(item${tItem}) { ${kw("return")} ${cb}(${lit("'" + innerType + "'")}, item); })`;
         isOverride = true;
       } else if (!shouldDirectAssign(netexLibrary, refTarget, resolved)) {
-        expr = `${cb}(${lit("'" + refTarget + "'")}, obj[${lit("'" + canonName + "'")}])`;
+        const objCast = typed ? ` ${kw("as")} Record<string, unknown>` : "";
+        expr = `${cb}(${lit("'" + refTarget + "'")}, obj[${lit("'" + canonName + "'")}]${objCast})`;
         isOverride = true;
       } else if (xmlName !== canonName) {
         expr = `obj[${lit("'" + canonName + "'")}]`;
@@ -193,7 +204,8 @@ export function makeInlinedToXmlShape(
         expr = boolStr(canonName);
       }
     } else if (shape.kind === "refArray" && refTarget) {
-      expr = `obj[${lit("'" + canonName + "'")}].map(${kw("function")}(item) { ${kw("return")} ${cb}(${lit("'" + refTarget + "'")}, item); })`;
+      const arrCast = typed ? ` ${kw("as")} Record<string, unknown>[]` : "";
+      expr = `(obj[${lit("'" + canonName + "'")}]${arrCast}).map(${kw("function")}(item${tItem}) { ${kw("return")} ${cb}(${lit("'" + refTarget + "'")}, item); })`;
       isOverride = true;
     } else {
       expr = boolStr(canonName);
@@ -205,8 +217,10 @@ export function makeInlinedToXmlShape(
   // ── Phase 2: emit function ──────────────────────────────────────────────
 
   const lines: string[] = [];
-  const cbParam = (opts?.callbackAsParam ?? true) ? `, ${cb}` : "";
-  lines.push(`${kw("function")} ${fnName}(obj${cbParam}) {`);
+  const tObj = typed ? T_REC : "";
+  const tReshape = typed ? T_RESHAPE : "";
+  const cbParam = (opts?.callbackAsParam ?? true) ? `, ${cb}${tReshape}` : "";
+  lines.push(`${kw("function")} ${fnName}(obj${tObj}${cbParam})${tObj} {`);
 
   const helperName = isSimpleContent ? opts?.baseSimpleCall : opts?.baseCall;
 
@@ -247,24 +261,11 @@ export function makeInlinedToXmlShape(
   return lines.join("\n");
 }
 
-/**
- * Generate a self-contained code block for the schema viewer Mapping tab.
- *
- * If the entity has complex children that need delegation, emits a
- * `reshapeComplex` dispatch function above the entity function. Leaf
- * entities (no complex children) get just the entity function with no
- * callback parameter.
- */
-export function makeInlineCodeBlock(
+/** Collect complex ref targets from flattened props that need delegation. */
+function collectComplexTargets(
   netexLibrary: NetexLibrary,
-  name: string,
-  opts?: { props?: FlatProperty[]; html?: boolean },
-): string {
-  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
-  const html = opts?.html ?? false;
-  const { kw, lit, cmt } = makeTaggers(html);
-
-  // Collect ref targets that need delegation (same classification as Phase 1)
+  props: FlatProperty[],
+): string[] {
   const targets: string[] = [];
   const seen = new Set<string>();
   for (const p of props) {
@@ -278,7 +279,6 @@ export function makeInlineCodeBlock(
     else if (shape.kind === "refArray") refTarget = shape.target;
     if (!refTarget) continue;
 
-    // Resolve abstract elements
     const targetDef = netexLibrary[refTarget];
     if (
       targetDef?.["x-netex-role"] === "abstract" &&
@@ -287,7 +287,6 @@ export function makeInlineCodeBlock(
       refTarget = resolveConcreteElement(netexLibrary, refTarget);
     }
 
-    // Check if this property needs delegation (same logic as Phase 1)
     if (shape.kind === "refArray") {
       if (!seen.has(refTarget)) targets.push(refTarget);
       seen.add(refTarget);
@@ -304,8 +303,52 @@ export function makeInlineCodeBlock(
       }
     }
   }
+  return targets;
+}
 
-  // Build comment header
+/** BFS-walk transitive complex children starting from root's direct targets. */
+function collectAllTargets(
+  netexLibrary: NetexLibrary,
+  rootName: string,
+  rootProps: FlatProperty[],
+): string[] {
+  const all: string[] = [];
+  const visited = new Set([rootName]);
+  const queue = collectComplexTargets(netexLibrary, rootProps);
+  while (queue.length) {
+    const t = queue.shift()!;
+    if (visited.has(t)) continue;
+    visited.add(t);
+    all.push(t);
+    const childProps = flattenAllOf(netexLibrary, t);
+    for (const child of collectComplexTargets(netexLibrary, childProps)) {
+      if (!visited.has(child)) queue.push(child);
+    }
+  }
+  return all;
+}
+
+/**
+ * Generate a self-contained code block for the schema viewer Mapping tab.
+ *
+ * Emits typed functions for the root entity and all transitive complex
+ * children, plus a `reshapeComplex` dispatch that routes by type name.
+ * Leaf entities (no complex children) get just the entity function.
+ */
+export function makeInlineCodeBlock(
+  netexLibrary: NetexLibrary,
+  name: string,
+  opts?: { props?: FlatProperty[]; html?: boolean; excludeProps?: Set<string> },
+): string {
+  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
+  const filteredProps = opts?.excludeProps
+    ? props.filter((p) => !opts.excludeProps!.has(p.prop[1]))
+    : props;
+  const html = opts?.html ?? false;
+  const { kw, lit, cmt } = makeTaggers(html);
+
+  const targets = collectAllTargets(netexLibrary, name, filteredProps);
+
   const comment = cmt(
     "/*\n" +
       " * Project " + name + " to fast-xml-parser XMLBuilder shape.\n" +
@@ -315,19 +358,18 @@ export function makeInlineCodeBlock(
   );
 
   if (targets.length === 0) {
-    // Leaf entity — no dispatch, no callback
     const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
-      props,
+      props: filteredProps,
       callbackName: "reshapeComplex",
       callbackAsParam: false,
       html,
+      typed: true,
     });
     return comment + "\n" + entityFn;
   }
 
-  // Build dispatch function
   const dispatchLines: string[] = [];
-  dispatchLines.push(`${kw("function")} reshapeComplex(name, obj) {`);
+  dispatchLines.push(`${kw("function")} reshapeComplex(name: string, obj${T_REC})${T_REC} {`);
   dispatchLines.push(`  ${kw("switch")} (name) {`);
   for (const t of targets) {
     const fn = lcFirst(t) + "ToXmlShape";
@@ -338,11 +380,21 @@ export function makeInlineCodeBlock(
   dispatchLines.push("}");
 
   const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
-    props,
+    props: filteredProps,
     callbackName: "reshapeComplex",
     callbackAsParam: false,
     html,
+    typed: true,
   });
 
-  return comment + "\n" + dispatchLines.join("\n") + "\n\n" + entityFn;
+  const childFns = targets.map((t) =>
+    makeInlinedToXmlShape(netexLibrary, t, {
+      callbackName: "reshapeComplex",
+      callbackAsParam: true,
+      html,
+      typed: true,
+    }),
+  );
+
+  return comment + "\n" + dispatchLines.join("\n") + "\n\n" + entityFn + "\n\n" + childFns.join("\n\n");
 }

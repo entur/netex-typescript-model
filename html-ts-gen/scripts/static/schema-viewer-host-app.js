@@ -552,7 +552,10 @@
     });
     hideOmniCheck.addEventListener('change', function() {
       hideOmniEnabled = hideOmniCheck.checked;
-      if (currentExplored) renderInterface(currentExplored);
+      if (currentExplored) {
+        renderInterface(currentExplored);
+        renderMappingGuide(currentExplored);
+      }
     });
 
     /** Render the TypeScript tab into its container element. */
@@ -570,7 +573,6 @@
 
     /** (Re-)render the "+N subtypes" chip and dep blocks, respecting excluded props. */
     function updateDepsSection() {
-      // Remove existing chip + dep blocks
       var oldChip = explorerIface.querySelector('.deps-expand-chip');
       var oldDeps = document.getElementById('ifaceDepBlocks');
       if (oldChip) oldChip.remove();
@@ -578,7 +580,8 @@
 
       if (currentIsAlias || !currentExplored) return;
 
-      var excludedSet = new Set(Object.keys(currentExcluded));
+      var allProps = flattenAllOf(netexLibrary, currentExplored);
+      var excludedSet = buildExclSet(allProps) || new Set();
       var depNodes = collectDependencyTree(currentExplored, excludedSet);
       // Total unique deps (for compaction % display)
       var seen = {};
@@ -595,7 +598,7 @@
         var chip = document.createElement('button');
         chip.className = 'deps-expand-chip';
         chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
-        if (Object.keys(currentExcluded).length > 0) {
+        if (excludedSet && excludedSet.size > 0) {
           chip.classList.add('chip-flash');
           chip.addEventListener('animationend', function() { chip.classList.remove('chip-flash'); }, { once: true });
         }
@@ -675,6 +678,9 @@
               return !m || !excludedProps[m[1]];
             }).join('\n');
           }
+        } else if (container === explorerMapping && currentExplored) {
+          var copyProps = flattenAllOf(netexLibrary, currentExplored);
+          plain = makeInlineCodeBlock(currentExplored, copyProps, { html: false, excludeProps: buildExclSet(copyProps) });
         } else {
           plain = block.innerText.replace(/Copy$/, '').trimEnd();
         }
@@ -701,6 +707,7 @@
         if (propName) delete currentExcluded[propName];
       }
       updateDepsSection();
+      if (currentExplored) renderMappingGuide(currentExplored);
     });
 
     // Via-chain popup on hover
@@ -758,15 +765,24 @@
 
     const explorerMapping = document.getElementById('explorerMapping');
 
+    /** Build merged exclusion set from per-prop checkboxes + omnipresent base props. */
+    function buildExclSet(allProps) {
+      var excl = new Set(Object.keys(currentExcluded));
+      if (hideOmniEnabled) {
+        var kept = new Set(allProps.filter(function(p) {
+          return !_viewerBundle.OMNIPRESENT_DEFS.has(p.origin);
+        }).map(function(p) { return p.prop[1]; }));
+        allProps.forEach(function(p) { if (!kept.has(p.prop[1])) excl.add(p.prop[1]); });
+      }
+      return excl.size > 0 ? excl : undefined;
+    }
+
     /**
      * Build the XML Mapping tab HTML: a generated per-entity projection
      * function from `makeInlineCodeBlock`.
-     *
-     * @param {string} name  Definition name.
-     * @returns {string} HTML with a code block containing the generated JS.
      */
     function renderMappingHtml(name, props) {
-      var highlighted = makeInlineCodeBlock(name, props, { html: true });
+      var highlighted = makeInlineCodeBlock(name, props, { html: true, excludeProps: buildExclSet(props) });
 
       var html = '';
       html += '<div class="mapping-section"><h3>Serialize</h3>';
@@ -779,7 +795,8 @@
 
     /** Render the XML Mapping tab into its container element. */
     function renderMappingGuide(name, props) {
-      explorerMapping.innerHTML = renderMappingHtml(name, props);
+      var p = props || flattenAllOf(netexLibrary, name);
+      explorerMapping.innerHTML = renderMappingHtml(name, p);
     }
 
     // ── Utilities tab ─────────────────────────────────────────────────

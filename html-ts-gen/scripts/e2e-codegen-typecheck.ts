@@ -69,8 +69,7 @@ for (const name of TARGETS) {
   const mappingCode = makeInlineCodeBlock(netexLibrary, name, { html: false });
   const mappingPath = `/tmp/${name}-mapping.ts`;
   writeFileSync(mappingPath, mappingCode + "\n");
-  typeCheck(mappingPath, `${name} (mapping)`);
-  // NOTE: mapping failures are logged but don't block — tracked in GH issue
+  allPassed = typeCheck(mappingPath, `${name} (mapping)`) && allPassed;
 }
 
 process.exit(allPassed ? 0 : 1);
