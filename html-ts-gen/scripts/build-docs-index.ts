@@ -199,7 +199,7 @@ const assemblyCards = assemblies
     const stats = statParts.join(" · ");
 
     const schemaLink = s.hasSchemaHtml
-      ? `<a href="./${s.name}/netex-schema.html" class="card-link">JSON Schema</a>`
+      ? `<a href="./${s.name}/netex-schema.html" class="card-link">Library</a>`
       : "";
 
     // Chips for sub-graph and collapsed
@@ -216,7 +216,6 @@ const assemblyCards = assemblies
         <p>${s.description}</p>
         ${stats ? `<span class="stats">${stats}</span>` : ""}
         <div class="card-links">
-          <a href="./${s.name}/" class="card-link">TypeDoc</a>
           ${schemaLink}
         </div>
       </div>`;

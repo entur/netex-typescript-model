@@ -43,6 +43,9 @@ jobs:
       - name: Build network+timetable assembly
         run: make all ASSEMBLY=network+timetable
 
+      - name: Build full assembly
+        run: make all ASSEMBLY=network+timetable+fares+new-modes
+
       - name: Build base@ResourceFrame@tiny sub-graph
         run: make all SUB_GRAPH=ResourceFrame COLLAPSE=1
 
