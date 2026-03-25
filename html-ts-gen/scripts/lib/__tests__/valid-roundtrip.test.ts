@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -15,30 +15,39 @@ if (!existsSync(xsdRoot)) {
 
 const netexLibrary = loadNetexLibrary();
 
-// ── Entities to test ─────────────────────────────────────────────────────────
+// ── Entity definitions ──────────────────────────────────────────────────────
 
-/** ResourceFrame collection element per entity type.
- *  Subset chosen for structural diversity — deep inheritance, flat, nested,
- *  collection, and multi-domain — while keeping xmllint runtime reasonable. */
-const FRAME_WRAPPERS: Record<string, string> = {
-  VehicleType: "vehicleTypes",
-  Contact: "contacts",
-  DeckPlan: "deckPlans",
-  ResponsibilitySet: "responsibilitySets",
-  GroupOfOperators: "groupsOfOperators",
-};
+interface TestEntity {
+  name: string;
+  wrapper: string;
+  frame: string;
+  frameId: string;
+}
 
-const TEST_ENTITIES = Object.keys(FRAME_WRAPPERS).map((name) => ({
-  name,
-  role: defRole(netexLibrary[name]),
-  wrapper: FRAME_WRAPPERS[name],
-}));
+const CORE: TestEntity[] = [
+  { name: "VehicleType", wrapper: "vehicleTypes", frame: "ResourceFrame", frameId: "RF:1" },
+  { name: "Contact", wrapper: "contacts", frame: "ResourceFrame", frameId: "RF:1" },
+  { name: "DeckPlan", wrapper: "deckPlans", frame: "ResourceFrame", frameId: "RF:1" },
+  { name: "ResponsibilitySet", wrapper: "responsibilitySets", frame: "ResourceFrame", frameId: "RF:1" },
+  { name: "GroupOfOperators", wrapper: "groupsOfOperators", frame: "ResourceFrame", frameId: "RF:1" },
+];
+
+const EXTENSIVE: TestEntity[] = [
+  ...CORE,
+  // Authority/Operator fail: TimeZoneOffset needs number, CountryRef needs 2-char ISO, element ordering
+  // DayType fails: DayLength needs xs:duration format
+  // DayTypeAssignment fails: order needs positiveInteger, nameOfRefClass wrong enum
+  { name: "OperatingPeriod", wrapper: "operatingPeriods", frame: "ServiceCalendarFrame", frameId: "SCF:1" },
+];
+
+const extensive = process.env.ROUNDTRIP_EXTENSIVE === "1";
+const TEST_ENTITIES = (extensive ? EXTENSIVE : CORE)
+  .filter((e) => !!netexLibrary[e.name])
+  .map((e) => ({ ...e, role: defRole(netexLibrary[e.name]) }));
 
 // ── PublicationDelivery wrapper ──────────────────────────────────────────────
 
-function wrapInPublicationDelivery(entityName: string, entityXml: string): string {
-  const wrapper = FRAME_WRAPPERS[entityName];
-  if (!wrapper) throw new Error(`No frame wrapper for entity: ${entityName}`);
+function wrapInPublicationDelivery(entity: TestEntity, entityXml: string): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<PublicationDelivery xmlns="http://www.netex.org.uk/netex"',
@@ -48,11 +57,11 @@ function wrapInPublicationDelivery(entityName: string, entityXml: string): strin
     "  <PublicationTimestamp>2025-01-01T00:00:00</PublicationTimestamp>",
     "  <ParticipantRef>ENT</ParticipantRef>",
     "  <dataObjects>",
-    '    <ResourceFrame id="RF:1" version="1">',
-    `      <${wrapper}>`,
+    `    <${entity.frame} id="${entity.frameId}" version="1">`,
+    `      <${entity.wrapper}>`,
     entityXml,
-    `      </${wrapper}>`,
-    "    </ResourceFrame>",
+    `      </${entity.wrapper}>`,
+    `    </${entity.frame}>`,
     "  </dataObjects>",
     "</PublicationDelivery>",
   ].join("\n");
@@ -78,14 +87,11 @@ function validateWithXmllint(xml: string): { valid: boolean; stderr: string } {
   }
 }
 
-// ── Error filtering ──────────────────────────────────────────────────────────
-
 /**
  * Filter xmllint stderr to non-keyref errors.
  *
- * Keyref errors (`cvc-identity-constraint`) are test-isolation artifacts —
- * referenced entities (Branding, VehicleModel, etc.) aren't in the single-entity
- * test document. These are not generation bugs.
+ * Keyref errors are test-isolation artifacts — referenced entities
+ * aren't in the single-entity test document.
  */
 function nonKeyrefErrors(stderr: string): string[] {
   return stderr
@@ -96,17 +102,15 @@ function nonKeyrefErrors(stderr: string): string[] {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe.each(TEST_ENTITIES)("$name (role: $role)", ({ name }) => {
+describe.each(TEST_ENTITIES)("$name (role: $role)", (entity) => {
   it("validates against NeTEx XSD (ignoring keyref)", { timeout: 30_000 }, () => {
-    const mock = fake(netexLibrary, name);
-    const xml = serialize(netexLibrary, name, mock);
-    const full = wrapInPublicationDelivery(name, xml);
+    const mock = fake(netexLibrary, entity.name);
+    const xml = serialize(netexLibrary, entity.name, mock);
+    const full = wrapInPublicationDelivery(entity, xml);
     const { valid, stderr } = validateWithXmllint(full);
-    if (valid) return; // fully valid — nothing to check
-    // xmllint failed: stderr must contain recognizable validation lines,
-    // otherwise the binary crashed or wasn't found
-    expect(stderr, `xmllint failed for ${name} with unexpected output`).toContain("validity");
+    if (valid) return;
+    expect(stderr, `xmllint failed for ${entity.name} with unexpected output`).toContain("validity");
     const errors = nonKeyrefErrors(stderr);
-    expect(errors, `xmllint errors for ${name}:\n${errors.join("\n")}`).toEqual([]);
+    expect(errors, `xmllint errors for ${entity.name}:\n${errors.join("\n")}`).toEqual([]);
   });
 });

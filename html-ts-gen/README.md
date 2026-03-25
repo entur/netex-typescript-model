@@ -1,6 +1,6 @@
 # html-ts-gen/ — Node.js Pipeline
 
-JSON Schema → TypeScript interfaces, interactive schema HTML viewer, TypeDoc documentation.
+JSON Schema → TypeScript interfaces, interactive schema HTML viewer, TypeDoc documentation. See [CODEGEN_FLOW.md](CODEGEN_FLOW.md) for a visual map of every render path in the schema viewer.
 
 ## Quick Start
 

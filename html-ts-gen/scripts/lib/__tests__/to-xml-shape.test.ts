@@ -116,4 +116,14 @@ describe("makeInlineCodeBlock html mode", () => {
     expect(plain).toContain("/*");
     expect(plain).toContain("Project Contact");
   });
+
+  it("Vehicle: dedups identical child functions into const alias", () => {
+    const code = makeInlineCodeBlock(netexLibrary, "Vehicle");
+    // brandingRef is the first ref-structure emitted; all identical ones alias to it
+    expect(code).toContain("function brandingRefToXmlShape(");
+    expect(code).toContain("const authorityRefToXmlShape = brandingRefToXmlShape;");
+    expect(code).toContain("const carModelProfileRefToXmlShape = brandingRefToXmlShape;");
+    expect(code).not.toContain("function authorityRefToXmlShape(");
+    expect(code).not.toContain("function carModelProfileRefToXmlShape(");
+  });
 });

@@ -11,6 +11,7 @@ import {
   generateSubTypesBlock,
   type NetexLibrary,
 } from "./lib/codegens.js";
+import { makeInlineCodeBlock } from "./lib/to-xml-shape.js";
 import { loadNetexLibrary } from "./lib/__tests__/test-helpers.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -63,6 +64,12 @@ for (const name of TARGETS) {
 
   allPassed = runPass(netexLibrary, name, "", name) && allPassed;
   allPassed = runPass(netexLibrary, name, "-no-omni", `${name} (no-omni)`, { excludeOmni: true }) && allPassed;
+
+  // Mapping tab: serialize functions
+  const mappingCode = makeInlineCodeBlock(netexLibrary, name, { html: false });
+  const mappingPath = `/tmp/${name}-mapping.ts`;
+  writeFileSync(mappingPath, mappingCode + "\n");
+  allPassed = typeCheck(mappingPath, `${name} (mapping)`) && allPassed;
 }
 
 process.exit(allPassed ? 0 : 1);
