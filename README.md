@@ -39,7 +39,7 @@ This downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java D
 
 ## Produce `.ts` Files with `ts-gen.ts`
 
-`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces three files: the interface + transitive deps, a variant without omnipresent base types, and XML serialization/mapping code.
+`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces two files: the interface + transitive deps, and XML serialization/mapping code.
 
 **Prerequisites:** a built `base` assembly (run `make all` first).
 
@@ -154,6 +154,8 @@ All settings live in [`assembly-config.json`](assembly-config.json):
 Makefile                              # build entry point
 assembly-config.json                  # NeTEx version, parts, output paths
 tsconfig.generated.json               # type-check config for generated output
+gen-deckplan.sh                       # convenience wrapper: DeckPlan with editor exclusions
+gen-vehicletype.sh                    # convenience wrapper: VehicleType with hathor exclusions
 docs/                                 # design docs (subset selection guide, etc.)
 html-ts-gen/                          # Node.js/TypeScript tooling
   scripts/
@@ -175,6 +177,7 @@ html-ts-gen/                          # Node.js/TypeScript tooling
       to-xml-shape.ts                 # static stem→XML projection generators
       codegens.ts                     # TypeScript code generators (interface, guard, factory)
       config.ts                       # shared configuration (Config class, part resolution)
+      loader.ts                       # schema loader (loadNetexLibrary) for CLI scripts and tests
       bundle-entry.ts                 # esbuild entry point (re-exports lib modules for browser)
     static/
       schema-viewer-host-app.js       # browser-side controller (embedded in HTML)
@@ -191,6 +194,15 @@ generated-src/                        # output (gitignored)
     docs/                             # TypeDoc HTML
     netex-schema.html                 # interactive schema viewer
 ```
+
+## Convenience Wrapper Scripts
+
+| Script | Entity | Description |
+|--------|--------|-------------|
+| `gen-vehicletype.sh` | VehicleType | Generates with hathor-specific `--exclude` list |
+| `gen-deckplan.sh` | DeckPlan | Generates with NeTEx-Deckplan-Editor `--exclude` list |
+
+Both call `ts-gen.ts` internally with `--exclude` and `--overwrite`. They accept `--dest-dir` and `--suffix` pass-through flags.
 
 ## npm Scripts (html-ts-gen/)
 
