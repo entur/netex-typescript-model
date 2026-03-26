@@ -167,6 +167,7 @@ function buildViewerFnsScript(): string {
     function defRole(name) { return _viewerBundle.defRole(netexLibrary[name]); }
     function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(netexLibrary, n); }
     function fake(n) { return _viewerBundle.fake(netexLibrary, n); }
+    function flattenFake(n, mock, opts) { return _viewerBundle.flattenFake(netexLibrary, n, mock, opts); }
     function toXmlShape(n, obj) { return _viewerBundle.toXmlShape(netexLibrary, n, obj); }
     function buildXml(n, obj) { return _viewerBundle.buildXml(n, obj); }
     function makeInlinedToXmlShape(n, props) { return _viewerBundle.makeInlinedToXmlShape(netexLibrary, n, props ? { props: props } : undefined); }

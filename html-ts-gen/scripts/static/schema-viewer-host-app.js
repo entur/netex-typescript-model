@@ -188,7 +188,7 @@
         renderInterface(name, props);
         renderMappingGuide(name, props);
         renderUtils(name, props, required);
-        renderSampleData(name);
+        renderSampleData(name, props);
       }, 0);
       currentExplored = name;
     }
@@ -556,6 +556,7 @@
       if (currentExplored) {
         renderInterface(currentExplored);
         renderMappingGuide(currentExplored);
+        refreshFlatPanel();
       }
     });
 
@@ -713,6 +714,7 @@
       }
       updateDepsSection();
       if (currentExplored) renderMappingGuide(currentExplored);
+      refreshFlatPanel();
     });
 
     // Via-chain popup on hover
@@ -878,6 +880,7 @@
     // ── Sample data tab ──────────────────────────────────────────────────
 
     const explorerSample = document.getElementById('explorerSample');
+    var _cachedRawStem = null;
     var _cachedSampleStem = null;
     var _cachedSampleNested = null;
     var _cachedSampleName = null;
@@ -912,10 +915,26 @@
       }
     }
 
+    /** Re-render only the Flat panel with the current exclusion set. */
+    function refreshFlatPanel() {
+      if (!_cachedSampleName || !_cachedRawStem) return;
+      var allProps = flattenAllOf(netexLibrary, _cachedSampleName);
+      var exclSet = hostExclSet(allProps);
+      _cachedSampleStem = flattenFake(_cachedSampleName, _cachedRawStem, exclSet ? { excludeProps: exclSet } : undefined);
+      var panel = explorerSample.querySelector('[data-fmt="js"]');
+      if (panel) {
+        var btn = panel.querySelector('.copy-btn');
+        panel.innerHTML = highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2));
+        if (btn) panel.appendChild(btn); else { var b = document.createElement('button'); b.className = 'copy-btn'; b.textContent = 'Copy'; panel.appendChild(b); }
+      }
+    }
+
     /** Build all three sample panels once, then show the requested format. */
-    function renderSampleData(name) {
-      _cachedSampleStem = fake(name);
-      _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
+    function renderSampleData(name, allProps) {
+      _cachedRawStem = fake(name);
+      var exclSet = allProps ? hostExclSet(allProps) : undefined;
+      _cachedSampleStem = flattenFake(name, _cachedRawStem, exclSet ? { excludeProps: exclSet } : undefined);
+      _cachedSampleNested = toXmlShape(name, _cachedRawStem);
       _cachedSampleName = name;
 
       var html = '';

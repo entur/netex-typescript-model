@@ -37,6 +37,7 @@ export {
 
 export {
   fake,
+  flattenFake,
   defaultForType,
   buildXml,
   toXmlShape,
