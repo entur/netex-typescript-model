@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { makeInlinedToXmlShape, makeInlineCodeBlock } from "../to-xml-shape.js";
-import { fake, toXmlShape as dataFakerToXmlShape } from "../data-faker.js";
+import { fake, flattenFake, toXmlShape as dataFakerToXmlShape } from "../data-faker.js";
 import { lcFirst } from "../util.js";
 import { loadNetexLibrary } from "./test-helpers.js";
 
@@ -40,25 +40,26 @@ describe("makeInlinedToXmlShape", () => {
 
   it("Contact: generated function matches toXmlShape", () => {
     const code = makeInlinedToXmlShape(netexLibrary, "Contact");
-    const stem = fake(netexLibrary, "Contact");
+    const raw = fake(netexLibrary, "Contact");
+    const flat = flattenFake(netexLibrary, "Contact", raw);
     const fnName = lcFirst("Contact") + "ToXmlShape";
     const fn = new Function(code + `\nreturn ${fnName};`)();
     const cb = (name: string, obj: Record<string, unknown>) =>
       dataFakerToXmlShape(netexLibrary, name, obj);
-    const generated = fn(stem, cb);
-    const reference = dataFakerToXmlShape(netexLibrary, "Contact", stem);
-    expect(generated).toEqual(reference);
+    // Generated code gets interface shape; internal toXmlShape gets schema shape
+    expect(fn(flat, cb)).toEqual(dataFakerToXmlShape(netexLibrary, "Contact", raw));
   });
 
   describe.each(ENTITIES)("%s", (name) => {
-    it("generated matches toXmlShape", () => {
+    it("generated (interface shape) matches toXmlShape (schema shape)", () => {
       const code = makeInlinedToXmlShape(netexLibrary, name);
       const fnName = lcFirst(name) + "ToXmlShape";
       const fn = new Function(code + `\nreturn ${fnName};`)();
-      const stem = fake(netexLibrary, name);
+      const raw = fake(netexLibrary, name);
+      const flat = flattenFake(netexLibrary, name, raw);
       const cb = (n: string, obj: Record<string, unknown>) =>
         dataFakerToXmlShape(netexLibrary, n, obj);
-      expect(fn(stem, cb)).toEqual(dataFakerToXmlShape(netexLibrary, name, stem));
+      expect(fn(flat, cb)).toEqual(dataFakerToXmlShape(netexLibrary, name, raw));
     });
   });
 });

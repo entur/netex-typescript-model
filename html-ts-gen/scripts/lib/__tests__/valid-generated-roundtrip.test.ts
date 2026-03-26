@@ -146,14 +146,19 @@ describe("flattenFake", () => {
   });
 });
 
-// ── Group C: interface-shape roundtrip — documents mapping code gap ──────────
-// flattenFake() unwraps collections to match generateInterface() shape, but
-// makeInlinedToXmlShape still generates child() calls expecting the wrapped form.
-// This gap must be resolved in issue #30 (makeInlinedToXmlShape becomes
-// interface-shape-aware). Until then, this test is .todo.
+// ── Group C: interface-shape roundtrip via generated mapping code ─────────────
 
 describe.each(TEST_ENTITIES)("$name generated roundtrip (interface shape)", (entity) => {
-  it.todo(
-    "flattenFake → mapping code → xmllint (blocked: mapping code expects schema shape, not interface shape)",
-  );
+  it("flattenFake → mapping code → xmllint", { timeout: 30_000 }, () => {
+    const shapeFn = evalMapping(entity.name);
+    const raw = fake(netexLibrary, entity.name);
+    const flat = flattenFake(netexLibrary, entity.name, raw);
+    const xmlShape = shapeFn(flat);
+    const xml = buildXml(entity.name, xmlShape);
+    const full = wrapInPublicationDelivery(entity, xml);
+    const { valid, stderr } = validateWithXmllint(full);
+    if (valid) return;
+    const errors = nonKeyrefErrors(stderr);
+    expect(errors, `xmllint errors:\n${errors.join("\n")}`).toEqual([]);
+  });
 });

@@ -132,6 +132,14 @@ export function emitHelpers(opts?: { html?: boolean; typed?: boolean }): string 
   lines.push(`    : {};`);
   lines.push("}");
   lines.push("");
+  lines.push(`${kw("function")} wrapArr(obj${tObj}, key${tStr}, childKey${tStr}, type${tStr}, rc${tRc}, xmlKey${tOptStr}) {`);
+  lines.push(`  ${kw("const")} k = xmlKey || key;`);
+  lines.push(`  ${kw("const")} arr = obj[key]${asArr};`);
+  lines.push(`  ${kw("return")} arr && arr.length`);
+  lines.push(`    ? { [k]: { [childKey]: arr.map(${kw("function")}(item${tObj}) { ${kw("return")} rc(type, item); }) } }`);
+  lines.push(`    : {};`);
+  lines.push("}");
+  lines.push("");
   lines.push(`${kw("function")} text(obj${tObj}) {`);
   lines.push(`  ${kw("return")} obj[${lit("'value'")}] !== ${kw("undefined")} ? { ${prop("'#text'")}: obj[${lit("'value'")}] } : {};`);
   lines.push("}");
@@ -141,13 +149,22 @@ export function emitHelpers(opts?: { html?: boolean; typed?: boolean }): string 
 
 // ── Property classification ─────────────────────────────────────────────────
 
-type PropKind = "attr" | "elem" | "complex" | "array" | "text" | "rename";
+type PropKind = "attr" | "elem" | "complex" | "array" | "text" | "rename" | "wrapArr";
 
 interface PropEmit {
   kind: PropKind;
   canonName: string;
-  xmlKey?: string;     // output key when different from canonName (abstract resolution)
-  refTarget?: string;  // type name for complex/array
+  xmlKey?: string;        // output key when different from canonName (abstract resolution)
+  refTarget?: string;     // type name for complex/array/wrapArr
+  wrapChildKey?: string;  // child element name for wrapArr (e.g. "KeyValue" for KeyListStructure)
+}
+
+/** Extract the single child element name from a wrapper type (e.g. KeyListStructure → "KeyValue"). */
+function wrapperChildKey(netexLibrary: NetexLibrary, name: string): string | null {
+  const def = netexLibrary[name];
+  if (!def?.properties) return null;
+  const keys = Object.keys(def.properties);
+  return keys.length === 1 ? keys[0] : null;
 }
 
 /** Classify all properties of a definition into helper-call entries. */
@@ -194,6 +211,17 @@ function classifyProps(
     if (shape.kind === "ref" && refTarget) {
       const resolved = resolvePropertyType(netexLibrary, p.schema);
       const isMixed = resolved.via?.some((h) => h.rule === "mixed-unwrap") ?? false;
+      const isArrayUnwrapped = resolved.via?.some((h) => h.rule === "array-unwrap") ?? false;
+
+      if (isArrayUnwrapped && resolved.ts.endsWith("[]")) {
+        // refTarget is the element name (e.g. "keyList"); get the wrapper type from the via chain
+        const wrapperName = resolved.via!.find((h) => h.rule === "array-unwrap")!.name;
+        const childKey = wrapperChildKey(netexLibrary, wrapperName);
+        if (childKey) {
+          entries.push({ kind: "wrapArr", canonName, xmlKey, refTarget: resolved.ts.slice(0, -2), wrapChildKey: childKey });
+          continue;
+        }
+      }
 
       if (isMixed && resolved.ts.endsWith("[]")) {
         entries.push({ kind: "array", canonName, xmlKey, refTarget: resolved.ts.slice(0, -2) });
@@ -239,6 +267,10 @@ function fmtEntry(e: PropEmit, cb: string, t: Taggers): string {
     case "array": {
       const xk = e.xmlKey ? `, ${lit("'" + e.xmlKey + "'")}` : "";
       return `...mapArr(obj, ${lit("'" + e.canonName + "'")}, ${lit("'" + e.refTarget + "'")}, ${cb}${xk})`;
+    }
+    case "wrapArr": {
+      const xk = e.xmlKey ? `, ${lit("'" + e.xmlKey + "'")}` : "";
+      return `...wrapArr(obj, ${lit("'" + e.canonName + "'")}, ${lit("'" + e.wrapChildKey + "'")}, ${lit("'" + e.refTarget + "'")}, ${cb}${xk})`;
     }
     case "rename":
       return `...(obj[${lit("'" + e.canonName + "'")}] !== undefined && { [${lit("'" + e.xmlKey + "'")}]: obj[${lit("'" + e.canonName + "'")}] })`;
@@ -321,7 +353,7 @@ function complexTargets(entries: PropEmit[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const e of entries) {
-    if ((e.kind === "complex" || e.kind === "array") && e.refTarget && !seen.has(e.refTarget)) {
+    if ((e.kind === "complex" || e.kind === "array" || e.kind === "wrapArr") && e.refTarget && !seen.has(e.refTarget)) {
       seen.add(e.refTarget);
       out.push(e.refTarget);
     }
@@ -416,7 +448,7 @@ export function makeInlineCodeBlock(
   for (const t of targets) {
     const props = flattenAllOf(netexLibrary, t);
     const entries = classifyProps(netexLibrary, t, props);
-    const fp = entries.map(e => e.kind + ":" + e.canonName + ":" + (e.refTarget || "") + ":" + (e.xmlKey || "")).join("|");
+    const fp = entries.map(e => e.kind + ":" + e.canonName + ":" + (e.refTarget || "") + ":" + (e.xmlKey || "") + ":" + (e.wrapChildKey || "")).join("|");
     fpByTarget.set(t, { fp, props });
   }
 
