@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-base:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,23 +31,103 @@ jobs:
           cache: npm
           cache-dependency-path: html-ts-gen/package-lock.json
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('json-schema/pom.xml') }}
+          restore-keys: maven-
+
+      - run: npm ci
+        working-directory: html-ts-gen
+
+      - name: Build base assembly
+        run: make all ASSEMBLY=base
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assembly-base
+          path: generated-src/base/
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xsd
+          path: xsd/
+          retention-days: 1
+
+  build-others:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ntt
+            args: "ASSEMBLY=network+timetable"
+            dir: network+timetable
+          - name: full
+            args: "ASSEMBLY=network+timetable+fares+new-modes"
+            dir: network+timetable+fares+new-modes
+          - name: subgraph
+            args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
+            dir: "base@ResourceFrame@tiny"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: html-ts-gen/package-lock.json
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('json-schema/pom.xml') }}
+          restore-keys: maven-
+
+      - run: npm ci
+        working-directory: html-ts-gen
+
+      - name: Build ${{ matrix.name }} assembly
+        run: make all ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assembly-${{ matrix.name }}
+          path: generated-src/${{ matrix.dir }}/
+          retention-days: 1
+
+  test:
+    needs: build-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: html-ts-gen/package-lock.json
+
       - run: sudo apt-get install -y libxml2-utils
 
       - run: npm ci
         working-directory: html-ts-gen
 
-      # Generate full pipeline per assembly: XSD → JSON Schema → HTML → TS → TypeDoc
-      - name: Build base assembly
-        run: make all ASSEMBLY=base
+      - uses: actions/download-artifact@v4
+        with:
+          name: assembly-base
+          path: generated-src/base/
 
-      - name: Build network+timetable assembly
-        run: make all ASSEMBLY=network+timetable
-
-      - name: Build full assembly
-        run: make all ASSEMBLY=network+timetable+fares+new-modes
-
-      - name: Build base@ResourceFrame@tiny sub-graph
-        run: make all SUB_GRAPH=ResourceFrame COLLAPSE=1
+      - uses: actions/download-artifact@v4
+        with:
+          name: xsd
+          path: xsd/
 
       - name: Run tests
         working-directory: html-ts-gen
@@ -59,6 +139,41 @@ jobs:
         working-directory: html-ts-gen
         run: npx tsx scripts/e2e-codegen-typecheck.ts
 
+  assemble:
+    needs: [build-base, build-others, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: html-ts-gen/package-lock.json
+
+      - run: npm ci
+        working-directory: html-ts-gen
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: assembly-base
+          path: generated-src/base/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: assembly-ntt
+          path: generated-src/network+timetable/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: assembly-full
+          path: generated-src/network+timetable+fares+new-modes/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: assembly-subgraph
+          path: "generated-src/base@ResourceFrame@tiny/"
+
       - name: Build welcome page
         working-directory: html-ts-gen
         run: npx tsx scripts/build-docs-index.ts
@@ -68,7 +183,7 @@ jobs:
           path: docs-site
 
   deploy:
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     environment:
       name: github-pages

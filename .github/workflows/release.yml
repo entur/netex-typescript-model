@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-base:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +24,11 @@ jobs:
           cache: npm
           cache-dependency-path: html-ts-gen/package-lock.json
 
-      - run: sudo apt-get install -y libxml2-utils
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('json-schema/pom.xml') }}
+          restore-keys: maven-
 
       - run: npm ci
         working-directory: html-ts-gen
@@ -36,11 +40,96 @@ jobs:
       - name: Build base assembly
         run: make all tarball ASSEMBLY=base VERSION=${{ steps.version.outputs.value }}
 
-      - name: Build network+timetable assembly
-        run: make all tarball ASSEMBLY=network+timetable VERSION=${{ steps.version.outputs.value }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assembly-base
+          path: generated-src/base/
+          retention-days: 1
 
-      - name: Build base@ResourceFrame@tiny sub-graph
-        run: make all tarball SUB_GRAPH=ResourceFrame COLLAPSE=1 VERSION=${{ steps.version.outputs.value }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xsd
+          path: xsd/
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-base
+          path: generated-src/netex-*.tgz
+          retention-days: 1
+
+  build-others:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ntt
+            args: "ASSEMBLY=network+timetable"
+          - name: subgraph
+            args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: html-ts-gen/package-lock.json
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('json-schema/pom.xml') }}
+          restore-keys: maven-
+
+      - run: npm ci
+        working-directory: html-ts-gen
+
+      - name: Extract version from tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ${{ matrix.name }} assembly
+        run: make all tarball ${{ matrix.args }} VERSION=${{ steps.version.outputs.value }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.name }}
+          path: generated-src/netex-*.tgz
+          retention-days: 1
+
+  test:
+    needs: build-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: html-ts-gen/package-lock.json
+
+      - run: sudo apt-get install -y libxml2-utils
+
+      - run: npm ci
+        working-directory: html-ts-gen
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: assembly-base
+          path: generated-src/base/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: xsd
+          path: xsd/
 
       - name: Run tests
         working-directory: html-ts-gen
@@ -52,7 +141,26 @@ jobs:
         working-directory: html-ts-gen
         run: npx tsx scripts/e2e-codegen-typecheck.ts
 
+  release:
+    needs: [build-base, build-others, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball-base
+          path: tarballs/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball-ntt
+          path: tarballs/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball-subgraph
+          path: tarballs/
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes generated-src/netex-*.tgz
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes tarballs/netex-*.tgz
