@@ -66,7 +66,7 @@ jobs:
             dir: network+timetable
           - name: full
             args: "ASSEMBLY=network+timetable+fares+new-modes"
-            dir: network+timetable+fares+new-modes
+            dir: fares+network+new-modes+timetable
           - name: subgraph
             args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
             dir: "base@ResourceFrame@tiny"
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: assembly-full
-          path: generated-src/network+timetable+fares+new-modes/
+          path: generated-src/fares+network+new-modes+timetable/
 
       - uses: actions/download-artifact@v4
         with:
