@@ -67,9 +67,6 @@ jobs:
           - name: full
             args: "ASSEMBLY=network+timetable+fares+new-modes"
             dir: fares+network+new-modes+timetable
-          - name: subgraph
-            args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
-            dir: "base@ResourceFrame@tiny"
     steps:
       - uses: actions/checkout@v4
 
@@ -168,11 +165,6 @@ jobs:
         with:
           name: assembly-full
           path: generated-src/fares+network+new-modes+timetable/
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: assembly-subgraph
-          path: "generated-src/base@ResourceFrame@tiny/"
 
       - name: Build welcome page
         working-directory: html-ts-gen

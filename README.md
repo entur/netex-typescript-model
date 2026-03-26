@@ -113,7 +113,7 @@ npm run docs                          # TypeDoc HTML per assembly
 npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
 
-CI builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` (collapsed sub-graph) assemblies, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
+CI builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
 
 ## XSD Subset
 

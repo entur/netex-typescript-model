@@ -66,8 +66,8 @@ jobs:
         include:
           - name: ntt
             args: "ASSEMBLY=network+timetable"
-          - name: subgraph
-            args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
+          - name: full
+            args: "ASSEMBLY=network+timetable+fares+new-modes"
     steps:
       - uses: actions/checkout@v4
 
@@ -157,7 +157,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: tarball-subgraph
+          name: tarball-full
           path: tarballs/
 
       - name: Create GitHub Release

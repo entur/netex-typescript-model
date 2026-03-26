@@ -623,14 +623,21 @@ export function generateSubTypesBlock(
   const html = opts?.html ?? false;
   const fixedEnumTargets = collectFixedEnumTargets(netexLibrary);
 
+  const excl = opts?.excludeProps;
   return collectRenderableDeps(netexLibrary, name, opts?.excludedMembers)
+    .filter((n) => {
+      if (!excl || fixedEnumTargets.has(n)) return true;
+      if (defRole(netexLibrary[n]) === "enumeration") return true;
+      const flat = flattenAllOf(netexLibrary, n);
+      return flat.some((p) => !excl.has(p.prop[1]));
+    })
     .map((n) => {
       if (fixedEnumTargets.has(n)) {
         return html
           ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
           : `type ${n} = string;`;
       }
-      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: opts?.excludeProps }).text;
+      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: excl }).text;
     })
     .join("\n\n");
 }

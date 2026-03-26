@@ -264,8 +264,11 @@ const html = `<!DOCTYPE html>
     .subtitle { color: var(--muted); font-size: 0.95rem; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+      grid-template-columns: repeat(3, 1fr);
       gap: 1rem;
+    }
+    @media (max-width: 48rem) {
+      .grid { grid-template-columns: 1fr; }
     }
     .card {
       display: flex;

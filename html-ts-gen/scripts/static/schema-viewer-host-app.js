@@ -595,11 +595,20 @@
       }
 
       var uniqueNames = collectRenderableDeps(currentExplored, excludedSet);
+      // Remove subtypes whose properties are all excluded (empty interface)
+      if (hideOmniEnabled || excludedSet.size > 0) {
+        uniqueNames = uniqueNames.filter(function(n) {
+          if (defRole(n) === 'enumeration') return true;
+          var sp = flattenAllOf(netexLibrary, n);
+          var se = buildExclSet(sp, { omni: hideOmniEnabled, explicit: excludedSet });
+          return !se || sp.some(function(p) { return !se.has(p.prop[1]); });
+        });
+      }
       if (uniqueNames.length > 0) {
         var chip = document.createElement('button');
         chip.className = 'deps-expand-chip';
         chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
-        if (Object.keys(currentExcluded).length > 0) {
+        if (hideOmniEnabled || Object.keys(currentExcluded).length > 0) {
           chip.classList.add('chip-flash');
           chip.addEventListener('animationend', function() { chip.classList.remove('chip-flash'); }, { once: true });
         }

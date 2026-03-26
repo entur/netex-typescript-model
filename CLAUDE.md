@@ -86,7 +86,7 @@ npm run docs               # generate TypeDoc HTML per assembly (requires genera
 - `scripts/build-schema-html.ts` — generates a self-contained HTML viewer per assembly from `generated-src/<assembly>/<assembly>.schema.json`. Assembles the page from three extracted files: `schema-viewer.css` (embedded in `<style>`), `bundle-entry.ts` (bundled via esbuild into an IIFE including `fast-xml-parser`, spliced into `/*@@VIEWER_FNS@@*/`), and `schema-viewer-host-app.js` (embedded in `<script>`). Generates bound wrappers that close over the page-level `netexLibrary` variable — most introspection functions get `netexLibrary`-curried wrappers, while codegen functions (`generateInterface`, `generateTypeGuard`, `generateFactory`) are aliased directly since the host-app passes `netexLibrary` explicitly. Also generates the HTML structure: sidebar with search and role-based filter chips, per-definition sections with permalink anchors, syntax-highlighted JSON with clickable `$ref` links, explorer panel, role help popup. Output: `generated-src/<assembly>/netex-schema.html`
 - `scripts/build-docs-index.ts` — assembles a `docs-site/` directory for GitHub Pages deployment. Copies each assembly's TypeDoc output and schema HTML into `docs-site/<assembly>/` and generates a welcome `index.html` listing all assemblies with descriptions, stats, and links to both TypeDoc and JSON Schema viewer
 - `scripts/ts-gen.ts` — end-to-end validation that assembled codegen output type-checks. Takes target entity names as positional CLI args and flags: `--dest-dir` (default `/tmp`), `--exclude` (comma-separated property names to strip), `--suffix` (string appended to output filenames), `--overwrite` (replace existing files). Assembles the main interface + transitive deps (via `collectDependencyTree` + `generateInterface`) mirroring the schema viewer's Copy button, writes to `<dest-dir>/<Type>[<suffix>].ts`, and runs `tsc --noEmit --strict --skipLibCheck`. Validates that the codegen pipeline produces self-contained, type-safe TypeScript
-- `.github/workflows/docs.yml` — CI workflow that builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` assemblies via `make all`, then deploys TypeDoc + schema HTML to GitHub Pages
+- `.github/workflows/docs.yml` — CI workflow that builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly via `make all`, then deploys TypeDoc + schema HTML to GitHub Pages
 - `.github/workflows/release.yml` — tag-triggered (`v*`) release workflow: builds the same assemblies, packages `.tgz` tarballs, creates GitHub Release
 
 ### json-schema/
@@ -117,7 +117,7 @@ Generated output is written to `generated-src/<assembly>/` where the assembly na
 - `fares+network` — base + part1_network + part3_fares
 - etc.
 
-The CI workflow (`docs.yml`) builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` (collapsed sub-graph) assemblies. The release workflow (`release.yml`) builds the same assemblies and packages them as tarballs on `v*` tag push.
+The CI workflow (`docs.yml`) builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly. The release workflow (`release.yml`) builds the same assemblies and packages them as tarballs on `v*` tag push.
 
 ### Generation Pipeline
 
