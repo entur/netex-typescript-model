@@ -1,6 +1,6 @@
 # netex-typescript-model
 
-## Experimental / Work-in-progress !!
+## Experimental
 
 Generates JSON Schema and TypeScript interfaces from [NeTEx](http://netex-cen.eu/) (Network Timetable Exchange) XSD schemas. The JSON Schema is a standalone artifact useful on its own (validation, code generation in other languages, interactive HTML viewer); the TypeScript interfaces build on top of it. Sibling project to [netex-java-model](https://github.com/entur/netex-java-model).
 
