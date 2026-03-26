@@ -257,6 +257,17 @@ describe("generateInterface", () => {
     expect(text).toContain("nameOfMemberClass?: string;");
     expect(text).not.toContain("NameOfClass");
   });
+
+  it("excludeProps omits named properties", () => {
+    const { text } = generateInterface(netexLibrary, "Authority", {
+      html: false,
+      excludeProps: new Set(["Name", "Description"]),
+    });
+    expect(text).toContain("interface Authority {");
+    expect(text).not.toContain("Name?");
+    expect(text).not.toContain("Description?");
+    expect(text).toContain("AuthorityCode?");
+  });
 });
 
 // ── generateTypeAlias (plain text) ──────────────────────────────────────────

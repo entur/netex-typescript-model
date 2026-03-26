@@ -3,8 +3,8 @@
  * Usage: npx tsx scripts/ts-gen.ts [--dest-dir <path>] [--overwrite] [--exclude <a,b,...>] [--suffix <s>] <Target> [...]
  */
 
-import { existsSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import { generateInterface, generateSubTypesBlock } from "./lib/codegens.js";
 import { flattenAllOf, buildExclSet } from "./lib/schema-nav.js";
@@ -24,7 +24,7 @@ function guardWrite(path: string, content: string): boolean {
 
 function typeCheck(path: string): boolean {
   try {
-    execSync(`npx tsc --noEmit --strict --skipLibCheck --target ES2022 ${path}`, {
+    execFileSync("npx", ["tsc", "--noEmit", "--strict", "--skipLibCheck", "--target", "ES2022", path], {
       stdio: "pipe",
       encoding: "utf-8",
     });
@@ -58,9 +58,12 @@ if (!TARGETS.length) {
 }
 
 const destDir = values["dest-dir"]!;
+mkdirSync(destDir, { recursive: true });
 const overwrite = values.overwrite!;
 const suffix = values.suffix!;
-const explicit = values.exclude ? new Set(values.exclude.split(",")) : undefined;
+const explicit = values.exclude
+  ? new Set(values.exclude.split(",").map((s) => s.trim()).filter((s) => s.length > 0))
+  : undefined;
 const netexLibrary = loadNetexLibrary();
 let allPassed = true;
 

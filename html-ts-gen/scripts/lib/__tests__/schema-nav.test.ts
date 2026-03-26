@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { flattenAllOf, collectRequired, buildInheritanceChain, inlineSingleRefs } from "../schema-nav.js";
+import { flattenAllOf, collectRequired, buildInheritanceChain, inlineSingleRefs, buildExclSet } from "../schema-nav.js";
 import type { NetexLibrary } from "../types.js";
 
 
@@ -389,5 +389,59 @@ describe("inlineSingleRefs", () => {
     expect(result.some((p) => p.prop[1] === "Name" && !p.inlinedFrom)).toBe(true);
     expect(result.some((p) => p.prop[1] === "id" && !p.inlinedFrom)).toBe(true);
     expect(result.some((p) => p.prop[1] === "version" && !p.inlinedFrom)).toBe(true);
+  });
+});
+
+describe("buildExclSet", () => {
+  const mkProp = (name: string, origin: string) =>
+    ({ prop: [name, name], type: "string", desc: "", origin, schema: {} }) as any;
+
+  it("returns undefined when no exclusions apply", () => {
+    const props = [mkProp("foo", "SomeType")];
+    expect(buildExclSet(props)).toBeUndefined();
+    expect(buildExclSet(props, {})).toBeUndefined();
+    expect(buildExclSet(props, { omni: false })).toBeUndefined();
+  });
+
+  it("explicit-only: excludes named props", () => {
+    const props = [mkProp("a", "X"), mkProp("b", "X")];
+    const excl = buildExclSet(props, { explicit: new Set(["a"]) });
+    expect(excl).toEqual(new Set(["a"]));
+  });
+
+  it("omni-only: excludes props solely from omnipresent origins", () => {
+    const props = [
+      mkProp("id", "EntityStructure"),
+      mkProp("version", "EntityInVersionStructure"),
+      mkProp("Name", "SomeType"),
+    ];
+    const excl = buildExclSet(props, { omni: true });
+    expect(excl).toBeDefined();
+    expect(excl!.has("id")).toBe(true);
+    expect(excl!.has("version")).toBe(true);
+    expect(excl!.has("Name")).toBe(false);
+  });
+
+  it("omni: keeps props that appear in both omnipresent and non-omnipresent origins", () => {
+    const props = [
+      mkProp("id", "EntityStructure"),
+      mkProp("id", "CustomType"),
+    ];
+    const excl = buildExclSet(props, { omni: true });
+    // id appears in non-omnipresent origin too, so it's kept
+    expect(excl).toBeUndefined();
+  });
+
+  it("merges explicit and omni exclusions", () => {
+    const props = [
+      mkProp("id", "EntityStructure"),
+      mkProp("Name", "SomeType"),
+      mkProp("foo", "SomeType"),
+    ];
+    const excl = buildExclSet(props, { omni: true, explicit: new Set(["foo"]) });
+    expect(excl).toBeDefined();
+    expect(excl!.has("id")).toBe(true);
+    expect(excl!.has("foo")).toBe(true);
+    expect(excl!.has("Name")).toBe(false);
   });
 });
