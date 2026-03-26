@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "generate:schema": "tsx scripts/xsd-to-jsonschema-1st-try.ts",
-    "generate:ts": "tsx scripts/primitive-ts-gen.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.*'",
     "test:integration": "vitest run scripts/lib/fns.integration.test.ts",

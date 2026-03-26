@@ -37,6 +37,35 @@ make all                       # full pipeline: XSD → JSON Schema → HTML →
 
 This downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, generates an interactive HTML viewer, TypeScript interfaces, and TypeDoc documentation.
 
+## Produce `.ts` Files with `ts-gen.ts`
+
+`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces three files: the interface + transitive deps, a variant without omnipresent base types, and XML serialization/mapping code.
+
+**Prerequisites:** a built `base` assembly (run `make all` first).
+
+```bash
+cd html-ts-gen
+
+# Basic — writes to /tmp/
+npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
+
+# Custom output directory
+npx tsx scripts/ts-gen.ts --dest-dir ./out VehicleType
+
+# Single entity
+npx tsx scripts/ts-gen.ts ServiceJourney
+```
+
+Each target `<Name>` produces:
+| File | Content |
+|------|---------|
+| `<Name>.ts` | Interface + all transitive dependency types |
+| `<Name>-mapping.ts` | XML serialization functions (schema→XML projection) |
+
+Use `--exclude` to strip specific properties, `--suffix` to tag output files, and `--overwrite` to replace existing files. All output is type-checked with `tsc --strict` automatically. Exit code is 0 if all targets pass, 1 otherwise.
+
+Entity names are **case-sensitive** and must match definitions in the schema (e.g. `VehicleType`, not `vehicleType`). Unknown targets are skipped with a warning.
+
 ## Generating Variants
 
 Pass `ASSEMBLY` to build a different NeTEx subset. Parts are derived automatically from the assembly name:
@@ -75,18 +104,6 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 3. Each definition is stamped with `x-netex-*` annotations (source, assembly, role, atom, frames, mixed, substitutionGroup, sg-members, refTarget, collapsed) plus per-property `x-netex-choice` — see [`json-schema/README.md`](json-schema/README.md) for details
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
-
-### Stage 2: JSON Schema → TypeScript (`primitive-ts-gen.ts`)
-
-```
-<assembly>.schema.json → json-schema-to-typescript → split modules → tsc --noEmit
-```
-
-1. Reads `x-netex-source` annotations to build a type→file source map
-2. Injects `@see` links into a clone (persisted JSON stays clean)
-3. Compiles to monolithic TypeScript via `json-schema-to-typescript`
-4. Splits into per-category modules with cross-imports and a barrel `index.ts`
-5. Type-checks with `tsc --noEmit`
 
 ### Documentation
 
@@ -177,42 +194,11 @@ generated-src/                        # output (gitignored)
 
 ## npm Scripts (html-ts-gen/)
 
-| Script                                 | Description                                 |
-| -------------------------------------- | ------------------------------------------- |
-| `npm run generate:ts -- <schema.json>` | Generate TypeScript from a JSON Schema      |
-| `npm run test`                         | Run tests (vitest)                          |
-| `npm run validate:jsonschema`          | Validate generated schemas against Draft 07 |
-| `npm run docs`                         | Generate TypeDoc HTML per assembly          |
-
-## HOWTO: Produce `.ts` Files with `ts-gen.ts`
-
-`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces three files: the interface + transitive deps, a variant without omnipresent base types, and XML serialization/mapping code.
-
-**Prerequisites:** a built `base` assembly (run `make all` first).
-
-```bash
-cd html-ts-gen
-
-# Basic — writes to /tmp/
-npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
-
-# Custom output directory
-npx tsx scripts/ts-gen.ts --dest-dir ./out VehicleType
-
-# Single entity
-npx tsx scripts/ts-gen.ts ServiceJourney
-```
-
-Each target `<Name>` produces:
-| File | Content |
-|------|---------|
-| `<Name>.ts` | Interface + all transitive dependency types |
-| `<Name>-no-omni.ts` | Same, but without omnipresent base types (`DataManagedObject`, etc.) |
-| `<Name>-mapping.ts` | XML serialization functions (schema→XML projection) |
-
-All files are type-checked with `tsc --strict` automatically. Exit code is 0 if all targets pass, 1 otherwise.
-
-The entity names are **case-sensitive** and must match definitions in the schema (e.g. `VehicleType`, not `vehicleType`). If a target is not found it is skipped with a warning.
+| Script                        | Description                                 |
+| ----------------------------- | ------------------------------------------- |
+| `npm run test`                | Run tests (vitest)                          |
+| `npm run validate:jsonschema` | Validate generated schemas against Draft 07 |
+| `npm run docs`                | Generate TypeDoc HTML per assembly          |
 
 ## Related Projects
 
