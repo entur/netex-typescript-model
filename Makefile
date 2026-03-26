@@ -61,7 +61,7 @@ $(GEN)/$(OUT_NAME)/netex-schema.html: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 # ── TypeScript interfaces ─────────────────────────────────────────────────────
 
 $(GEN)/$(OUT_NAME)/interfaces/index.ts: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
-	npx --prefix html-ts-gen tsx html-ts-gen/scripts/generate.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/primitive-ts-gen.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 
 # ── TypeDoc documentation ─────────────────────────────────────────────────────
 

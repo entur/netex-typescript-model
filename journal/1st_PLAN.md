@@ -29,7 +29,7 @@ netex-typescript-model/
 │       └── gml/
 ├── scripts/
 │   ├── download.ts                    # Reads config.json, invokes bin/ scripts
-│   └── generate.ts                    # Orchestrates code generation on subset
+│   └── primitive-ts-gen.ts             # Orchestrates code generation on subset
 ├── src/
 │   └── generated/                     # Generated output (gitignored)
 │       ├── interfaces/                # Step 1: TS interfaces from cxsd
@@ -109,7 +109,7 @@ To expand the subset, add entries to `config.subset.includeParts`.
 
 ### Step 2: Generate (`npm run generate`)
 
-`scripts/generate.ts` (currently a stub) will:
+`scripts/primitive-ts-gen.ts` (currently a stub) will:
 1. Collect XSD files matching `config.subset`
 2. Run cxsd → TypeScript interfaces in `src/generated/interfaces/`
 3. Run ts-to-zod → Zod schemas in `src/generated/zod/`
@@ -120,7 +120,7 @@ To expand the subset, add entries to `config.subset.includeParts`.
 2. Try cxsd on the subset entry point and evaluate output quality
 3. If cxsd struggles, try the JSON Schema intermediate path:
    `XSD → json-schema (xsd2json) → Zod (json-schema-to-zod)`
-4. Wire up the chosen generator into `scripts/generate.ts`
+4. Wire up the chosen generator into `scripts/primitive-ts-gen.ts`
 5. Add smoke test with a sample VehicleType XML
 
 ## Risks & Mitigations

@@ -135,9 +135,9 @@ jobs:
         env:
           ROUNDTRIP_EXTENSIVE: "1"
 
-      - name: Run e2e codegen type-check
+      - name: Run ts-gen type-check
         working-directory: html-ts-gen
-        run: npx tsx scripts/e2e-codegen-typecheck.ts
+        run: npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
 
   assemble:
     needs: [build-base, build-others, test]

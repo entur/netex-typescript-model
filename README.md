@@ -76,7 +76,7 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
 
-### Stage 2: JSON Schema → TypeScript (`generate.ts`)
+### Stage 2: JSON Schema → TypeScript (`primitive-ts-gen.ts`)
 
 ```
 <assembly>.schema.json → json-schema-to-typescript → split modules → tsc --noEmit
@@ -140,13 +140,13 @@ tsconfig.generated.json               # type-check config for generated output
 docs/                                 # design docs (subset selection guide, etc.)
 html-ts-gen/                          # Node.js/TypeScript tooling
   scripts/
-    generate.ts                       # JSON Schema → TypeScript (positional arg)
+    primitive-ts-gen.ts               # JSON Schema → TypeScript (positional arg)
     split-output.ts                   # split monolithic .ts into per-category modules
     validate-generated-schemas.ts     # validate JSON Schema against Draft 07 meta-schema
     build-schema-html.ts              # interactive JSON Schema HTML viewer
     generate-docs.ts                  # TypeDoc HTML per assembly
     build-docs-index.ts               # docs-site/ welcome page
-    e2e-codegen-typecheck.ts          # e2e validation: assembled codegen → tsc --strict
+    ts-gen.ts                         # e2e validation: assembled codegen → tsc --strict
     lib/
       types.ts                        # shared type definitions (NetexLibrary, FlatProperty, etc.)
       util.ts                         # low-level helpers (deref, lcFirst, canonicalPropName)
@@ -183,6 +183,36 @@ generated-src/                        # output (gitignored)
 | `npm run test`                         | Run tests (vitest)                          |
 | `npm run validate:jsonschema`          | Validate generated schemas against Draft 07 |
 | `npm run docs`                         | Generate TypeDoc HTML per assembly          |
+
+## HOWTO: Produce `.ts` Files with `ts-gen.ts`
+
+`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces three files: the interface + transitive deps, a variant without omnipresent base types, and XML serialization/mapping code.
+
+**Prerequisites:** a built `base` assembly (run `make all` first).
+
+```bash
+cd html-ts-gen
+
+# Basic — writes to /tmp/
+npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
+
+# Custom output directory
+npx tsx scripts/ts-gen.ts --dest-dir ./out VehicleType
+
+# Single entity
+npx tsx scripts/ts-gen.ts ServiceJourney
+```
+
+Each target `<Name>` produces:
+| File | Content |
+|------|---------|
+| `<Name>.ts` | Interface + all transitive dependency types |
+| `<Name>-no-omni.ts` | Same, but without omnipresent base types (`DataManagedObject`, etc.) |
+| `<Name>-mapping.ts` | XML serialization functions (schema→XML projection) |
+
+All files are type-checked with `tsc --strict` automatically. Exit code is 0 if all targets pass, 1 otherwise.
+
+The entity names are **case-sensitive** and must match definitions in the schema (e.g. `VehicleType`, not `vehicleType`). If a target is not found it is skipped with a warning.
 
 ## Related Projects
 

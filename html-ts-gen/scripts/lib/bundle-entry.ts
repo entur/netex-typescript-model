@@ -19,6 +19,7 @@ export {
 } from "./classify.js";
 export {
   OMNIPRESENT_DEFS,
+  buildExclSet,
   flattenAllOf,
   collectRequired,
   buildInheritanceChain,
@@ -49,7 +50,6 @@ export {
   generateTypeAlias,
   generateTypeGuard,
   generateFactory,
-  generateRootDefBlock,
   generateSubTypesBlock,
   collectRenderableDeps,
   toConstName,

@@ -21,13 +21,13 @@ cd .. && make all          # full pipeline (or run stages below individually)
 
 | File | Purpose |
 |------|---------|
-| `scripts/generate.ts` | JSON Schema → monolithic TypeScript → per-category modules → type-check |
+| `scripts/primitive-ts-gen.ts` | JSON Schema → monolithic TypeScript → per-category modules → type-check |
 | `scripts/split-output.ts` | Split monolithic `.ts` into per-category modules with cross-imports |
 | `scripts/build-schema-html.ts` | Generate self-contained interactive HTML viewer per assembly |
 | `scripts/build-docs-index.ts` | Assemble `docs-site/` with welcome page for GitHub Pages |
 | `scripts/generate-docs.ts` | TypeDoc HTML per assembly |
 | `scripts/validate-generated-schemas.ts` | Validate JSON Schema files against Draft 07 meta-schema |
-| `scripts/e2e-codegen-typecheck.ts` | E2E: assemble codegen output and verify with `tsc --strict` |
+| `scripts/ts-gen.ts` | E2E: assemble codegen output and verify with `tsc --strict` |
 
 ## Library Modules (`scripts/lib/`)
 

@@ -25,9 +25,9 @@ flowchart TB
 
     subgraph COPY_TS["Copy - Interface tab"]
         direction TB
-        copybtn[Copy] --> grdb[generateRootDefBlock]
+        copybtn[Copy] --> gi["generateInterface.text"]
         copybtn --> gstb[generateSubTypesBlock]
-        grdb --> merge["root + subtypes"]
+        gi --> merge["root + subtypes"]
         gstb --> merge
         merge --> clipboard["plain TypeScript"]
     end
@@ -77,7 +77,7 @@ flowchart TB
 | Output | Format | Tab | Codegen Function |
 |--------|--------|-----|-----------------|
 | Main interface | TypeScript | TypeScript | `generateInterface` |
-| Subtypes | TypeScript | TypeScript | `generateRootDefBlock` + `generateSubTypesBlock` |
+| Subtypes | TypeScript | TypeScript | `generateInterface` + `generateSubTypesBlock` |
 | Serialize functions | TypeScript | Mapping | `makeInlineCodeBlock` / `makeInlinedToXmlShape` |
 | Type guard | TypeScript | Utilities | `generateTypeGuard` |
 | Factory | TypeScript | Utilities | `generateFactory` |
