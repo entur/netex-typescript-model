@@ -25,6 +25,11 @@ const VT_EXPLICIT = new Set([
   "Extensions", "capacities", "FuelType", "TypeOfFuel",
 ]);
 
+// Shared VehicleType fixtures (fake is pure/deterministic)
+const vtAllProps = flattenAllOf(netexLibrary, "VehicleType");
+const vtMock = fake(netexLibrary, "VehicleType");
+const vtExclSet = buildExclSet(vtAllProps, { explicit: VT_EXPLICIT });
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Strip TS annotations from makeInlineCodeBlock output for eval. */
@@ -74,15 +79,13 @@ describe.each(TEST_ENTITIES)("$name generated roundtrip (schema shape)", (entity
 
 describe("VehicleType generated roundtrip with exclusions", () => {
   const vtEntity = CORE.find((e) => e.name === "VehicleType")!;
-  const allProps = flattenAllOf(netexLibrary, "VehicleType");
-  const exclSet = buildExclSet(allProps, { explicit: VT_EXPLICIT });
 
   it("mapping code with exclusions produces XSD-valid XML", { timeout: 30_000 }, () => {
-    const shapeFn = evalMapping("VehicleType", exclSet);
-    const mock = fake(netexLibrary, "VehicleType");
-    // Strip excluded props from mock to match what mapping code expects
+    const shapeFn = evalMapping("VehicleType", vtExclSet);
+    // Can't use flattenFake here: mapping code expects schema-shape (wrapped
+    // collections), but flattenFake unwraps them. Only strip excluded props.
     const filtered = Object.fromEntries(
-      Object.entries(mock).filter(([k]) => !exclSet?.has(k)),
+      Object.entries(vtMock).filter(([k]) => !vtExclSet?.has(k)),
     );
     const xmlShape = shapeFn(filtered);
     const xml = buildXml("VehicleType", xmlShape);
@@ -97,12 +100,10 @@ describe("VehicleType generated roundtrip with exclusions", () => {
 // ── Group B: flattenFake shape assertions ────────────────────────────────────
 
 describe("flattenFake", () => {
-  const vtMock = fake(netexLibrary, "VehicleType");
-  const allProps = flattenAllOf(netexLibrary, "VehicleType");
-  const exclSet = buildExclSet(allProps, { explicit: VT_EXPLICIT });
-
   describe("exclusions (VehicleType + gen-vehicletype.sh list)", () => {
-    const flat = flattenFake(netexLibrary, "VehicleType", vtMock, { excludeProps: exclSet });
+    const flat = flattenFake(netexLibrary, "VehicleType", vtMock, {
+      excludeProps: vtExclSet, props: vtAllProps,
+    });
 
     it("strips excluded base attrs", () => {
       for (const k of ["$changed", "$modification", "$status", "$nameOfClass"]) {
@@ -128,22 +129,13 @@ describe("flattenFake", () => {
   });
 
   describe("collection unwrapping", () => {
-    const flat = flattenFake(netexLibrary, "VehicleType", vtMock);
+    const flat = flattenFake(netexLibrary, "VehicleType", vtMock, { props: vtAllProps });
 
-    it("unwraps keyList wrapper to flat array", () => {
-      if (!vtMock.keyList) return;
-      const orig = vtMock.keyList as Record<string, unknown>;
-      // fake() produces { KeyValue: [...] }, flattenFake should unwrap
+    it.each(["keyList", "privateCodes"])("unwraps %s wrapper to flat array", (prop) => {
+      if (!vtMock[prop]) return;
+      const orig = vtMock[prop];
       if (typeof orig === "object" && !Array.isArray(orig)) {
-        expect(Array.isArray(flat.keyList), "keyList should be flat array").toBe(true);
-      }
-    });
-
-    it("unwraps privateCodes wrapper to flat array", () => {
-      if (!vtMock.privateCodes) return;
-      const orig = vtMock.privateCodes as Record<string, unknown>;
-      if (typeof orig === "object" && !Array.isArray(orig)) {
-        expect(Array.isArray(flat.privateCodes), "privateCodes should be flat array").toBe(true);
+        expect(Array.isArray(flat[prop]), `${prop} should be flat array`).toBe(true);
       }
     });
 

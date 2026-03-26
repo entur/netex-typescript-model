@@ -9,7 +9,7 @@
  */
 
 import { XMLBuilder } from "fast-xml-parser";
-import type { NetexLibrary, Def } from "./types.js";
+import type { NetexLibrary, Def, FlatProperty } from "./types.js";
 import { classifySchema, defRole, isDynNocRef } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
@@ -399,8 +399,7 @@ export function fake(netexLibrary: NetexLibrary, name: string): Record<string, u
  *
  * 1. **Collection unwrap** — where `resolvePropertyType` applied "array-unwrap"
  *    (e.g. `keyList: { KeyValue: [...] }` → `keyList: [...]`)
- * 2. **Excluded props** — strips properties from the output (same `Set<string>`
- *    produced by `buildExclSet`)
+ * 2. **Excluded props** — strips properties from the output (see `buildExclSet`)
  *
  * Future hooks for issue #30:
  * - `--collapse-refs`: ref object → `$ref` string
@@ -410,14 +409,15 @@ export function flattenFake(
   netexLibrary: NetexLibrary,
   name: string,
   mock: Record<string, unknown>,
-  opts?: { excludeProps?: Set<string> },
+  opts?: { excludeProps?: Set<string>; props?: FlatProperty[] },
 ): Record<string, unknown> {
-  const props = flattenAllOf(netexLibrary, name);
+  const props = opts?.props ?? flattenAllOf(netexLibrary, name);
   const result = { ...mock };
 
   for (const p of props) {
     const canon = p.prop[1];
 
+    // Fast-path: skip introspection for excluded props
     if (opts?.excludeProps?.has(canon)) {
       delete result[canon];
       continue;

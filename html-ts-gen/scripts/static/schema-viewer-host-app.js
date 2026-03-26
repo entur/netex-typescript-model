@@ -880,7 +880,7 @@
     // ── Sample data tab ──────────────────────────────────────────────────
 
     const explorerSample = document.getElementById('explorerSample');
-    var _cachedRawStem = null;
+    var _cachedFakeMock = null;
     var _cachedSampleStem = null;
     var _cachedSampleNested = null;
     var _cachedSampleName = null;
@@ -917,24 +917,23 @@
 
     /** Re-render only the Flat panel with the current exclusion set. */
     function refreshFlatPanel() {
-      if (!_cachedSampleName || !_cachedRawStem) return;
+      if (!_cachedSampleName || !_cachedFakeMock) return;
       var allProps = flattenAllOf(netexLibrary, _cachedSampleName);
       var exclSet = hostExclSet(allProps);
-      _cachedSampleStem = flattenFake(_cachedSampleName, _cachedRawStem, exclSet ? { excludeProps: exclSet } : undefined);
+      _cachedSampleStem = flattenFake(_cachedSampleName, _cachedFakeMock, { excludeProps: exclSet, props: allProps });
       var panel = explorerSample.querySelector('[data-fmt="js"]');
       if (panel) {
-        var btn = panel.querySelector('.copy-btn');
-        panel.innerHTML = highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2));
-        if (btn) panel.appendChild(btn); else { var b = document.createElement('button'); b.className = 'copy-btn'; b.textContent = 'Copy'; panel.appendChild(b); }
+        panel.innerHTML = highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2))
+          + '<button class="copy-btn">Copy</button>';
       }
     }
 
     /** Build all three sample panels once, then show the requested format. */
     function renderSampleData(name, allProps) {
-      _cachedRawStem = fake(name);
+      _cachedFakeMock = fake(name);
       var exclSet = allProps ? hostExclSet(allProps) : undefined;
-      _cachedSampleStem = flattenFake(name, _cachedRawStem, exclSet ? { excludeProps: exclSet } : undefined);
-      _cachedSampleNested = toXmlShape(name, _cachedRawStem);
+      _cachedSampleStem = flattenFake(name, _cachedFakeMock, { excludeProps: exclSet, props: allProps });
+      _cachedSampleNested = toXmlShape(name, _cachedFakeMock);
       _cachedSampleName = name;
 
       var html = '';
