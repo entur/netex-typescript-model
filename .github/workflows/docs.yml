@@ -67,9 +67,6 @@ jobs:
           - name: full
             args: "ASSEMBLY=network+timetable+fares+new-modes"
             dir: fares+network+new-modes+timetable
-          - name: subgraph
-            args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
-            dir: "base@ResourceFrame@tiny"
     steps:
       - uses: actions/checkout@v4
 
@@ -135,9 +132,9 @@ jobs:
         env:
           ROUNDTRIP_EXTENSIVE: "1"
 
-      - name: Run e2e codegen type-check
+      - name: Run ts-gen type-check
         working-directory: html-ts-gen
-        run: npx tsx scripts/e2e-codegen-typecheck.ts
+        run: npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
 
   assemble:
     needs: [build-base, build-others, test]
@@ -168,11 +165,6 @@ jobs:
         with:
           name: assembly-full
           path: generated-src/fares+network+new-modes+timetable/
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: assembly-subgraph
-          path: "generated-src/base@ResourceFrame@tiny/"
 
       - name: Build welcome page
         working-directory: html-ts-gen

@@ -66,8 +66,8 @@ jobs:
         include:
           - name: ntt
             args: "ASSEMBLY=network+timetable"
-          - name: subgraph
-            args: "SUB_GRAPH=ResourceFrame COLLAPSE=1"
+          - name: full
+            args: "ASSEMBLY=network+timetable+fares+new-modes"
     steps:
       - uses: actions/checkout@v4
 
@@ -137,9 +137,9 @@ jobs:
         env:
           ROUNDTRIP_EXTENSIVE: "1"
 
-      - name: Run e2e codegen type-check
+      - name: Run ts-gen type-check
         working-directory: html-ts-gen
-        run: npx tsx scripts/e2e-codegen-typecheck.ts
+        run: npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
 
   release:
     needs: [build-base, build-others, test]
@@ -157,7 +157,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: tarball-subgraph
+          name: tarball-full
           path: tarballs/
 
       - name: Create GitHub Release

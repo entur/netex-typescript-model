@@ -1,6 +1,6 @@
 # netex-typescript-model
 
-## Experimental / Work-in-progress !!
+## Experimental
 
 Generates JSON Schema and TypeScript interfaces from [NeTEx](http://netex-cen.eu/) (Network Timetable Exchange) XSD schemas. The JSON Schema is a standalone artifact useful on its own (validation, code generation in other languages, interactive HTML viewer); the TypeScript interfaces build on top of it. Sibling project to [netex-java-model](https://github.com/entur/netex-java-model).
 
@@ -36,6 +36,35 @@ make all                       # full pipeline: XSD → JSON Schema → HTML →
 ```
 
 This downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, generates an interactive HTML viewer, TypeScript interfaces, and TypeDoc documentation.
+
+## Produce `.ts` Files with `ts-gen.ts`
+
+`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces two files: the interface + transitive deps, and XML serialization/mapping code.
+
+**Prerequisites:** a built `base` assembly (run `make all` first).
+
+```bash
+cd html-ts-gen
+
+# Basic — writes to /tmp/
+npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
+
+# Custom output directory
+npx tsx scripts/ts-gen.ts --dest-dir ./out VehicleType
+
+# Single entity
+npx tsx scripts/ts-gen.ts ServiceJourney
+```
+
+Each target `<Name>` produces:
+| File | Content |
+|------|---------|
+| `<Name>.ts` | Interface + all transitive dependency types |
+| `<Name>-mapping.ts` | XML serialization functions (schema→XML projection) |
+
+Use `--exclude` to strip specific properties, `--suffix` to tag output files, and `--overwrite` to replace existing files. All output is type-checked with `tsc --strict` automatically. Exit code is 0 if all targets pass, 1 otherwise.
+
+Entity names are **case-sensitive** and must match definitions in the schema (e.g. `VehicleType`, not `vehicleType`). Unknown targets are skipped with a warning.
 
 ## Generating Variants
 
@@ -76,18 +105,6 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds e
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
 
-### Stage 2: JSON Schema → TypeScript (`generate.ts`)
-
-```
-<assembly>.schema.json → json-schema-to-typescript → split modules → tsc --noEmit
-```
-
-1. Reads `x-netex-source` annotations to build a type→file source map
-2. Injects `@see` links into a clone (persisted JSON stays clean)
-3. Compiles to monolithic TypeScript via `json-schema-to-typescript`
-4. Splits into per-category modules with cross-imports and a barrel `index.ts`
-5. Type-checks with `tsc --noEmit`
-
 ### Documentation
 
 ```bash
@@ -96,7 +113,7 @@ npm run docs                          # TypeDoc HTML per assembly
 npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
 
-CI builds `base`, `network+timetable`, and `base@ResourceFrame@tiny` (collapsed sub-graph) assemblies, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
+CI builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
 
 ## XSD Subset
 
@@ -137,16 +154,18 @@ All settings live in [`assembly-config.json`](assembly-config.json):
 Makefile                              # build entry point
 assembly-config.json                  # NeTEx version, parts, output paths
 tsconfig.generated.json               # type-check config for generated output
+gen-deckplan.sh                       # convenience wrapper: DeckPlan with editor exclusions
+gen-vehicletype.sh                    # convenience wrapper: VehicleType with hathor exclusions
 docs/                                 # design docs (subset selection guide, etc.)
 html-ts-gen/                          # Node.js/TypeScript tooling
   scripts/
-    generate.ts                       # JSON Schema → TypeScript (positional arg)
+    primitive-ts-gen.ts               # JSON Schema → TypeScript (positional arg)
     split-output.ts                   # split monolithic .ts into per-category modules
     validate-generated-schemas.ts     # validate JSON Schema against Draft 07 meta-schema
     build-schema-html.ts              # interactive JSON Schema HTML viewer
     generate-docs.ts                  # TypeDoc HTML per assembly
     build-docs-index.ts               # docs-site/ welcome page
-    e2e-codegen-typecheck.ts          # e2e validation: assembled codegen → tsc --strict
+    ts-gen.ts                         # e2e validation: assembled codegen → tsc --strict
     lib/
       types.ts                        # shared type definitions (NetexLibrary, FlatProperty, etc.)
       util.ts                         # low-level helpers (deref, lcFirst, canonicalPropName)
@@ -158,6 +177,7 @@ html-ts-gen/                          # Node.js/TypeScript tooling
       to-xml-shape.ts                 # static stem→XML projection generators
       codegens.ts                     # TypeScript code generators (interface, guard, factory)
       config.ts                       # shared configuration (Config class, part resolution)
+      loader.ts                       # schema loader (loadNetexLibrary) for CLI scripts and tests
       bundle-entry.ts                 # esbuild entry point (re-exports lib modules for browser)
     static/
       schema-viewer-host-app.js       # browser-side controller (embedded in HTML)
@@ -175,14 +195,22 @@ generated-src/                        # output (gitignored)
     netex-schema.html                 # interactive schema viewer
 ```
 
+## Convenience Wrapper Scripts
+
+| Script | Entity | Description |
+|--------|--------|-------------|
+| `gen-vehicletype.sh` | VehicleType | Generates with hathor-specific `--exclude` list |
+| `gen-deckplan.sh` | DeckPlan | Generates with NeTEx-Deckplan-Editor `--exclude` list |
+
+Both call `ts-gen.ts` internally with `--exclude` and `--overwrite`. They accept `--dest-dir` and `--suffix` pass-through flags.
+
 ## npm Scripts (html-ts-gen/)
 
-| Script                                 | Description                                 |
-| -------------------------------------- | ------------------------------------------- |
-| `npm run generate:ts -- <schema.json>` | Generate TypeScript from a JSON Schema      |
-| `npm run test`                         | Run tests (vitest)                          |
-| `npm run validate:jsonschema`          | Validate generated schemas against Draft 07 |
-| `npm run docs`                         | Generate TypeDoc HTML per assembly          |
+| Script                        | Description                                 |
+| ----------------------------- | ------------------------------------------- |
+| `npm run test`                | Run tests (vitest)                          |
+| `npm run validate:jsonschema` | Validate generated schemas against Draft 07 |
+| `npm run docs`                | Generate TypeDoc HTML per assembly          |
 
 ## Related Projects
 

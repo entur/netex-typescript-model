@@ -23,7 +23,7 @@ The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on 
 
 ### `x-netex-source` (string)
 
-Stamped in `toJsonSchema()`. Records the origin XSD filename for each definition. Used by `generate.ts` to build a source map that drives per-category module splitting (siri, reusable, core, network, etc.).
+Stamped in `toJsonSchema()`. Records the origin XSD filename for each definition. Used by `primitive-ts-gen.ts` to build a source map that drives per-category module splitting (siri, reusable, core, network, etc.).
 
 ### `x-netex-assembly` (string)
 

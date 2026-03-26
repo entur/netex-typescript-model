@@ -1,7 +1,7 @@
 /**
  * Shared configuration for the NeTEx TypeScript generation pipeline.
  *
- * Extracted from generate.ts so that xsd-to-jsonschema-1st-try.ts and other scripts
+ * Extracted from primitive-ts-gen.ts so that xsd-to-jsonschema-1st-try.ts and other scripts
  * can reuse Config, part definitions, and assembly resolution without pulling in
  * the full generation pipeline.
  */

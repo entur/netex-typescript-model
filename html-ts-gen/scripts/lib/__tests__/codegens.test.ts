@@ -4,7 +4,6 @@ import {
   generateTypeAlias,
   generateTypeGuard,
   generateFactory,
-  generateRootDefBlock,
   generateSubTypesBlock,
   collectRenderableDeps,
   toConstName,
@@ -258,6 +257,17 @@ describe("generateInterface", () => {
     expect(text).toContain("nameOfMemberClass?: string;");
     expect(text).not.toContain("NameOfClass");
   });
+
+  it("excludeProps omits named properties", () => {
+    const { text } = generateInterface(netexLibrary, "Authority", {
+      html: false,
+      excludeProps: new Set(["Name", "Description"]),
+    });
+    expect(text).toContain("interface Authority {");
+    expect(text).not.toContain("Name?");
+    expect(text).not.toContain("Description?");
+    expect(text).toContain("AuthorityCode?");
+  });
 });
 
 // ── generateTypeAlias (plain text) ──────────────────────────────────────────
@@ -371,17 +381,17 @@ describe("generateFactory", () => {
   });
 });
 
-// ── generateRootDefBlock ─────────────────────────────────────────────────────
+// ── generateInterface (root block) ──────────────────────────────────────────
 
-describe("generateRootDefBlock", () => {
+describe("generateInterface as root block", () => {
   it("generates plain text with metaComments for Authority", () => {
-    const text = generateRootDefBlock(netexLibrary, "Authority", { html: false });
+    const { text } = generateInterface(netexLibrary, "Authority", { html: false });
     expect(text).toContain("interface Authority {");
     expect(text).toContain("// ──");
   });
 
   it("returns alias text for enum definitions", () => {
-    const text = generateRootDefBlock(netexLibrary, "AllModesEnumeration", { html: false });
+    const { text } = generateInterface(netexLibrary, "AllModesEnumeration", { html: false });
     expect(text).toContain("const ALL_MODES");
   });
 });

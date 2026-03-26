@@ -132,8 +132,8 @@ export interface InterfaceOpts {
   preProps?: FlatProperty[];
   /** Prepend exclude-from-codegen checkboxes to each property line (HTML only). */
   excludeCheckboxes?: boolean;
-  /** Exclude properties from omnipresent base types (EntityStructure, etc.). */
-  excludeOmni?: boolean;
+  /** Filter out specific properties by canonical name. */
+  excludeProps?: Set<string>;
 }
 
 export interface TypeAliasOpts {
@@ -146,8 +146,8 @@ export interface TypeGuardOpts {
   html?: boolean;
   /** Pre-computed flat properties. */
   preProps?: FlatProperty[];
-  /** Exclude properties from omnipresent base types. */
-  excludeOmni?: boolean;
+  /** Filter out specific properties by canonical name. */
+  excludeProps?: Set<string>;
 }
 
 export interface FactoryOpts {
@@ -156,8 +156,8 @@ export interface FactoryOpts {
   preProps?: FlatProperty[];
   /** Pre-computed required set. */
   preRequired?: Set<string>;
-  /** Exclude properties from omnipresent base types. */
-  excludeOmni?: boolean;
+  /** Filter out specific properties by canonical name. */
+  excludeProps?: Set<string>;
 }
 
 // ── generateTypeAlias ───────────────────────────────────────────────────────
@@ -277,7 +277,10 @@ export function generateInterface(
   const excludeCb = html && (opts?.excludeCheckboxes ?? false);
   const e = escFn(html);
 
-  let flat = opts?.preProps || flattenAllOf(netexLibrary, name, { excludeOmni: opts?.excludeOmni });
+  let flat = opts?.preProps || flattenAllOf(netexLibrary, name);
+  if (opts?.excludeProps) {
+    flat = flat.filter((p) => !opts.excludeProps!.has(p.prop[1]));
+  }
 
   // If no properties, try to render as a type alias
   if (flat.length === 0) {
@@ -401,7 +404,10 @@ export function generateTypeGuard(
 ): string {
   const html = opts?.html !== false;
   const e = escFn(html);
-  const props = opts?.preProps || flattenAllOf(netexLibrary, name, { excludeOmni: opts?.excludeOmni });
+  let props = opts?.preProps || flattenAllOf(netexLibrary, name);
+  if (opts?.excludeProps) {
+    props = props.filter((p) => !opts.excludeProps!.has(p.prop[1]));
+  }
 
   const lines: string[] = [];
   if (html) {
@@ -507,8 +513,11 @@ export function generateFactory(
 ): string {
   const html = opts?.html !== false;
   const e = escFn(html);
-  const props = opts?.preProps || flattenAllOf(netexLibrary, name, { excludeOmni: opts?.excludeOmni });
-  const required = opts?.preRequired || collectRequired(netexLibrary, name, { excludeOmni: opts?.excludeOmni });
+  let props = opts?.preProps || flattenAllOf(netexLibrary, name);
+  if (opts?.excludeProps) {
+    props = props.filter((p) => !opts.excludeProps!.has(p.prop[1]));
+  }
+  const required = opts?.preRequired || collectRequired(netexLibrary, name);
 
   const lines: string[] = [];
   if (html) {
@@ -568,17 +577,6 @@ export function generateFactory(
 // ── Composite block generators ─────────────────────────────────────────────
 
 /**
- * Generate the root interface block for a definition (with meta comments).
- */
-export function generateRootDefBlock(
-  netexLibrary: NetexLibrary,
-  name: string,
-  opts?: { html?: boolean; excludeOmni?: boolean },
-): string {
-  return generateInterface(netexLibrary, name, { html: opts?.html ?? false, excludeOmni: opts?.excludeOmni }).text;
-}
-
-/**
  * Collect the renderable (non-duplicate, non-alias, non-empty) dependency
  * names for a definition. Extracted from the host-app's inline 3-filter logic
  * so it can be tested and reused.
@@ -620,19 +618,26 @@ function collectFixedEnumTargets(netexLibrary: NetexLibrary): Set<string> {
 export function generateSubTypesBlock(
   netexLibrary: NetexLibrary,
   name: string,
-  opts?: { html?: boolean; excludedMembers?: Set<string>; excludeOmni?: boolean },
+  opts?: { html?: boolean; excludedMembers?: Set<string>; excludeProps?: Set<string> },
 ): string {
   const html = opts?.html ?? false;
   const fixedEnumTargets = collectFixedEnumTargets(netexLibrary);
 
+  const excl = opts?.excludeProps;
   return collectRenderableDeps(netexLibrary, name, opts?.excludedMembers)
+    .filter((n) => {
+      if (!excl || fixedEnumTargets.has(n)) return true;
+      if (defRole(netexLibrary[n]) === "enumeration") return true;
+      const flat = flattenAllOf(netexLibrary, n);
+      return flat.some((p) => !excl.has(p.prop[1]));
+    })
     .map((n) => {
       if (fixedEnumTargets.has(n)) {
         return html
           ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
           : `type ${n} = string;`;
       }
-      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeOmni: opts?.excludeOmni }).text;
+      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: excl }).text;
     })
     .join("\n\n");
 }

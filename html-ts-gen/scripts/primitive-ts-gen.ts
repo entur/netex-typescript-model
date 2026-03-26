@@ -1,7 +1,7 @@
 /**
  * Generates TypeScript interfaces from a pre-generated NeTEx JSON Schema.
  *
- * Usage: npx tsx scripts/generate.ts <schema.json>
+ * Usage: npx tsx scripts/primitive-ts-gen.ts <schema.json>
  *
  * The schema must contain an "x-netex-assembly" field identifying the assembly name.
  * Per-definition "x-netex-source" annotations are used to build the source map for
@@ -35,7 +35,7 @@ const DOCS_BASE_URL = "https://entur.github.io/netex-typescript-model";
 
 const schemaPath = process.argv[2];
 if (!schemaPath) {
-  console.error("Usage: npx tsx scripts/generate.ts <schema.json>");
+  console.error("Usage: npx tsx scripts/primitive-ts-gen.ts <schema.json>");
   process.exit(1);
 }
 

@@ -12,6 +12,24 @@ export const OMNIPRESENT_DEFS = new Set([
   "DataManagedObjectStructure",
 ]);
 
+/**
+ * Build a merged exclusion set from explicit prop names + optional omni filtering.
+ * Shared by CLI (ts-gen) and browser (schema-viewer-host-app).
+ */
+export function buildExclSet(
+  allProps: FlatProperty[],
+  opts?: { omni?: boolean; explicit?: Set<string> },
+): Set<string> | undefined {
+  const excl = new Set(opts?.explicit ?? []);
+  if (opts?.omni) {
+    const kept = new Set(
+      allProps.filter((p) => !OMNIPRESENT_DEFS.has(p.origin)).map((p) => p.prop[1]),
+    );
+    for (const p of allProps) if (!kept.has(p.prop[1])) excl.add(p.prop[1]);
+  }
+  return excl.size > 0 ? excl : undefined;
+}
+
 /** Flatten allOf inheritance to a list of properties with their origin type. */
 export function flattenAllOf(
   netexLibrary: NetexLibrary,

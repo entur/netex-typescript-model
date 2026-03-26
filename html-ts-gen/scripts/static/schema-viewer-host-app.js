@@ -530,13 +530,14 @@
      * @returns {{html: string, isAlias: boolean}} An `.interface-block` div with a Copy button.
      */
     function renderInterfaceHtml(name, preProps, metaComments) {
+      var ifProps = preProps || flattenAllOf(netexLibrary, name);
       var result = generateInterface(netexLibrary, name, {
         html: true,
         metaComments: metaComments,
         inlineRefs: metaComments && inlineRefsEnabled,
-        preProps: hideOmniEnabled ? undefined : (preProps || undefined),
+        preProps: ifProps,
         excludeCheckboxes: metaComments,
-        excludeOmni: hideOmniEnabled,
+        excludeProps: hostExclSet(ifProps),
       });
       var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
       var html = '<div class="' + blockClass + '">' + result.text;
@@ -581,7 +582,7 @@
       if (currentIsAlias || !currentExplored) return;
 
       var allProps = flattenAllOf(netexLibrary, currentExplored);
-      var excludedSet = buildExclSet(allProps) || new Set();
+      var excludedSet = hostExclSet(allProps) || new Set();
       var depNodes = collectDependencyTree(currentExplored, excludedSet);
       // Total unique deps (for compaction % display)
       var seen = {};
@@ -594,11 +595,20 @@
       }
 
       var uniqueNames = collectRenderableDeps(currentExplored, excludedSet);
+      // Remove subtypes whose properties are all excluded (empty interface)
+      if (hideOmniEnabled || excludedSet.size > 0) {
+        uniqueNames = uniqueNames.filter(function(n) {
+          if (defRole(n) === 'enumeration') return true;
+          var sp = flattenAllOf(netexLibrary, n);
+          var se = buildExclSet(sp, { omni: hideOmniEnabled, explicit: excludedSet });
+          return !se || sp.some(function(p) { return !se.has(p.prop[1]); });
+        });
+      }
       if (uniqueNames.length > 0) {
         var chip = document.createElement('button');
         chip.className = 'deps-expand-chip';
         chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
-        if (Object.keys(currentExcluded).length > 0) {
+        if (hideOmniEnabled || Object.keys(currentExcluded).length > 0) {
           chip.classList.add('chip-flash');
           chip.addEventListener('animationend', function() { chip.classList.remove('chip-flash'); }, { once: true });
         }
@@ -668,19 +678,14 @@
             }
           }
           var excludedSet = new Set(Object.keys(excludedProps));
-          var root = generateRootDefBlock(currentExplored, { excludeOmni: hideOmniEnabled });
-          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeOmni: hideOmniEnabled });
+          var copyAllProps = flattenAllOf(netexLibrary, currentExplored);
+          var copyExcl = hostExclSet(copyAllProps);
+          var root = generateInterface(netexLibrary, currentExplored, { html: false, excludeProps: copyExcl }).text;
+          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeProps: copyExcl });
           plain = subs ? root + '\n\n' + subs : root;
-          // Strip excluded property lines from plain-text output
-          if (Object.keys(excludedProps).length > 0) {
-            plain = plain.split('\n').filter(function(line) {
-              var m = line.match(/^\s+(\$?\w+)\?:/);
-              return !m || !excludedProps[m[1]];
-            }).join('\n');
-          }
         } else if (container === explorerMapping && currentExplored) {
-          var copyProps = flattenAllOf(netexLibrary, currentExplored);
-          plain = makeInlineCodeBlock(currentExplored, copyProps, { html: false, excludeProps: buildExclSet(copyProps) });
+          var mapProps = flattenAllOf(netexLibrary, currentExplored);
+          plain = makeInlineCodeBlock(currentExplored, mapProps, { html: false, excludeProps: hostExclSet(mapProps) });
         } else {
           plain = block.innerText.replace(/Copy$/, '').trimEnd();
         }
@@ -765,16 +770,9 @@
 
     const explorerMapping = document.getElementById('explorerMapping');
 
-    /** Build merged exclusion set from per-prop checkboxes + omnipresent base props. */
-    function buildExclSet(allProps) {
-      var excl = new Set(Object.keys(currentExcluded));
-      if (hideOmniEnabled) {
-        var kept = new Set(allProps.filter(function(p) {
-          return !_viewerBundle.OMNIPRESENT_DEFS.has(p.origin);
-        }).map(function(p) { return p.prop[1]; }));
-        allProps.forEach(function(p) { if (!kept.has(p.prop[1])) excl.add(p.prop[1]); });
-      }
-      return excl.size > 0 ? excl : undefined;
+    /** Convenience: merge per-prop checkboxes + omni toggle into one exclusion set. */
+    function hostExclSet(allProps) {
+      return buildExclSet(allProps, { omni: hideOmniEnabled, explicit: new Set(Object.keys(currentExcluded)) });
     }
 
     /**
@@ -782,7 +780,7 @@
      * function from `makeInlineCodeBlock`.
      */
     function renderMappingHtml(name, props) {
-      var highlighted = makeInlineCodeBlock(name, props, { html: true, excludeProps: buildExclSet(props) });
+      var highlighted = makeInlineCodeBlock(name, props, { html: true, excludeProps: hostExclSet(props) });
 
       var html = '';
       html += '<div class="mapping-section"><h3>Serialize</h3>';

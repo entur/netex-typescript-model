@@ -179,8 +179,8 @@ function buildViewerFnsScript(): string {
     var generateInterface = _viewerBundle.generateInterface;
     var generateTypeGuard = _viewerBundle.generateTypeGuard;
     var generateFactory = _viewerBundle.generateFactory;
-    function generateRootDefBlock(name, opts) { return _viewerBundle.generateRootDefBlock(netexLibrary, name, opts); }
     function generateSubTypesBlock(name, opts) { return _viewerBundle.generateSubTypesBlock(netexLibrary, name, opts); }
+    function buildExclSet(allProps, opts) { return _viewerBundle.buildExclSet(allProps, opts); }
     var _reverseIdx = null;
     function buildReverseIndex() {
       if (!_reverseIdx) _reverseIdx = _viewerBundle.buildReverseIndex(netexLibrary);
