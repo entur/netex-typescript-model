@@ -388,6 +388,71 @@ export function fake(netexLibrary: NetexLibrary, name: string): Record<string, u
   return result;
 }
 
+// ── Interface-shape transform ────────────────────────────────────────────────
+
+/**
+ * Transform a `fake()` output to match the shape declared by `generateInterface()`.
+ *
+ * `fake()` produces schema-faithful objects (wrapper structures, full ref
+ * objects). `generateInterface()` declares a flattened shape after type
+ * resolution rules have been applied. This function bridges the gap:
+ *
+ * 1. **Collection unwrap** — where `resolvePropertyType` applied "array-unwrap"
+ *    (e.g. `keyList: { KeyValue: [...] }` → `keyList: [...]`)
+ * 2. **Excluded props** — strips properties from the output (same `Set<string>`
+ *    produced by `buildExclSet`)
+ *
+ * Future hooks for issue #30:
+ * - `--collapse-refs`: ref object → `$ref` string
+ * - `--collapse-collections`: RelStructure → unwrapped VersionStructure
+ */
+export function flattenFake(
+  netexLibrary: NetexLibrary,
+  name: string,
+  mock: Record<string, unknown>,
+  opts?: { excludeProps?: Set<string> },
+): Record<string, unknown> {
+  const props = flattenAllOf(netexLibrary, name);
+  const result = { ...mock };
+
+  for (const p of props) {
+    const canon = p.prop[1];
+
+    if (opts?.excludeProps?.has(canon)) {
+      delete result[canon];
+      continue;
+    }
+
+    if (!(canon in result) || result[canon] === undefined) continue;
+
+    const shape = classifySchema(p.schema);
+    if (shape.kind !== "ref") continue;
+
+    const resolved = resolvePropertyType(netexLibrary, p.schema, name);
+
+    // Collection unwrap: resolvePropertyType says T[] but fake() produced { ChildKey: [...] }
+    if (resolved.ts.endsWith("[]") && resolved.via?.some((h) => h.rule === "array-unwrap")) {
+      const val = result[canon];
+      if (val && typeof val === "object" && !Array.isArray(val)) {
+        const inner = val as Record<string, unknown>;
+        const keys = Object.keys(inner);
+        if (keys.length === 1 && Array.isArray(inner[keys[0]])) {
+          result[canon] = inner[keys[0]];
+        }
+      }
+    }
+  }
+
+  // Remove excluded props not covered by flattenAllOf (inherited base props)
+  if (opts?.excludeProps) {
+    for (const k of opts.excludeProps) {
+      if (k in result) delete result[k];
+    }
+  }
+
+  return result;
+}
+
 /**
  * Build a formatted XML string from a pre-transformed XML-ready object.
  *

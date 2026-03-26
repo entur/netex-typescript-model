@@ -9,7 +9,8 @@
 #   ./gen-vehicletype.sh --dest-dir ./out --suffix=-v2 # combine flags
 
 # Props to strip (one per line, joined with commas below)
-EXCLUDE=$(cat <<'EOF'
+EXCLUDE=$(
+  cat <<'EOF'
 $changed
 $compatibleWithVersionFrameVersionRef
 $created
@@ -19,7 +20,6 @@ $derivedFromVersionRef
 $modification
 $nameOfClass
 $status
-$version
 alternativeTexts
 ValidBetween
 validityConditions
