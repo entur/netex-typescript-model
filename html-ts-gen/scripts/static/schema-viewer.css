@@ -519,6 +519,7 @@
     #explorerSample .interface-block,
     #explorerIface .interface-block,
     #explorerMapping .interface-block { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+    #explorerIface.deps-expanded > .interface-block:first-child { min-height: 45%; }
     #explorerMapping .mapping-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .graph-container { width: 100%; }
     .graph-container svg { display: block; }

@@ -615,9 +615,11 @@
             depsDiv.innerHTML = '';
             chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
             chip.classList.remove('expanded');
+            explorerIface.classList.remove('deps-expanded');
             return;
           }
           chip.classList.add('expanded');
+          explorerIface.classList.add('deps-expanded');
           chip.textContent = 'Loading\u2026';
           depsDiv.style.display = '';
           depsDiv.innerHTML = '<div class="spinner"></div>';
@@ -900,7 +902,6 @@
 
     attachCopyHandler(explorerSample);
     attachCopyHandler(explorerMapping);
-    attachCopyHandler(explorerUtils);
 
     // Graph node clicks
     graphContainer.addEventListener('click', e => {
