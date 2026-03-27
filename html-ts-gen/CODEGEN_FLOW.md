@@ -56,8 +56,9 @@ flowchart TB
     subgraph SAMPLE["Sample Data tab"]
         direction TB
         rsd[renderSampleData] --> fake[fake]
-        fake --> pill1["Flat: JSON.stringify"]
-        fake --> txs[toXmlShape]
+        fake --> ff[flattenFake]
+        ff --> pill1["Flat: JSON.stringify"]
+        ff --> txs[toXmlShape]
         txs --> pill2["XmlShaped: JSON.stringify"]
         txs --> bxml[buildXml]
         pill1 --> json1out["JSON flat object"]
@@ -81,6 +82,6 @@ flowchart TB
 | Serialize functions | TypeScript | Mapping | `makeInlineCodeBlock` / `makeInlinedToXmlShape` |
 | Type guard | TypeScript | Utilities | `generateTypeGuard` |
 | Factory | TypeScript | Utilities | `generateFactory` |
-| Flat stem object | JSON | Sample Data | `fake` |
+| Flat stem object | JSON | Sample Data | `flattenFake` (via `fake`) |
 | XMLBuilder shape | JSON | Sample Data | `toXmlShape` |
 | Formatted NeTEx | XML | Sample Data | `buildXml` |
