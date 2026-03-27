@@ -81,6 +81,30 @@ const netexLibrary: NetexLibrary = {
     },
     "x-netex-role": "structure",
   },
+  EntityInVersionStructure: {
+    allOf: [
+      { $ref: "#/definitions/EntityStructure" },
+      { properties: { version: { type: "string", xml: { attribute: true } } } },
+    ],
+  },
+  DataManagedObjectStructure: {
+    allOf: [
+      { $ref: "#/definitions/EntityInVersionStructure" },
+      { properties: { keyList: { type: "array" } } },
+    ],
+  },
+  EntityStructure: {
+    properties: {
+      id: { type: "string", xml: { attribute: true } },
+    },
+  },
+  ManagedEntity: {
+    allOf: [
+      { $ref: "#/definitions/DataManagedObjectStructure" },
+      { properties: { Code: { type: "string" } } },
+    ],
+    "x-netex-role": "entity",
+  },
   RequiredEntity: {
     properties: {
       Id: { type: "string" },
@@ -254,6 +278,34 @@ describe("generateInterface", () => {
     const { text } = generateInterface(netexLibrary, "WithDynClassRef", { html: false });
     expect(text).toContain("nameOfMemberClass?: string;");
     expect(text).not.toContain("NameOfClass");
+  });
+
+  it("omniCollapse pins essential attrs at head, DMO then EIV tail", () => {
+    const { text } = generateInterface(netexLibrary, "ManagedEntity", {
+      html: true, excludeCheckboxes: true, omniCollapse: true,
+    });
+    const lines = text.split("\n");
+    const idx = (s: string) => lines.findIndex((l) => l.includes(s));
+    // essential props pinned to head
+    expect(idx("$id")).toBeGreaterThan(-1);
+    expect(idx("$version")).toBeGreaterThan(idx("$id"));
+    // domain props next
+    expect(idx("Code")).toBeGreaterThan(idx("$version"));
+    // tail: DMO then EIV
+    expect(idx("keyList")).toBeGreaterThan(idx("Code"));
+  });
+
+  it("without omniCollapse: tail order DMO→EIV, props in natural groups", () => {
+    const { text } = generateInterface(netexLibrary, "ManagedEntity", { html: false });
+    const lines = text.split("\n");
+    const idx = (s: string) => lines.findIndex((l) => l.includes(s));
+    // EntityStructure at head
+    expect(idx("$id?")).toBeGreaterThan(-1);
+    // domain props
+    expect(idx("Code?")).toBeGreaterThan(idx("$id?"));
+    // tail: DMO then EIV ($version stays in EIV group)
+    expect(idx("keyList?")).toBeGreaterThan(idx("Code?"));
+    expect(idx("$version?")).toBeGreaterThan(idx("keyList?"));
   });
 
   it("excludeProps omits named properties", () => {

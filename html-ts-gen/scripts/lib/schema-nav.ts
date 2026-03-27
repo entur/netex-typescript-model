@@ -4,11 +4,10 @@ import type { Def, NetexLibrary, FlatProperty, InheritanceNode } from "./types.j
 import { deref, canonicalPropName } from "./util.js";
 import { resolveType } from "./classify.js";
 
-/** Base types inherited by every NeTEx entity — ~19 props of infrastructure clutter. */
+/** Base types inherited by every NeTEx entity — infrastructure clutter (id, version, status, etc.). */
 export const OMNIPRESENT_DEFS = new Set([
   "EntityStructure",
   "EntityInVersionStructure",
-  "DataManagedObjectStructure",
 ]);
 
 /** Omnipresent props retained even when omni-filtering — required for valid NeTEx XML. */
