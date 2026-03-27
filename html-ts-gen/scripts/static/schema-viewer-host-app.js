@@ -188,7 +188,7 @@
         renderInterface(name, props);
         renderMappingGuide(name, props);
         renderUtils(name, props, required);
-        renderSampleData(name);
+        renderSampleData(name, props);
       }, 0);
       currentExplored = name;
     }
@@ -556,6 +556,7 @@
       if (currentExplored) {
         renderInterface(currentExplored);
         renderMappingGuide(currentExplored);
+        refreshSamplePanels();
       }
     });
 
@@ -713,6 +714,7 @@
       }
       updateDepsSection();
       if (currentExplored) renderMappingGuide(currentExplored);
+      refreshSamplePanels();
     });
 
     // Via-chain popup on hover
@@ -878,6 +880,7 @@
     // ── Sample data tab ──────────────────────────────────────────────────
 
     const explorerSample = document.getElementById('explorerSample');
+    var _cachedFakeMock = null;
     var _cachedSampleStem = null;
     var _cachedSampleNested = null;
     var _cachedSampleName = null;
@@ -912,10 +915,39 @@
       }
     }
 
+    /** Re-render all three sample panels with the current exclusion set. */
+    function refreshSamplePanels() {
+      if (!_cachedSampleName || !_cachedFakeMock) return;
+      var allProps = flattenAllOf(netexLibrary, _cachedSampleName);
+      var exclSet = hostExclSet(allProps);
+
+      // Flat: interface shape with exclusions
+      _cachedSampleStem = flattenFake(_cachedSampleName, _cachedFakeMock, { excludeProps: exclSet, props: allProps });
+      // XmlShaped + XML: strip excluded props from raw mock, keep schema shape
+      var filteredRaw = {};
+      for (var k in _cachedFakeMock) { if (!exclSet || !exclSet.has(k)) filteredRaw[k] = _cachedFakeMock[k]; }
+      _cachedSampleNested = toXmlShape(_cachedSampleName, filteredRaw);
+
+      var flatPanel = explorerSample.querySelector('[data-fmt="js"]');
+      if (flatPanel) flatPanel.innerHTML = highlightJsonStr(JSON.stringify(_cachedSampleStem, null, 2))
+        + '<button class="copy-btn">Copy</button>';
+      var nestedPanel = explorerSample.querySelector('[data-fmt="nested"]');
+      if (nestedPanel) nestedPanel.innerHTML = highlightJsonStr(JSON.stringify(_cachedSampleNested, null, 2))
+        + '<button class="copy-btn">Copy</button>';
+      var xmlPanel = explorerSample.querySelector('[data-fmt="xml"]');
+      if (xmlPanel) xmlPanel.innerHTML = esc(buildXml(_cachedSampleName, _cachedSampleNested))
+        + '<button class="copy-btn">Copy</button>';
+    }
+
     /** Build all three sample panels once, then show the requested format. */
-    function renderSampleData(name) {
-      _cachedSampleStem = fake(name);
-      _cachedSampleNested = toXmlShape(name, _cachedSampleStem);
+    function renderSampleData(name, allProps) {
+      _cachedFakeMock = fake(name);
+      var exclSet = allProps ? hostExclSet(allProps) : undefined;
+      _cachedSampleStem = flattenFake(name, _cachedFakeMock, { excludeProps: exclSet, props: allProps });
+      // XmlShaped: strip excluded props from raw mock, keep schema shape for toXmlShape
+      var filteredRaw = {};
+      for (var k in _cachedFakeMock) { if (!exclSet || !exclSet.has(k)) filteredRaw[k] = _cachedFakeMock[k]; }
+      _cachedSampleNested = toXmlShape(name, filteredRaw);
       _cachedSampleName = name;
 
       var html = '';
