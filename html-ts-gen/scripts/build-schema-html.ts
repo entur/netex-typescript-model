@@ -156,13 +156,11 @@ function buildViewerFnsScript(): string {
     function isRefType(p) { return _viewerBundle.isRefType(p); }
     function refTarget(p) { return _viewerBundle.refTarget(p); }
     function flattenAllOf(d, n, o) { return _viewerBundle.flattenAllOf(d, n, o); }
-    function collectRequired(d, n, o) { return _viewerBundle.collectRequired(d, n, o); }
     function resolveDefType(n, v) { return _viewerBundle.resolveDefType(netexLibrary, n, v); }
     function resolvePropertyType(s, ctx) { return _viewerBundle.resolvePropertyType(netexLibrary, s, ctx); }
     function resolveAtom(n) { return _viewerBundle.resolveAtom(netexLibrary, n); }
     function defaultForType(t) { return _viewerBundle.defaultForType(t); }
 
-    function inlineSingleRefs(props) { return _viewerBundle.inlineSingleRefs(netexLibrary, props); }
     function canonicalPropName(n, s) { return _viewerBundle.canonicalPropName(n, s); }
     function defRole(name) { return _viewerBundle.defRole(netexLibrary[name]); }
     function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(netexLibrary, n); }
@@ -178,8 +176,6 @@ function buildViewerFnsScript(): string {
     function collectRenderableDeps(name, excludedMembers) { return _viewerBundle.collectRenderableDeps(netexLibrary, name, excludedMembers); }
     function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(netexLibrary, refDefName); }
     var generateInterface = _viewerBundle.generateInterface;
-    var generateTypeGuard = _viewerBundle.generateTypeGuard;
-    var generateFactory = _viewerBundle.generateFactory;
     function generateSubTypesBlock(name, opts) { return _viewerBundle.generateSubTypesBlock(netexLibrary, name, opts); }
     function buildExclSet(allProps, opts) { return _viewerBundle.buildExclSet(allProps, opts); }
     var _reverseIdx = null;
@@ -261,16 +257,14 @@ ${sections}
       <button class="explorer-tab" data-tab="iface">TypeScript</button>
       <button class="explorer-tab" data-tab="mapping">XML Mapping</button>
       <button class="explorer-tab" data-tab="sample">Sample data</button>
-      <button class="explorer-tab" data-tab="utils">Utilities</button>
     </div>
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
     <div class="explorer-tab-content" id="explorerRelations"><div class="relations-container" id="relationsContainer"></div></div>
-    <div class="iface-toggles" id="ifaceToggles" style="display:none"><label class="iface-toggle"><input type="checkbox" id="hideOmniCheck" checked> Hide base props</label><label class="iface-toggle"><input type="checkbox" id="inlineRefsCheck"> Inline 1-to-1 props</label></div>
+    <div class="iface-toggles" id="ifaceToggles" style="display:none"><label class="iface-toggle"><input type="checkbox" id="hideOmniCheck" checked> Hide base props</label></div>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
     <div class="explorer-tab-content" id="explorerSample"></div>
-    <div class="explorer-tab-content" id="explorerUtils"></div>
   </aside>
 
   <div class="role-help-overlay" id="roleHelpOverlay">

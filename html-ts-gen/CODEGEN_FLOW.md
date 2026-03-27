@@ -5,12 +5,10 @@ How each tab renders its output — from user click to formatted code.
 ```mermaid
 flowchart TB
     entry[renderExplorer] --> flatProps[flattenAllOf]
-    entry --> flatReq[collectRequired]
 
     flatProps --> TS1
     flatProps --> MAP
     flatProps --> SAMPLE
-    flatReq --> UTIL
 
     subgraph TS1["TypeScript tab"]
         direction TB
@@ -45,14 +43,6 @@ flowchart TB
         childfn --> mapout
     end
 
-    subgraph UTIL["Utilities tab"]
-        direction TB
-        ru[renderUtilsHtml] --> tg[generateTypeGuard]
-        ru --> ff[generateFactory]
-        tg --> utilout1["TS type guard"]
-        ff --> utilout2["TS factory"]
-    end
-
     subgraph SAMPLE["Sample Data tab"]
         direction TB
         rsd[renderSampleData] --> fake[fake]
@@ -69,7 +59,6 @@ flowchart TB
     style TS1 fill:#e8f0f8,stroke:#48a
     style COPY_TS fill:#e8f0f8,stroke:#48a
     style MAP fill:#e8f4e8,stroke:#4a4
-    style UTIL fill:#f5e8f8,stroke:#84a
     style SAMPLE fill:#f8f0e8,stroke:#a84
 ```
 
@@ -80,8 +69,6 @@ flowchart TB
 | Main interface | TypeScript | TypeScript | `generateInterface` |
 | Subtypes | TypeScript | TypeScript | `generateInterface` + `generateSubTypesBlock` |
 | Serialize functions | TypeScript | Mapping | `makeInlineCodeBlock` / `makeInlinedToXmlShape` |
-| Type guard | TypeScript | Utilities | `generateTypeGuard` |
-| Factory | TypeScript | Utilities | `generateFactory` |
 | Flat stem object | JSON | Sample Data | `flattenFake` (via `fake`) |
 | XMLBuilder shape | JSON | Sample Data | `toXmlShape` |
 | Formatted NeTEx | XML | Sample Data | `buildXml` |

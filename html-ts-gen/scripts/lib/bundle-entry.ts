@@ -19,11 +19,11 @@ export {
 } from "./classify.js";
 export {
   OMNIPRESENT_DEFS,
+  ESSENTIAL_OMNI_PROPS,
   buildExclSet,
   flattenAllOf,
   collectRequired,
   buildInheritanceChain,
-  inlineSingleRefs,
 } from "./schema-nav.js";
 export { resolveDefType, resolvePropertyType, resolveAtom } from "./type-res.js";
 export {
@@ -49,8 +49,6 @@ export { makeInlinedToXmlShape, makeInlineCodeBlock, emitHelpers } from "./to-xm
 export {
   generateInterface,
   generateTypeAlias,
-  generateTypeGuard,
-  generateFactory,
   generateSubTypesBlock,
   collectRenderableDeps,
   toConstName,
