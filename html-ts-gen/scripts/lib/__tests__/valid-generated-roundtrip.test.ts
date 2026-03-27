@@ -32,27 +32,19 @@ const vtExclSet = buildExclSet(vtAllProps, { explicit: VT_EXPLICIT });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Strip TS annotations from makeInlineCodeBlock output for eval. */
-function stripTs(code: string): string {
-  return code
-    .replace(/^type\s+\w+\s*=\s*[^;]+;\s*$/gm, "")
-    .replace(/(\w+)(\??\s*:\s*(?:Obj|string|Reshape|unknown)(?:\[\])?)/g, "$1")
-    .replace(/\)\s*:\s*Obj\s*\{/g, ") {")
-    .replace(/\s+as\s+Obj(?:\[\])?/g, "");
-}
-
 type ShapeFn = (obj: Record<string, unknown>) => Record<string, unknown>;
 
-/** Eval generated mapping code and return the root toXmlShape function. */
+/** Eval generated mapping code (untyped JS) and return the root toXmlShape function. */
 function evalMapping(name: string, excl?: Set<string>): ShapeFn {
   const allProps = flattenAllOf(netexLibrary, name);
   const code = makeInlineCodeBlock(netexLibrary, name, {
     html: false,
+    typed: false,
     excludeProps: excl,
     props: allProps,
   });
   const fnName = lcFirst(name) + "ToXmlShape";
-  return new Function(stripTs(code) + `\nreturn ${fnName};`)() as ShapeFn;
+  return new Function(code + `\nreturn ${fnName};`)() as ShapeFn;
 }
 
 const TEST_ENTITIES = CORE
@@ -82,12 +74,10 @@ describe("VehicleType generated roundtrip with exclusions", () => {
 
   it("mapping code with exclusions produces XSD-valid XML", { timeout: 30_000 }, () => {
     const shapeFn = evalMapping("VehicleType", vtExclSet);
-    // Can't use flattenFake here: mapping code expects schema-shape (wrapped
-    // collections), but flattenFake unwraps them. Only strip excluded props.
-    const filtered = Object.fromEntries(
-      Object.entries(vtMock).filter(([k]) => !vtExclSet?.has(k)),
-    );
-    const xmlShape = shapeFn(filtered);
+    const flat = flattenFake(netexLibrary, "VehicleType", vtMock, {
+      excludeProps: vtExclSet, props: vtAllProps,
+    });
+    const xmlShape = shapeFn(flat);
     const xml = buildXml("VehicleType", xmlShape);
     const full = wrapInPublicationDelivery(vtEntity, xml);
     const { valid, stderr } = validateWithXmllint(full);

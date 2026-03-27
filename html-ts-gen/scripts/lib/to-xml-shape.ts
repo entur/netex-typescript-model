@@ -392,13 +392,14 @@ function collectAllTargets(
 export function makeInlineCodeBlock(
   netexLibrary: NetexLibrary,
   name: string,
-  opts?: { props?: FlatProperty[]; html?: boolean; excludeProps?: Set<string> },
+  opts?: { props?: FlatProperty[]; html?: boolean; typed?: boolean; excludeProps?: Set<string> },
 ): string {
   const props = opts?.props ?? flattenAllOf(netexLibrary, name);
   const filteredProps = opts?.excludeProps
     ? props.filter((p) => !opts.excludeProps!.has(p.prop[1]))
     : props;
   const html = opts?.html ?? false;
+  const typed = opts?.typed ?? true;
   const { kw, lit, cmt } = makeTaggers(html);
 
   const rootEntries = classifyProps(netexLibrary, name, filteredProps);
@@ -412,8 +413,8 @@ export function makeInlineCodeBlock(
       " */",
   );
 
-  const sharedOpts = { callbackName: "reshapeComplex", html, typed: true, includeHelpers: false } as const;
-  const helpers = emitHelpers({ html, typed: true });
+  const sharedOpts = { callbackName: "reshapeComplex", html, typed, includeHelpers: false } as const;
+  const helpers = emitHelpers({ html, typed });
 
   if (targets.length === 0) {
     const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
@@ -426,7 +427,9 @@ export function makeInlineCodeBlock(
 
   // Dispatch function
   const dispatchLines: string[] = [];
-  dispatchLines.push(`${kw("function")} reshapeComplex(name: string, obj: Obj): Obj {`);
+  const tStr = typed ? ": string" : "";
+  const tObj = typed ? ": Obj" : "";
+  dispatchLines.push(`${kw("function")} reshapeComplex(name${tStr}, obj${tObj})${tObj} {`);
   dispatchLines.push(`  ${kw("switch")} (name) {`);
   for (const t of targets) {
     const fn = lcFirst(t) + "ToXmlShape";
