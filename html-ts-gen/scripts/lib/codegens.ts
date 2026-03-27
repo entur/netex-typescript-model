@@ -9,13 +9,12 @@
 
 import type { NetexLibrary, FlatProperty } from "./types.js";
 import { defRole } from "./classify.js";
-import { flattenAllOf, collectRequired, inlineSingleRefs } from "./schema-nav.js";
+import { flattenAllOf, ESSENTIAL_OMNI_PROPS, OMNIPRESENT_DEFS } from "./schema-nav.js";
 import { resolveDefType, resolvePropertyType, resolveAtom } from "./type-res.js";
 import { collectDependencyTree } from "./dep-graph.js";
 
 export type { NetexLibrary };
 
-import { defaultForType } from "./data-faker.js";
 
 // ── Escaping ────────────────────────────────────────────────────────────────
 
@@ -126,12 +125,12 @@ export interface InterfaceOpts {
   html?: boolean;
   /** Include JSDoc/origin comments (default: true). */
   metaComments?: boolean;
-  /** Inline single-ref properties (default: false). */
-  inlineRefs?: boolean;
   /** Pre-computed flat properties (avoids recomputing). */
   preProps?: FlatProperty[];
   /** Prepend exclude-from-codegen checkboxes to each property line (HTML only). */
   excludeCheckboxes?: boolean;
+  /** Collapse omnipresent origin banners into "Essential base attrs" (when hide-base-props is on). */
+  omniCollapse?: boolean;
   /** Filter out specific properties by canonical name. */
   excludeProps?: Set<string>;
 }
@@ -140,24 +139,6 @@ export interface TypeAliasOpts {
   html?: boolean;
   /** Include JSDoc/origin comments (default: true). */
   metaComments?: boolean;
-}
-
-export interface TypeGuardOpts {
-  html?: boolean;
-  /** Pre-computed flat properties. */
-  preProps?: FlatProperty[];
-  /** Filter out specific properties by canonical name. */
-  excludeProps?: Set<string>;
-}
-
-export interface FactoryOpts {
-  html?: boolean;
-  /** Pre-computed flat properties. */
-  preProps?: FlatProperty[];
-  /** Pre-computed required set. */
-  preRequired?: Set<string>;
-  /** Filter out specific properties by canonical name. */
-  excludeProps?: Set<string>;
 }
 
 // ── generateTypeAlias ───────────────────────────────────────────────────────
@@ -273,8 +254,8 @@ export function generateInterface(
 ): { text: string; isAlias: boolean } {
   const html = opts?.html !== false;
   const metaComments = opts?.metaComments ?? true;
-  const inlineRefs = opts?.inlineRefs ?? false;
   const excludeCb = html && (opts?.excludeCheckboxes ?? false);
+  const omniCollapse = excludeCb && (opts?.omniCollapse ?? false);
   const e = escFn(html);
 
   let flat = opts?.preProps || flattenAllOf(netexLibrary, name);
@@ -291,7 +272,7 @@ export function generateInterface(
     }
   }
 
-  const props = metaComments && inlineRefs ? inlineSingleRefs(netexLibrary, flat) : flat;
+  const props = flat;
   const lines: string[] = [];
 
   if (metaComments) {
@@ -334,33 +315,22 @@ export function generateInterface(
     lines.push("interface " + name + " {");
   }
 
+  const ESSENTIAL_BANNER = "Essential base attrs";
   let lastOrigin: string | null = null;
-  let lastInlinedFrom: string | null = null;
   for (const p of props) {
     if (metaComments) {
-      if (p.origin !== lastOrigin) {
+      const origin =
+        omniCollapse && OMNIPRESENT_DEFS.has(p.origin) && ESSENTIAL_OMNI_PROPS.has(p.prop[1])
+          ? ESSENTIAL_BANNER
+          : p.origin;
+      if (origin !== lastOrigin) {
         if (lastOrigin !== null) lines.push("");
         if (html) {
-          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + e(p.origin) + " \u2500\u2500</span>");
+          lines.push('  <span class="if-cmt">// \u2500\u2500 ' + e(origin) + " \u2500\u2500</span>");
         } else {
-          lines.push("  // \u2500\u2500 " + p.origin + " \u2500\u2500");
+          lines.push("  // \u2500\u2500 " + origin + " \u2500\u2500");
         }
-        lastOrigin = p.origin;
-        lastInlinedFrom = null;
-      }
-      if (p.inlinedFrom && p.inlinedFrom !== lastInlinedFrom) {
-        if (html) {
-          lines.push(
-            '  <span class="if-cmt">// \u2500\u2500 ' +
-              e(p.inlinedFrom) +
-              " (inlined) \u2500\u2500</span>",
-          );
-        } else {
-          lines.push("  // \u2500\u2500 " + p.inlinedFrom + " (inlined) \u2500\u2500");
-        }
-        lastInlinedFrom = p.inlinedFrom;
-      } else if (!p.inlinedFrom && lastInlinedFrom) {
-        lastInlinedFrom = null;
+        lastOrigin = origin;
       }
     }
 
@@ -374,9 +344,13 @@ export function generateInterface(
       const propHtml =
         '  <span class="if-prop"' + viaAttr + ">" + e(p.prop[1]) + "</span>?: " + typeStr + ";";
       if (excludeCb) {
-        lines.push(
-          '<span class="if-line"><input type="checkbox" class="excl-cb">' + propHtml + "</span>",
-        );
+        if (ESSENTIAL_OMNI_PROPS.has(p.prop[1])) {
+          lines.push('<span class="if-line"><span class="excl-spacer"></span>' + propHtml + "</span>");
+        } else {
+          lines.push(
+            '<span class="if-line"><input type="checkbox" class="excl-cb">' + propHtml + "</span>",
+          );
+        }
       } else {
         lines.push(propHtml);
       }
@@ -387,191 +361,6 @@ export function generateInterface(
 
   lines.push("}");
   return { text: lines.join("\n"), isAlias: false };
-}
-
-// ── generateTypeGuard ───────────────────────────────────────────────────────
-
-/**
- * Generate a runtime type guard function for a definition.
- *
- * Produces `function isFoo(o: unknown): o is Foo { ... }` with typeof /
- * Array.isArray checks for each property.
- */
-export function generateTypeGuard(
-  netexLibrary: NetexLibrary,
-  name: string,
-  opts?: TypeGuardOpts,
-): string {
-  const html = opts?.html !== false;
-  const e = escFn(html);
-  let props = opts?.preProps || flattenAllOf(netexLibrary, name);
-  if (opts?.excludeProps) {
-    props = props.filter((p) => !opts.excludeProps!.has(p.prop[1]));
-  }
-
-  const lines: string[] = [];
-  if (html) {
-    lines.push(
-      '<span class="if-kw">function</span> is' +
-        e(name) +
-        '(o: <span class="if-prim">unknown</span>): o <span class="if-kw">is</span> <span class="if-ref">' +
-        e(name) +
-        "</span> {",
-    );
-    lines.push(
-      '  <span class="if-kw">if</span> (!o || <span class="if-kw">typeof</span> o !== <span class="if-lit">"object"</span>) <span class="if-kw">return false</span>;',
-    );
-    lines.push(
-      '  <span class="if-kw">const</span> obj = o <span class="if-kw">as</span> Record&lt;<span class="if-prim">string</span>, <span class="if-prim">unknown</span>&gt;;',
-    );
-  } else {
-    lines.push("function is" + name + "(o: unknown): o is " + name + " {");
-    lines.push('  if (!o || typeof o !== "object") return false;');
-    lines.push("  const obj = o as Record<string, unknown>;");
-  }
-
-  for (const p of props) {
-    const resolved = resolvePropertyType(netexLibrary, p.schema, name);
-    let check: string;
-
-    if (resolved.ts.endsWith("[]")) {
-      if (html) {
-        check = "!Array.isArray(obj." + e(p.prop[1]) + ")";
-      } else {
-        check = "!Array.isArray(obj." + p.prop[1] + ")";
-      }
-    } else if (resolved.complex) {
-      if (html) {
-        check =
-          '<span class="if-kw">typeof</span> obj.' +
-          e(p.prop[1]) +
-          ' !== <span class="if-lit">"object"</span>';
-      } else {
-        check = 'typeof obj.' + p.prop[1] + ' !== "object"';
-      }
-    } else {
-      let base = resolved.ts;
-      if (base.indexOf("/*") !== -1) base = base.slice(0, base.indexOf(" /*")).trim();
-      let checkType: string;
-      if (base.indexOf("|") !== -1) {
-        const firstPart = base.split("|")[0].trim();
-        checkType =
-          firstPart.charAt(0) === '"' || firstPart.charAt(0) === "'" ? "string" : firstPart;
-      } else if (base === "integer") {
-        checkType = "number";
-      } else if (base.charAt(0) === '"' || base.charAt(0) === "'") {
-        checkType = "string";
-      } else {
-        checkType = base;
-      }
-      if (html) {
-        check =
-          '<span class="if-kw">typeof</span> obj.' +
-          e(p.prop[1]) +
-          ' !== <span class="if-lit">"' +
-          e(checkType) +
-          '"</span>';
-      } else {
-        check = 'typeof obj.' + p.prop[1] + ' !== "' + checkType + '"';
-      }
-    }
-
-    if (html) {
-      lines.push(
-        '  <span class="if-kw">if</span> (<span class="if-lit">"' +
-          e(p.prop[1]) +
-          '"</span> <span class="if-kw">in</span> obj && ' +
-          check +
-          ') <span class="if-kw">return false</span>;',
-      );
-    } else {
-      lines.push('  if ("' + p.prop[1] + '" in obj && ' + check + ") return false;");
-    }
-  }
-
-  if (html) {
-    lines.push('  <span class="if-kw">return true</span>;');
-  } else {
-    lines.push("  return true;");
-  }
-  lines.push("}");
-  return lines.join("\n");
-}
-
-// ── generateFactory ─────────────────────────────────────────────────────────
-
-/**
- * Generate a factory function for a definition.
- *
- * Produces `function createFoo(init?: Partial<Foo>): Foo { ... }` with
- * default values for required fields.
- */
-export function generateFactory(
-  netexLibrary: NetexLibrary,
-  name: string,
-  opts?: FactoryOpts,
-): string {
-  const html = opts?.html !== false;
-  const e = escFn(html);
-  let props = opts?.preProps || flattenAllOf(netexLibrary, name);
-  if (opts?.excludeProps) {
-    props = props.filter((p) => !opts.excludeProps!.has(p.prop[1]));
-  }
-  const required = opts?.preRequired || collectRequired(netexLibrary, name);
-
-  const lines: string[] = [];
-  if (html) {
-    lines.push('<span class="if-kw">function</span> create' + e(name) + "(");
-    lines.push(
-      '  init?: Partial&lt;<span class="if-ref">' + e(name) + "</span>&gt;",
-    );
-    lines.push('): <span class="if-ref">' + e(name) + "</span> {");
-  } else {
-    lines.push("function create" + name + "(");
-    lines.push("  init?: Partial<" + name + ">");
-    lines.push("): " + name + " {");
-  }
-
-  if (required.size > 0) {
-    if (html) {
-      lines.push('  <span class="if-kw">return</span> {');
-    } else {
-      lines.push("  return {");
-    }
-    for (const fp of props) {
-      if (!required.has(fp.prop[0])) continue;
-      const fresolved = resolvePropertyType(netexLibrary, fp.schema, name);
-      const defVal = defaultForType(fresolved.ts);
-      if (html) {
-        lines.push(
-          "    " +
-            e(fp.prop[1]) +
-            ": " +
-            '<span class="if-lit">' +
-            e(defVal) +
-            "</span>,  " +
-            '<span class="if-cmt">// required</span>',
-        );
-      } else {
-        lines.push("    " + fp.prop[1] + ": " + defVal + ",  // required");
-      }
-    }
-    lines.push("    ...init,");
-    lines.push("  };");
-  } else {
-    if (html) {
-      lines.push(
-        '  <span class="if-kw">return</span> { ...init } <span class="if-kw">as</span> <span class="if-ref">' +
-          e(name) +
-          "</span>;",
-      );
-    } else {
-      lines.push("  return { ...init } as " + name + ";");
-    }
-  }
-
-  lines.push("}");
-  return lines.join("\n");
 }
 
 // ── Composite block generators ─────────────────────────────────────────────

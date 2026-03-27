@@ -92,7 +92,7 @@
     let currentExplored = null;
     let currentMode = null;
 
-    var TAB_MAP = { props: 'explorerProps', graph: 'explorerGraph', relations: 'explorerRelations', iface: 'explorerIface', mapping: 'explorerMapping', utils: 'explorerUtils', sample: 'explorerSample' };
+    var TAB_MAP = { props: 'explorerProps', graph: 'explorerGraph', relations: 'explorerRelations', iface: 'explorerIface', mapping: 'explorerMapping', sample: 'explorerSample' };
     const relationsContainer = document.getElementById('relationsContainer');
 
     /**
@@ -109,7 +109,7 @@
         chip.textContent = mode === 'code' ? 'Code' : 'Explore';
       }
       var tabs = explorerPanel.querySelectorAll('.explorer-tab');
-      var visible = mode === 'code' ? { iface: true, mapping: true, utils: true, sample: true } : { props: true, graph: true, relations: true };
+      var visible = mode === 'code' ? { iface: true, mapping: true, sample: true } : { props: true, graph: true, relations: true };
       var firstVisible = null;
       tabs.forEach(function(t) {
         var show = !!visible[t.dataset.tab];
@@ -153,7 +153,6 @@
     function renderExplorer(name) {
       currentIsAlias = false;
       const props = flattenAllOf(netexLibrary, name);
-      const required = collectRequired(netexLibrary, name);
       explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
       const origins = [...new Set(props.map(p => p.origin))];
       explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
@@ -182,12 +181,10 @@
       setTimeout(function() { renderRelations(name); }, 0);
       explorerIface.innerHTML = '<div class="spinner"></div>';
       explorerMapping.innerHTML = '<div class="spinner"></div>';
-      explorerUtils.innerHTML = '<div class="spinner"></div>';
       explorerSample.innerHTML = '<div class="spinner"></div>';
       setTimeout(function() {
         renderInterface(name, props);
         renderMappingGuide(name, props);
-        renderUtils(name, props, required);
         renderSampleData(name, props);
       }, 0);
       currentExplored = name;
@@ -508,9 +505,7 @@
 
     const explorerIface = document.getElementById('explorerIface');
     const ifaceToggles = document.getElementById('ifaceToggles');
-    const inlineRefsCheck = document.getElementById('inlineRefsCheck');
     const hideOmniCheck = document.getElementById('hideOmniCheck');
-    var inlineRefsEnabled = false;
     var hideOmniEnabled = true;
     var currentIsAlias = false;
     var currentExcluded = {};
@@ -534,9 +529,9 @@
       var result = generateInterface(netexLibrary, name, {
         html: true,
         metaComments: metaComments,
-        inlineRefs: metaComments && inlineRefsEnabled,
         preProps: ifProps,
         excludeCheckboxes: metaComments,
+        omniCollapse: hideOmniEnabled,
         excludeProps: hostExclSet(ifProps),
       });
       var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
@@ -546,11 +541,6 @@
       return { html: html, isAlias: result.isAlias };
     }
 
-    // Wire inline-refs checkbox once
-    inlineRefsCheck.addEventListener('change', function() {
-      inlineRefsEnabled = inlineRefsCheck.checked;
-      if (currentExplored) renderInterface(currentExplored);
-    });
     hideOmniCheck.addEventListener('change', function() {
       hideOmniEnabled = hideOmniCheck.checked;
       if (currentExplored) {
@@ -567,7 +557,6 @@
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
       updateDepsSection();
-      inlineRefsCheck.checked = inlineRefsEnabled;
       hideOmniCheck.checked = hideOmniEnabled;
       var ifaceActive = explorerIface.classList.contains('active');
       ifaceToggles.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
@@ -626,9 +615,11 @@
             depsDiv.innerHTML = '';
             chip.textContent = depChipLabel(uniqueNames.length, totalUnique, false);
             chip.classList.remove('expanded');
+            explorerIface.classList.remove('deps-expanded');
             return;
           }
           chip.classList.add('expanded');
+          explorerIface.classList.add('deps-expanded');
           chip.textContent = 'Loading\u2026';
           depsDiv.style.display = '';
           depsDiv.innerHTML = '<div class="spinner"></div>';
@@ -799,84 +790,6 @@
       explorerMapping.innerHTML = renderMappingHtml(name, p);
     }
 
-    // ── Utilities tab ─────────────────────────────────────────────────
-
-    const explorerUtils = document.getElementById('explorerUtils');
-
-    /**
-     * Build the Utilities tab HTML: type guard, factory, and references.
-     *
-     * Sections:
-     *  - **Type Guard** — `isFoo(o)` with typeof / Array.isArray checks
-     *  - **Factory** — `createFoo(init?)` with required-field defaults
-     *  - **References** — outgoing "Uses" and incoming "Used by" chip lists
-     *
-     * @param {string} name  Definition name.
-     * @returns {string} Three `.mapping-section` divs with code blocks and Copy buttons.
-     */
-    function renderUtilsHtml(name, preProps, preRequired) {
-      var props = preProps || flattenAllOf(netexLibrary, name);
-      var required = preRequired || collectRequired(netexLibrary, name);
-
-      var html = '';
-
-      // Type Guard
-      html += '<div class="mapping-section"><h3>Type Guard</h3>';
-      html += '<div class="interface-block">';
-      html += generateTypeGuard(netexLibrary, name, { html: true, preProps: props });
-      html += '<button class="copy-btn">Copy</button></div></div>';
-
-      // Factory
-      html += '<div class="mapping-section"><h3>Factory</h3>';
-      html += '<div class="interface-block">';
-      html += generateFactory(netexLibrary, name, { html: true, preProps: props, preRequired: required });
-      html += '<button class="copy-btn">Copy</button></div></div>';
-
-      // References
-      html += '<div class="mapping-section"><h3>References</h3>';
-
-      var uses = [];
-      var seen = {};
-      for (var ui = 0; ui < props.length; ui++) {
-        var t = refTarget(props[ui].schema);
-        if (t && !seen[t]) {
-          seen[t] = true;
-          uses.push(t);
-        }
-      }
-      html += '<div class="utils-section"><span class="utils-label">Uses</span>';
-      if (uses.length > 0) {
-        html += '<div class="ref-list">';
-        for (var uj = 0; uj < uses.length; uj++) {
-          html += '<a href="#' + esc(uses[uj]) + '" class="ref-chip explorer-type-link">' + esc(uses[uj]) + '</a>';
-        }
-        html += '</div>';
-      } else {
-        html += ' <span class="ref-empty">none</span>';
-      }
-      html += '</div>';
-
-      var usedBy = (buildReverseIndex()[name] || []).slice().sort();
-      html += '<div><span class="utils-label">Used by</span>';
-      if (usedBy.length > 0) {
-        html += '<div class="ref-list">';
-        for (var uk = 0; uk < usedBy.length; uk++) {
-          html += '<a href="#' + esc(usedBy[uk]) + '" class="ref-chip explorer-type-link">' + esc(usedBy[uk]) + '</a>';
-        }
-        html += '</div>';
-      } else {
-        html += ' <span class="ref-empty">none</span>';
-      }
-      html += '</div></div>';
-
-      return html;
-    }
-
-    /** Render the Utilities tab into its container element. */
-    function renderUtils(name, props, required) {
-      explorerUtils.innerHTML = renderUtilsHtml(name, props, required);
-    }
-
     // ── Sample data tab ──────────────────────────────────────────────────
 
     const explorerSample = document.getElementById('explorerSample');
@@ -989,7 +902,6 @@
 
     attachCopyHandler(explorerSample);
     attachCopyHandler(explorerMapping);
-    attachCopyHandler(explorerUtils);
 
     // Graph node clicks
     graphContainer.addEventListener('click', e => {

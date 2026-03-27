@@ -36,8 +36,6 @@ export interface FlatProperty {
   desc: string;
   origin: string;
   schema: Def;
-  /** When set, this property was inlined from a 1-to-1 $ref member with this tsName. */
-  inlinedFrom?: string;
 }
 
 /** Discriminated shape of a JSON Schema property node. */

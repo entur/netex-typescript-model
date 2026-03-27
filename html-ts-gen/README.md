@@ -38,12 +38,12 @@ Schema introspection and code generation, shared between the HTML viewer (bundle
 | `types.ts` | Shared type definitions (`NetexLibrary`, `FlatProperty`, `ViaHop`, `DepTreeNode`, etc.) |
 | `util.ts` | Low-level helpers (`deref`, `allOfRef`, `lcFirst`, `canonicalPropName`) |
 | `classify.ts` | Schema classification, role detection (`defRole`, `resolveType`, `isRefType`), mixed-content (`unwrapMixed`) |
-| `schema-nav.ts` | Inheritance walking (`flattenAllOf`, `buildInheritanceChain`), property flattening, ref inlining (`inlineSingleRefs`), exclusion set builder (`buildExclSet`) |
+| `schema-nav.ts` | Inheritance walking (`flattenAllOf`, `buildInheritanceChain`), property flattening, exclusion set builder (`buildExclSet`) |
 | `type-res.ts` | Deep type resolution (`resolveDefType`, `resolvePropertyType`, `resolveAtom`) |
 | `dep-graph.ts` | Reverse index, dependency tree (`collectDependencyTree`), ref-entity resolution (`resolveRefEntity`, `collectRefProps`) |
 | `data-faker.ts` | Fake data generation (`fake`) and XML serialization (`serialize`, `toXmlShape`, `buildXml`) |
 | `to-xml-shape.ts` | Static generator for stem→XML projection functions |
-| `codegens.ts` | TypeScript code generators (`generateInterface`, `generateTypeGuard`, `generateFactory`, etc.) |
+| `codegens.ts` | TypeScript code generators (`generateInterface`, `generateTypeAlias`, `generateSubTypesBlock`, etc.) |
 | `config.ts` | Build configuration (`Config` class, part resolution, assembly naming) |
 | `loader.ts` | Schema loader (`loadNetexLibrary()`) — loads base assembly schema for CLI scripts and tests |
 | `bundle-entry.ts` | esbuild entry point — re-exports all lib modules into a single IIFE for the HTML viewer |

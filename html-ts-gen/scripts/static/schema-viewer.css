@@ -519,8 +519,8 @@
     #explorerSample .interface-block,
     #explorerIface .interface-block,
     #explorerMapping .interface-block { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+    #explorerIface.deps-expanded > .interface-block:first-child { min-height: 45%; }
     #explorerMapping .mapping-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    #explorerUtils .interface-block { max-height: 60vh; overflow-y: auto; overflow-x: auto; }
     .graph-container { width: 100%; }
     .graph-container svg { display: block; }
     .graph-node { cursor: pointer; }
@@ -568,7 +568,7 @@
     /* Exclude-from-codegen checkbox */
     .excl-cb {
       appearance: none;
-      width: 0.7em; height: 0.7em;
+      width: 0.9em; height: 0.9em;
       border: 1px solid var(--muted);
       border-radius: 2px;
       vertical-align: middle;
@@ -576,12 +576,17 @@
       position: relative;
       margin: 0 0.3em 0 0;
     }
+    .excl-spacer {
+      display: inline-block;
+      width: 0.9em;
+      margin: 0 0.3em 0 0;
+    }
     .excl-cb:checked::after {
       content: '\00d7';
       color: #e53e3e;
       position: absolute;
-      top: -0.2em; left: 0.05em;
-      font-size: 0.75em;
+      top: -0.1em; left: 0.12em;
+      font-size: 1em;
       font-weight: bold;
       line-height: 1;
     }
@@ -718,9 +723,6 @@
     /* Empty-state and utility labels */
     .explorer-empty { color: var(--muted); font-size: 0.85rem; padding: 0.5rem; }
     .mapping-intro { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem 0; }
-    .utils-section { margin-bottom: 0.5rem; }
-    .utils-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); }
-
     /* Sample data pill toggle */
     .sample-toggle { display: flex; gap: 0; margin-bottom: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; width: fit-content; position: sticky; top: 0; z-index: 1; background: var(--sidebar-bg); }
     .sample-pill { padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; background: var(--card-bg); color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }

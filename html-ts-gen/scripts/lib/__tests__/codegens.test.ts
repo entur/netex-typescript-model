@@ -2,8 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   generateInterface,
   generateTypeAlias,
-  generateTypeGuard,
-  generateFactory,
   generateSubTypesBlock,
   collectRenderableDeps,
   toConstName,
@@ -310,74 +308,6 @@ describe("generateTypeAlias", () => {
     const { text } = generateTypeAlias(netexLibrary, "AllModesEnumeration", resolved, { html: true });
     expect(text).toContain('<span class="if-kw">const</span>');
     expect(text).toContain('<span class="if-lit">');
-  });
-});
-
-// ── generateTypeGuard (plain text) ──────────────────────────────────────────
-
-describe("generateTypeGuard", () => {
-  it("generates a type guard function", () => {
-    const text = generateTypeGuard(netexLibrary, "Authority", { html: false });
-    expect(text).toContain("function isAuthority(o: unknown): o is Authority {");
-    expect(text).toContain('if (!o || typeof o !== "object") return false;');
-    expect(text).toContain("const obj = o as Record<string, unknown>;");
-    expect(text).toContain('if ("Name" in obj && typeof obj.Name !== "string") return false;');
-    expect(text).toContain('if ("AuthorityCode" in obj && typeof obj.AuthorityCode !== "string") return false;');
-    expect(text).toContain("return true;");
-    expect(text).toContain("}");
-  });
-
-  it("uses Array.isArray for array properties", () => {
-    const text = generateTypeGuard(netexLibrary, "WithArrayProp", { html: false });
-    expect(text).toContain("!Array.isArray(obj.Items)");
-  });
-
-  it("uses typeof object for complex properties", () => {
-    const text = generateTypeGuard(netexLibrary, "ComplexChild", { html: false });
-    // ComplexChild inherits Name, Description (strings) and adds Extra (integer → number)
-    expect(text).toContain('typeof obj.Extra !== "number"');
-  });
-
-  it("generates HTML output with spans", () => {
-    const text = generateTypeGuard(netexLibrary, "Authority", { html: true });
-    expect(text).toContain('<span class="if-kw">function</span>');
-    expect(text).toContain('<span class="if-kw">return true</span>');
-  });
-});
-
-// ── generateFactory (plain text) ─────────────────────────────────────────────
-
-describe("generateFactory", () => {
-  it("generates factory with no required fields", () => {
-    const text = generateFactory(netexLibrary, "Authority", { html: false });
-    expect(text).toContain("function createAuthority(");
-    expect(text).toContain("  init?: Partial<Authority>");
-    expect(text).toContain("): Authority {");
-    expect(text).toContain("return { ...init } as Authority;");
-    expect(text).toContain("}");
-  });
-
-  it("generates factory with required fields", () => {
-    const text = generateFactory(netexLibrary, "RequiredEntity", { html: false });
-    expect(text).toContain("function createRequiredEntity(");
-    expect(text).toContain("return {");
-    expect(text).toContain('Id: "string",  // required');
-    expect(text).toContain("...init,");
-  });
-
-  it("generates HTML output with spans", () => {
-    const text = generateFactory(netexLibrary, "Authority", { html: true });
-    expect(text).toContain('<span class="if-kw">function</span>');
-    expect(text).toContain('<span class="if-ref">Authority</span>');
-  });
-
-  it("accepts pre-computed props and required", () => {
-    const text = generateFactory(netexLibrary, "RequiredEntity", {
-      html: false,
-      preRequired: new Set(["Id"]),
-    });
-    expect(text).toContain('Id: "string",  // required');
-    expect(text).not.toContain("Name:");
   });
 });
 
