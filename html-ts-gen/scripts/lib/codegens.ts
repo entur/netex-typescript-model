@@ -13,6 +13,9 @@ import { flattenAllOf, ESSENTIAL_OMNI_PROPS, OMNIPRESENT_DEFS } from "./schema-n
 import { resolveDefType, resolvePropertyType, resolveAtom } from "./type-res.js";
 import { collectDependencyTree } from "./dep-graph.js";
 
+/** Infrastructure base-type origins rendered after domain-specific properties. */
+const TAIL_ORIGINS = new Set(["EntityInVersionStructure", "DataManagedObjectStructure"]);
+
 export type { NetexLibrary };
 
 
@@ -272,7 +275,11 @@ export function generateInterface(
     }
   }
 
-  const props = flat;
+  const ess = (p: FlatProperty) => omniCollapse && ESSENTIAL_OMNI_PROPS.has(p.prop[1]);
+  const head = flat.filter((p) => !TAIL_ORIGINS.has(p.origin) || ess(p));
+  const dmo = flat.filter((p) => p.origin === "DataManagedObjectStructure");
+  const eiv = flat.filter((p) => p.origin === "EntityInVersionStructure" && !ess(p));
+  const props = [...head, ...dmo, ...eiv];
   const lines: string[] = [];
 
   if (metaComments) {
@@ -336,6 +343,9 @@ export function generateInterface(
 
     const resolved = resolvePropertyType(netexLibrary, p.schema, name);
     const typeStr = renderTypeStr(netexLibrary, resolved, html, name);
+    if (p.schema["x-netex-deprecated"]) {
+      lines.push(html ? '  <span class="if-deprecated">/** @deprecated */</span>' : "  /** @deprecated */");
+    }
     if (html) {
       let viaAttr = "";
       if (metaComments && resolved.via && resolved.via.length > 0) {

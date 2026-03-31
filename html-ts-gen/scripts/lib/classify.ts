@@ -124,9 +124,20 @@ export const ROLE_LABELS: Record<string, string> = {
   unclassified: "Unclassified",
 };
 
-/** Extract the role string from a definition, defaulting to "unclassified". */
-export function defRole(def: Def | undefined): string {
+/** Raw x-netex-role value, or "unclassified". */
+function rawRole(def: Def | undefined): string {
   return typeof def?.["x-netex-role"] === "string" ? def["x-netex-role"] : "unclassified";
+}
+
+/** Extract the base role (without /deprecated suffix), defaulting to "unclassified". */
+export function defRole(def: Def | undefined): string {
+  const r = rawRole(def);
+  return r.endsWith("/deprecated") ? r.slice(0, -11) : r;
+}
+
+/** Whether definition is deprecated (role ends with /deprecated). */
+export function isDeprecated(def: Def | undefined): boolean {
+  return rawRole(def).endsWith("/deprecated");
 }
 
 /** Count definitions per role. Returns a Map keyed by role string. */

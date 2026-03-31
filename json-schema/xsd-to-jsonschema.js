@@ -327,6 +327,27 @@ class XsdToJsonSchema {
 
     // Pass 7: propagate stamp through $ref alias chains
     this.propagateFixedEnumStamp();
+
+    // Pass 8: mark deprecated definitions (append /deprecated to role)
+    this.annotateDeprecated();
+  }
+
+  annotateDeprecated() {
+    const re = /\bDEPRECATED\b/;
+    let defCount = 0, propCount = 0;
+    for (const [name, schema] of Object.entries(this.allDefs)) {
+      const desc = schema.description || "";
+      if (re.test(desc)) {
+        const base = schema["x-netex-role"] || "unclassified";
+        schema["x-netex-role"] = base + "/deprecated";
+        defCount++;
+      }
+      for (const pv of this.allPropSchemas(schema)) {
+        if (re.test(pv.description || "")) { pv["x-netex-deprecated"] = true; propCount++; }
+      }
+    }
+    if (defCount) print("  deprecated defs: " + defCount);
+    if (propCount) print("  deprecated props: " + propCount);
   }
 
   // ── Description extraction ─────────────────────────────────────────────────

@@ -12,6 +12,8 @@ export {
   refTarget,
   classifySchema,
   defRole,
+  isDeprecated,
+  ROLE_LABELS,
   isDynNocRef,
   unwrapMixed,
   countRoles,
