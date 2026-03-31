@@ -19,7 +19,7 @@ This distinguishes XML attributes (`<Foo id="...">`) from XML elements (`<Foo><I
 
 ## NeTEx Annotation Stamping
 
-The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on JSON Schema definitions (ten per-definition, one per-property). These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
+The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on JSON Schema definitions (ten per-definition, two per-property). These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
 
 ### `x-netex-source` (string)
 
@@ -46,7 +46,9 @@ Stamped in `classifyDefinitions()`. Classifies each definition by its structural
 | 9 | Name ends in `Ref` + exists in elements | `reference` |
 | 10 | Name starts with `Abstract` | `abstract` |
 
-Used by the schema HTML viewer for filter chips and by `findTransitiveEntityUsers` for BFS traversal.
+A `/deprecated` suffix is appended (e.g. `"entity/deprecated"`) by `annotateDeprecated()` when the definition's `description` contains uppercase `DEPRECATED`. Downstream, `defRole()` in `classify.ts` strips the suffix for role-based logic, while `isDeprecated()` checks for its presence.
+
+Used by the schema HTML viewer for filter chips, role badges, deprecated strikethrough styling, and by `findTransitiveEntityUsers` for BFS traversal.
 
 ### `x-netex-frames` (string[])
 
@@ -83,6 +85,10 @@ Stamped per-definition on reference-role definitions. Records the target element
 ### `x-netex-choice` (string[], per-property)
 
 Stamped per-property (not per-definition). Set on properties that originate from an `xsd:choice` group. Contains the names of sibling properties from the same choice group. Used by the data faker to emit only the first alternative from each choice group rather than all properties simultaneously.
+
+### `x-netex-deprecated` (boolean, per-property)
+
+Stamped per-property by `annotateDeprecated()`. Set to `true` on properties whose `description` contains uppercase `DEPRECATED`. Used by the schema HTML viewer to apply strikethrough styling on deprecated property rows, and by `generateInterface()` in `codegens.ts` to emit `/** @deprecated */` JSDoc comments in generated TypeScript interfaces.
 
 ### `x-netex-collapsed` (number)
 
