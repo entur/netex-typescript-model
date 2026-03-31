@@ -175,7 +175,8 @@
         const typeHtml = isRefType(p.schema)
           ? '<a href="#' + esc(refTarget(p.schema)) + '" class="explorer-type-link">' + esc(p.type) + '</a>'
           : esc(p.type);
-        html += '<div class="prop-row"><div class="prop-name">' + esc(p.prop[0]) + ' <span class="prop-type">' + typeHtml + '</span></div>';
+        var propDepCls = p.schema['x-netex-deprecated'] ? ' deprecated' : '';
+        html += '<div class="prop-row' + propDepCls + '"><div class="prop-name">' + esc(p.prop[0]) + ' <span class="prop-type">' + typeHtml + '</span></div>';
         if (p.desc) html += '<div class="prop-pdesc">' + esc(p.desc) + '</div>';
         html += '</div>';
       }

@@ -343,6 +343,9 @@ export function generateInterface(
 
     const resolved = resolvePropertyType(netexLibrary, p.schema, name);
     const typeStr = renderTypeStr(netexLibrary, resolved, html, name);
+    if (p.schema["x-netex-deprecated"]) {
+      lines.push(html ? '  <span class="if-deprecated">/** @deprecated */</span>' : "  /** @deprecated */");
+    }
     if (html) {
       let viaAttr = "";
       if (metaComments && resolved.via && resolved.via.length > 0) {

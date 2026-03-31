@@ -493,6 +493,7 @@
       font-size: 0.8rem;
     }
     .prop-row:nth-child(even) { background: var(--code-bg); }
+    .prop-row.deprecated .prop-name { text-decoration: line-through; text-decoration-color: var(--muted); opacity: 0.55; }
     .prop-name {
       font-family: ui-monospace, monospace;
       font-weight: 600;
@@ -578,6 +579,7 @@
     }
     .if-kw { color: var(--bool-color); font-weight: 600; }
     .if-prop { color: var(--fg); }
+    .if-deprecated { color: var(--muted); font-style: italic; }
     .if-prop[data-via] { text-decoration: underline dotted var(--muted); text-underline-offset: 2px; cursor: help; }
     .if-prop[data-via]:hover { text-decoration-color: var(--fg); }
     .if-prim { color: var(--num-color); }

@@ -334,16 +334,20 @@ class XsdToJsonSchema {
 
   annotateDeprecated() {
     const re = /\bDEPRECATED\b/;
-    let count = 0;
+    let defCount = 0, propCount = 0;
     for (const [name, schema] of Object.entries(this.allDefs)) {
       const desc = schema.description || "";
       if (re.test(desc)) {
         const base = schema["x-netex-role"] || "unclassified";
         schema["x-netex-role"] = base + "/deprecated";
-        count++;
+        defCount++;
+      }
+      for (const pv of this.allPropSchemas(schema)) {
+        if (re.test(pv.description || "")) { pv["x-netex-deprecated"] = true; propCount++; }
       }
     }
-    if (count) print("  deprecated: " + count + " definitions");
+    if (defCount) print("  deprecated defs: " + defCount);
+    if (propCount) print("  deprecated props: " + propCount);
   }
 
   // ── Description extraction ─────────────────────────────────────────────────
