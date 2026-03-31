@@ -15,7 +15,7 @@
 import { readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { buildSync } from "esbuild";
-import { defRole, presentRoles } from "./lib/classify.js";
+import { defRole, isDeprecated, presentRoles, ROLE_LABELS } from "./lib/classify.js";
 
 // ── HTML builder ──────────────────────────────────────────────────────────────
 
@@ -79,8 +79,10 @@ export function buildRoleFilter(defNames: string[], netexLibrary: Record<string,
 export function buildSidebarItems(defNames: string[], netexLibrary: Record<string, unknown>): string {
   return defNames
     .map((name) => {
-      const role = defRole(netexLibrary[name] as Record<string, any> | undefined);
-      return `        <li><a href="#${escapeHtml(name)}" class="sidebar-link" data-name="${escapeHtml(name.toLowerCase())}" data-role="${escapeHtml(role)}">${escapeHtml(name)}</a></li>`;
+      const def = netexLibrary[name] as Record<string, any> | undefined;
+      const role = defRole(def);
+      const cls = "sidebar-link" + (isDeprecated(def) ? " deprecated" : "");
+      return `        <li><a href="#${escapeHtml(name)}" class="${cls}" data-name="${escapeHtml(name.toLowerCase())}" data-role="${escapeHtml(role)}">${escapeHtml(name)}</a></li>`;
     })
     .join("\n");
 }
@@ -90,6 +92,7 @@ function buildDefinitionSections(netexLibrary: Record<string, unknown>, defNames
     .map((name) => {
       const def = netexLibrary[name] as Record<string, unknown>;
       const role = defRole(def as Record<string, any> | undefined);
+      const dep = isDeprecated(def as Record<string, any> | undefined);
       const desc = typeof def.description === "string" ? def.description : "";
       // Show the definition without the top-level description (it's shown separately)
       const displayDef = { ...def };
@@ -101,9 +104,11 @@ function buildDefinitionSections(netexLibrary: Record<string, unknown>, defNames
       const usedByBtn = !isEntity
         ? `<span class="used-by-wrap"><button class="used-by-btn" data-def="${escapeHtml(name)}" title="Find entities that use this type">Entities\u2026</button><div class="used-by-dropdown" id="ub-${escapeHtml(name)}"></div></span>`
         : "";
+      const roleBadge = `<span class="title-role-badge">${escapeHtml(ROLE_LABELS[role] ?? role)}</span>`;
+      const h2Cls = dep ? ' class="deprecated"' : "";
 
       return `    <section id="${escapeHtml(name)}" class="def-section" data-role="${escapeHtml(role)}">
-      <h2><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}${suggestBtn}${usedByBtn}<button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
+      <h2${h2Cls}><a href="#${escapeHtml(name)}" class="permalink">#</a> ${escapeHtml(name)}${roleBadge}${suggestBtn}${usedByBtn}<button class="explore-btn" data-def="${escapeHtml(name)}" title="Explore type hierarchy">Explore</button></h2>
       ${desc ? `<p class="def-desc">${escapeHtml(desc)}</p>` : ""}
       <pre><code>${jsonHtml}</code></pre>
     </section>`;
@@ -163,6 +168,8 @@ function buildViewerFnsScript(): string {
 
     function canonicalPropName(n, s) { return _viewerBundle.canonicalPropName(n, s); }
     function defRole(name) { return _viewerBundle.defRole(netexLibrary[name]); }
+    function isDeprecated(name) { return _viewerBundle.isDeprecated(netexLibrary[name]); }
+    var ROLE_LABELS = _viewerBundle.ROLE_LABELS;
     function buildInheritanceChain(n) { return _viewerBundle.buildInheritanceChain(netexLibrary, n); }
     function fake(n) { return _viewerBundle.fake(netexLibrary, n); }
     function flattenFake(n, mock, opts) { return _viewerBundle.flattenFake(netexLibrary, n, mock, opts); }

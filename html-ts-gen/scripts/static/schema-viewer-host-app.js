@@ -17,6 +17,10 @@
      *  - Via-chain hover popup on interface properties
      *  - Copy-to-clipboard for code blocks
      *
+     * Style rule: no inline `style=` attributes in generated HTML.
+     * Use CSS classes/IDs defined in schema-viewer.css instead.
+     * Runtime `.style.*` for computed geometry (resize, popups) is OK.
+     *
      * @file
      */
 
@@ -153,7 +157,10 @@
     function renderExplorer(name) {
       currentIsAlias = false;
       const props = flattenAllOf(netexLibrary, name);
-      explorerTitle.innerHTML = '<span class="mode-chip"></span>' + esc(name);
+      var role = defRole(name);
+      var isDep = isDeprecated(name);
+      var nameSpan = isDep ? '<span class="deprecated-name">' + esc(name) + '</span>' : esc(name);
+      explorerTitle.innerHTML = '<span class="mode-chip"></span>' + nameSpan + ' <span class="title-role-badge">' + esc(ROLE_LABELS[role] || role) + '</span>';
       const origins = [...new Set(props.map(p => p.origin))];
       explorerSubtitle.textContent = props.length + ' properties from ' + origins.length + ' type' + (origins.length !== 1 ? 's' : '');
 
