@@ -342,8 +342,8 @@ class XsdToJsonSchema {
         schema["x-netex-role"] = base + "/deprecated";
         defCount++;
       }
-      for (const pv of this.allPropSchemas(schema)) {
-        if (re.test(pv.description || "")) { pv["x-netex-deprecated"] = true; propCount++; }
+      for (const ps of this.allPropSchemas(schema)) {
+        if (re.test(ps.description || "")) { ps["x-netex-deprecated"] = true; propCount++; }
       }
     }
     if (defCount) print("  deprecated defs: " + defCount);
@@ -938,131 +938,67 @@ class XsdToJsonSchema {
   }
 
   extendsDataManagedObject(name) {
-    return this._chainHasAncestor(name, this.allDefs, "DataManagedObjectStructure", {});
-  }
-
-  _chainHasAncestor(name, allDefs, target, visited) {
-    if (visited[name]) return false;
-    visited[name] = true;
-    if (name === target) return true;
-
-    const def = allDefs[name];
-    if (!def) return false;
-
-    // $ref alias
-    if (def.$ref) {
-      return this._chainHasAncestor(
-        deref(def.$ref),
-        allDefs,
-        target,
-        visited,
-      );
-    }
-
-    // allOf: follow parent refs
-    if (def.allOf) {
-      for (const entry of def.allOf) {
-        if (entry.$ref) {
-          if (
-            this._chainHasAncestor(
-              deref(entry.$ref),
-              allDefs,
-              target,
-              visited,
-            )
-          )
-            return true;
+    const visited = {};
+    const walk = (cur) => {
+      if (visited[cur]) return false;
+      visited[cur] = true;
+      if (cur === "DataManagedObjectStructure") return true;
+      const def = this.allDefs[cur];
+      if (!def) return false;
+      if (def.$ref) return walk(deref(def.$ref));
+      if (def.allOf) {
+        for (const entry of def.allOf) {
+          if (entry.$ref && walk(deref(entry.$ref))) return true;
         }
       }
-    }
+      return false;
+    };
+    return walk(name);
+  }
 
-    return false;
+  /** Priority cascade: first matching rule wins. Returns role string or null. */
+  determineRole(name, schema) {
+    if (name.endsWith("_VersionStructure") || name.endsWith("_BaseStructure")) return "structure";
+    if (name.endsWith("_RelStructure")) return "collection";
+    if (name.endsWith("_RefStructure") || name.endsWith("RefStructure")) return "reference";
+    if (name.endsWith("_DerivedViewStructure")) return "view";
+    if (schema["enum"]) return "enumeration";
+    if (this.elementMeta[name]?.abstract) return "abstract";
+    if (DIVERSE_FRAME_MEMBERS && this.frameRegistry[name]) return "frameMember";
+    const meta = this.elementMeta[name];
+    if (meta && !meta.abstract && meta.substitutionGroup && this.extendsDataManagedObject(name)) return "entity";
+    if (name.endsWith("Ref") && this.elements[name]) return "reference";
+    if (name.startsWith("Abstract")) return "abstract";
+    return null;
+  }
+
+  /** Strip Ref/RefStructure suffix and verify the target exists. */
+  deriveRefTarget(name) {
+    const target = name.endsWith("Ref") ? name.slice(0, -3)
+      : name.endsWith("_RefStructure") ? name.slice(0, -13)
+      : name.endsWith("RefStructure") ? name.slice(0, -12)
+      : null;
+    return target && (this.elements[target] || this.types[target]) ? target : null;
   }
 
   classifyDefinitions() {
     for (const [name, schema] of Object.entries(this.allDefs)) {
-      // Role classification
-      let role = null;
+      const role = this.determineRole(name, schema);
+      if (role) schema["x-netex-role"] = role;
 
-      // 1. Structure suffixes (highest priority — structural classification)
-      if (name.endsWith("_VersionStructure") || name.endsWith("_BaseStructure")) {
-        role = "structure";
-      }
-      // 2. Collection
-      else if (name.endsWith("_RelStructure")) {
-        role = "collection";
-      }
-      // 3. Reference (suffix patterns)
-      else if (name.endsWith("_RefStructure") || name.endsWith("RefStructure")) {
-        role = "reference";
-      }
-      // 4. View
-      else if (name.endsWith("_DerivedViewStructure")) {
-        role = "view";
-      }
-      // 5. Enumeration
-      else if (schema["enum"]) {
-        role = "enumeration";
-      }
-      // 6. Abstract element
-      else if (this.elementMeta[name]?.abstract) {
-        role = "abstract";
-      }
-      // 7. Frame member (from registry) — separate role only when DIVERSE_FRAME_MEMBERS
-      else if (DIVERSE_FRAME_MEMBERS && this.frameRegistry[name]) {
-        role = "frameMember";
-      }
-      // 8. Concrete element with substitutionGroup + DMO ancestry
-      else if (
-        this.elementMeta[name] &&
-        !this.elementMeta[name].abstract &&
-        this.elementMeta[name].substitutionGroup &&
-        this.extendsDataManagedObject(name)
-      ) {
-        role = "entity";
-      }
-      // 9. Name ends in Ref and exists in elements
-      else if (name.endsWith("Ref") && this.elements[name]) {
-        role = "reference";
-      }
-      // 10. Abstract prefix (SIRI/GML base types not caught by suffix rules)
-      else if (name.startsWith("Abstract")) {
-        role = "abstract";
-      }
-
-      if (role) {
-        schema["x-netex-role"] = role;
-      }
-
-      // Frame membership (independent of role)
       if (this.frameRegistry[name]) {
         schema["x-netex-frames"] = this.frameRegistry[name].slice().sort();
       }
 
-      // Ref target (for reference-role definitions)
       if (role === "reference") {
-        let refTarget = null;
-        if (name.endsWith("Ref")) {
-          refTarget = name.slice(0, -3);
-        } else if (name.endsWith("_RefStructure")) {
-          refTarget = name.slice(0, -13);
-        } else if (name.endsWith("RefStructure")) {
-          refTarget = name.slice(0, -12);
-        }
-        if (refTarget && (this.elements[refTarget] || this.types[refTarget])) {
-          schema["x-netex-refTarget"] = refTarget;
-        }
+        const refTarget = this.deriveRefTarget(name);
+        if (refTarget) schema["x-netex-refTarget"] = refTarget;
       }
 
-      // Substitution group annotations
       const meta = this.elementMeta[name];
-      if (meta?.substitutionGroup) {
-        schema["x-netex-substitutionGroup"] = meta.substitutionGroup;
-      }
+      if (meta?.substitutionGroup) schema["x-netex-substitutionGroup"] = meta.substitutionGroup;
       const members = this.sgMembers[name];
-      if (members?.length) {
-        schema["x-netex-sg-members"] = members;
-      }
+      if (members?.length) schema["x-netex-sg-members"] = members;
     }
   }
 
