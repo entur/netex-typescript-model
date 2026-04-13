@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { CollapseOpts } from "../collapse.js";
 import { defRole } from "../classify.js";
 import { fake, flattenFake, buildXml } from "../data-faker.js";
 import { makeInlineCodeBlock } from "../to-xml-shape.js";
@@ -143,6 +144,55 @@ describe.each(TEST_ENTITIES)("$name generated roundtrip (interface shape)", (ent
     const shapeFn = evalMapping(entity.name);
     const raw = fake(netexLibrary, entity.name);
     const flat = flattenFake(netexLibrary, entity.name, raw);
+    const xmlShape = shapeFn(flat);
+    const xml = buildXml(entity.name, xmlShape);
+    const full = wrapInPublicationDelivery(entity, xml);
+    const { valid, stderr } = validateWithXmllint(full);
+    if (valid) return;
+    const errors = nonKeyrefErrors(stderr);
+    expect(errors, `xmllint errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+});
+
+// ── Group D: collapsed roundtrip (schema shape) ────────────────────────────
+
+const COLLAPSE_BOTH: CollapseOpts = { collapseRefs: true, collapseCollections: true };
+
+function evalCollapsedMapping(name: string, excl?: Set<string>): ShapeFn {
+  const allProps = flattenAllOf(netexLibrary, name);
+  const code = makeInlineCodeBlock(netexLibrary, name, {
+    html: false,
+    typed: false,
+    excludeProps: excl,
+    props: allProps,
+    collapse: COLLAPSE_BOTH,
+  });
+  const fnName = lcFirst(name) + "ToXmlShape";
+  return new Function(code + `\nreturn ${fnName};`)() as ShapeFn;
+}
+
+describe.each(TEST_ENTITIES)("$name collapsed roundtrip (schema shape)", (entity) => {
+  it("collapsed mapping code produces XSD-valid XML", { timeout: 30_000 }, () => {
+    const shapeFn = evalCollapsedMapping(entity.name);
+    const mock = fake(netexLibrary, entity.name);
+    const flat = flattenFake(netexLibrary, entity.name, mock, { collapse: COLLAPSE_BOTH });
+    const xmlShape = shapeFn(flat);
+    const xml = buildXml(entity.name, xmlShape);
+    const full = wrapInPublicationDelivery(entity, xml);
+    const { valid, stderr } = validateWithXmllint(full);
+    if (valid) return;
+    const errors = nonKeyrefErrors(stderr);
+    expect(errors, `xmllint errors:\n${errors.join("\n")}`).toEqual([]);
+  });
+});
+
+// ── Group E: collapsed interface-shape roundtrip ───────────────────────────
+
+describe.each(TEST_ENTITIES)("$name collapsed roundtrip (interface shape)", (entity) => {
+  it("flattenFake(collapse) → collapsed mapping → xmllint", { timeout: 30_000 }, () => {
+    const shapeFn = evalCollapsedMapping(entity.name);
+    const raw = fake(netexLibrary, entity.name);
+    const flat = flattenFake(netexLibrary, entity.name, raw, { collapse: COLLAPSE_BOTH });
     const xmlShape = shapeFn(flat);
     const xml = buildXml(entity.name, xmlShape);
     const full = wrapInPublicationDelivery(entity, xml);

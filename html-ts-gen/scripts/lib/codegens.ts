@@ -8,6 +8,9 @@
  */
 
 import type { NetexLibrary, FlatProperty } from "./types.js";
+import type { CollapseOpts } from "./collapse.js";
+import { buildTypeOverrides, resolveCollVerStruct } from "./collapse.js";
+import type { RemapTarget } from "./dep-graph.js";
 import { defRole } from "./classify.js";
 import { flattenAllOf, ESSENTIAL_OMNI_PROPS, OMNIPRESENT_DEFS } from "./schema-nav.js";
 import { resolveDefType, resolvePropertyType, resolveAtom } from "./type-res.js";
@@ -136,6 +139,8 @@ export interface InterfaceOpts {
   omniCollapse?: boolean;
   /** Filter out specific properties by canonical name. */
   excludeProps?: Set<string>;
+  /** Pre-resolved type overrides: canonName → typeStr. Bypasses resolvePropertyType for listed props. */
+  typeOverrides?: Map<string, string>;
 }
 
 export interface TypeAliasOpts {
@@ -341,8 +346,9 @@ export function generateInterface(
       }
     }
 
-    const resolved = resolvePropertyType(netexLibrary, p.schema, name);
-    const typeStr = renderTypeStr(netexLibrary, resolved, html, name);
+    const override = opts?.typeOverrides?.get(p.prop[1]);
+    const resolved = override ? { ts: override, complex: false } : resolvePropertyType(netexLibrary, p.schema, name);
+    const typeStr = override ? (html ? '<span class="if-prim">' + e(override) + "</span>" : override) : renderTypeStr(netexLibrary, resolved, html, name);
     if (p.schema["x-netex-deprecated"]) {
       lines.push(html ? '  <span class="if-deprecated">/** @deprecated */</span>' : "  /** @deprecated */");
     }
@@ -380,16 +386,23 @@ export function generateInterface(
  * names for a definition. Extracted from the host-app's inline 3-filter logic
  * so it can be tested and reused.
  */
-export function collectRenderableDeps(netexLibrary: NetexLibrary, name: string, excludedMembers?: Set<string>): string[] {
+export function collectRenderableDeps(
+  netexLibrary: NetexLibrary,
+  name: string,
+  excludedMembers?: Set<string>,
+  remapTarget?: RemapTarget,
+  keepAliases?: Set<string>,
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
 
-  for (const n of collectDependencyTree(netexLibrary, name, excludedMembers)) {
+  for (const n of collectDependencyTree(netexLibrary, name, excludedMembers, remapTarget)) {
     if (n.duplicate || seen.has(n.name)) continue;
     seen.add(n.name);
     const r = resolveDefType(netexLibrary, n.name);
     if (!r.complex && defRole(netexLibrary[n.name]) !== "enumeration") continue;
-    if (r.complex && r.ts !== n.name) continue;
+    // Skip aliases unless explicitly kept (e.g. collapsed collection entity names)
+    if (r.complex && r.ts !== n.name && !keepAliases?.has(n.name)) continue;
     out.push(n.name);
   }
   return out;
@@ -417,13 +430,34 @@ function collectFixedEnumTargets(netexLibrary: NetexLibrary): Set<string> {
 export function generateSubTypesBlock(
   netexLibrary: NetexLibrary,
   name: string,
-  opts?: { html?: boolean; excludedMembers?: Set<string>; excludeProps?: Set<string> },
+  opts?: { html?: boolean; excludedMembers?: Set<string>; excludeProps?: Set<string>; collapse?: CollapseOpts },
 ): string {
   const html = opts?.html ?? false;
+  const collapse = opts?.collapse;
   const fixedEnumTargets = collectFixedEnumTargets(netexLibrary);
 
+  // Build remapTarget callback and keepAliases set for BFS when collapse is active
+  let remap: RemapTarget | undefined;
+  let keepAliases: Set<string> | undefined;
+  if (collapse) {
+    const aliasSet = new Set<string>();
+    remap = (target: string) => {
+      if (collapse.collapseRefs && defRole(netexLibrary[target]) === "reference") return null;
+      if (collapse.collapseCollections && defRole(netexLibrary[target]) === "collection") {
+        const cc = resolveCollVerStruct(netexLibrary, target);
+        if (cc) {
+          aliasSet.add(cc.simplifiedName);
+          return cc.simplifiedName;
+        }
+        return target;
+      }
+      return target;
+    };
+    keepAliases = aliasSet;
+  }
+
   const excl = opts?.excludeProps;
-  return collectRenderableDeps(netexLibrary, name, opts?.excludedMembers)
+  return collectRenderableDeps(netexLibrary, name, opts?.excludedMembers, remap, keepAliases)
     .filter((n) => {
       if (!excl || fixedEnumTargets.has(n)) return true;
       if (defRole(netexLibrary[n]) === "enumeration") return true;
@@ -436,7 +470,8 @@ export function generateSubTypesBlock(
           ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
           : `type ${n} = string;`;
       }
-      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: excl }).text;
+      const overrides = collapse ? buildTypeOverrides(netexLibrary, n, collapse) : undefined;
+      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: excl, typeOverrides: overrides }).text;
     })
     .join("\n\n");
 }

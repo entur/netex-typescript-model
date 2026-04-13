@@ -1,6 +1,6 @@
 /**
  * ts-gen: assemble codegen output for target entities and verify with tsc.
- * Usage: npx tsx scripts/ts-gen.ts [--dest-dir <path>] [--overwrite] [--exclude <a,b,...>] [--suffix <s>] <Target> [...]
+ * Usage: npx tsx scripts/ts-gen.ts [flags] <Target> [...]
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -10,6 +10,7 @@ import { generateInterface, generateSubTypesBlock } from "./lib/codegens.js";
 import { flattenAllOf, buildExclSet } from "./lib/schema-nav.js";
 import { makeInlineCodeBlock } from "./lib/to-xml-shape.js";
 import { loadNetexLibrary } from "./lib/loader.js";
+import { type CollapseOpts, buildTypeOverrides, REF_PREAMBLE } from "./lib/collapse.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -48,12 +49,15 @@ const { values, positionals: TARGETS } = parseArgs({
     overwrite: { type: "boolean", default: false },
     exclude: { type: "string" },
     suffix: { type: "string", default: "" },
+    "collapse-refs": { type: "boolean", default: false },
+    "collapse-collections": { type: "boolean", default: false },
   },
   allowPositionals: true,
 });
 
 if (!TARGETS.length) {
-  console.error("Usage: npx tsx scripts/ts-gen.ts [--dest-dir <path>] [--overwrite] [--exclude a,b,...] [--suffix s] <Target> [...]");
+  console.error("Usage: npx tsx scripts/ts-gen.ts [--dest-dir <path>] [--overwrite] [--exclude a,b,...]");
+  console.error("       [--suffix s] [--collapse-refs] [--collapse-collections] <Target> [...]");
   process.exit(1);
 }
 
@@ -64,6 +68,10 @@ const suffix = values.suffix!;
 const explicit = values.exclude
   ? new Set(values.exclude.split(",").map((s) => s.trim()).filter((s) => s.length > 0))
   : undefined;
+const collapse: CollapseOpts | undefined =
+  values["collapse-refs"] || values["collapse-collections"]
+    ? { collapseRefs: values["collapse-refs"], collapseCollections: values["collapse-collections"] }
+    : undefined;
 const netexLibrary = loadNetexLibrary();
 let allPassed = true;
 
@@ -78,14 +86,16 @@ for (const name of TARGETS) {
   const exclSet = buildExclSet(allProps, { explicit });
 
   // 1. TARGET[suffix].ts — interface + subtypes
-  const root = generateInterface(netexLibrary, name, { html: false, excludeProps: exclSet }).text;
-  const subs = generateSubTypesBlock(netexLibrary, name, { excludeProps: exclSet });
-  const src = (subs ? root + "\n\n" + subs : root) + "\n";
+  const overrides = collapse ? buildTypeOverrides(netexLibrary, name, collapse) : undefined;
+  const root = generateInterface(netexLibrary, name, { html: false, excludeProps: exclSet, typeOverrides: overrides }).text;
+  const subs = generateSubTypesBlock(netexLibrary, name, { excludeProps: exclSet, collapse });
+  const preamble = collapse?.collapseRefs ? REF_PREAMBLE + "\n\n" : "";
+  const src = preamble + (subs ? root + "\n\n" + subs : root) + "\n";
   const ifPath = `${destDir}/${name}${suffix}.ts`;
   allPassed = guardWrite(ifPath, src) && typeCheck(ifPath) && allPassed;
 
   // 2. TARGET-mapping.ts — serialize functions
-  const mapping = makeInlineCodeBlock(netexLibrary, name, { html: false, excludeProps: exclSet, props: allProps });
+  const mapping = makeInlineCodeBlock(netexLibrary, name, { html: false, excludeProps: exclSet, props: allProps, collapse });
   const mapPath = `${destDir}/${name}-mapping.ts`;
   allPassed = guardWrite(mapPath, mapping + "\n") && typeCheck(mapPath) && allPassed;
 }

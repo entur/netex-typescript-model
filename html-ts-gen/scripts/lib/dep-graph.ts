@@ -197,7 +197,13 @@ export function collectExtraProps(netexLibrary: NetexLibrary, entityName: string
  *
  * The root itself is excluded from the output.
  */
-export function collectDependencyTree(netexLibrary: NetexLibrary, rootName: string, excludeRootProps?: Set<string>): DepTreeNode[] {
+/**
+ * Optional target remapping for dependency BFS.
+ * Return the (possibly replaced) target name, or null to skip the target entirely.
+ */
+export type RemapTarget = (target: string) => string | null;
+
+export function collectDependencyTree(netexLibrary: NetexLibrary, rootName: string, excludeRootProps?: Set<string>, remapTarget?: RemapTarget): DepTreeNode[] {
   const result: DepTreeNode[] = [];
   const emitted = new Set<string>();
   emitted.add(rootName);
@@ -293,11 +299,19 @@ export function collectDependencyTree(netexLibrary: NetexLibrary, rootName: stri
     return targets;
   }
 
+  /** Apply remapTarget callback: null = skip, string = replace. */
+  function remap(t: string): string | null {
+    if (!remapTarget) return t;
+    return remapTarget(t);
+  }
+
   // Seed from root
   const queue: Array<{ name: string; via: string; depth: number }> = [];
   for (const { target, via, canonical } of refTargets(resolveAlias(rootName))) {
     if (excludeRootProps && excludeRootProps.has(canonical)) continue;
-    queue.push({ name: target, via, depth: 0 });
+    const mapped = remap(target);
+    if (mapped === null) continue;
+    queue.push({ name: mapped, via, depth: 0 });
   }
 
   // BFS
@@ -319,13 +333,15 @@ export function collectDependencyTree(netexLibrary: NetexLibrary, rootName: stri
       if (def && def.type === "array" && def.items) {
         const itemShape = classifySchema(def.items);
         if (itemShape.kind === "ref") {
-          queue.push({ name: resolveAlias(itemShape.target), via: name, depth: depth + 1 });
+          const m = remap(resolveAlias(itemShape.target));
+          if (m !== null) queue.push({ name: m, via: name, depth: depth + 1 });
         }
       }
       if (def && def.anyOf) {
         for (const branch of def.anyOf as Def[]) {
           if (branch.$ref) {
-            queue.push({ name: resolveAlias(deref(branch.$ref)), via: name, depth: depth + 1 });
+            const m = remap(resolveAlias(deref(branch.$ref)));
+            if (m !== null) queue.push({ name: m, via: name, depth: depth + 1 });
           }
         }
       }
@@ -333,7 +349,9 @@ export function collectDependencyTree(netexLibrary: NetexLibrary, rootName: stri
     }
 
     for (const { target, via: childVia } of refTargets(name)) {
-      queue.push({ name: target, via: childVia, depth: depth + 1 });
+      const mapped = remap(target);
+      if (mapped === null) continue;
+      queue.push({ name: mapped, via: childVia, depth: depth + 1 });
     }
   }
 

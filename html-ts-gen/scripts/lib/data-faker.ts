@@ -10,7 +10,9 @@
 
 import { XMLBuilder } from "fast-xml-parser";
 import type { NetexLibrary, Def, FlatProperty } from "./types.js";
-import { classifySchema, defRole, isDynNocRef } from "./classify.js";
+import type { CollapseOpts } from "./collapse.js";
+import { collapseRef, collapseColl } from "./collapse.js";
+import { classifySchema, defRole, isDynNocRef, isRefType } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
 
@@ -401,17 +403,18 @@ export function fake(netexLibrary: NetexLibrary, name: string): Record<string, u
  *    (e.g. `keyList: { KeyValue: [...] }` → `keyList: [...]`)
  * 2. **Excluded props** — strips properties from the output (see `buildExclSet`)
  *
- * Future hooks for issue #30:
- * - `--collapse-refs`: ref object → `$ref` string
- * - `--collapse-collections`: RelStructure → unwrapped VersionStructure
+ * Collapse hooks (#30):
+ * - `collapse.collapseRefs`: ref object → `$ref` string
+ * - `collapse.collapseCollections`: RelStructure → unwrapped child object
  */
 export function flattenFake(
   netexLibrary: NetexLibrary,
   name: string,
   mock: Record<string, unknown>,
-  opts?: { excludeProps?: Set<string>; props?: FlatProperty[] },
+  opts?: { excludeProps?: Set<string>; props?: FlatProperty[]; collapse?: CollapseOpts },
 ): Record<string, unknown> {
   const props = opts?.props ?? flattenAllOf(netexLibrary, name);
+  const collapse = opts?.collapse;
   const result = { ...mock };
 
   for (const p of props) {
@@ -424,6 +427,37 @@ export function flattenFake(
     }
 
     if (!(canon in result) || result[canon] === undefined) continue;
+
+    // Collapse refs: { value, $ref, ... } → "$ref" string
+    if (collapse?.collapseRefs && isRefType(p.schema)) {
+      const cr = collapseRef(netexLibrary, canon, p.schema);
+      if (cr) {
+        const val = result[canon];
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const obj = val as Record<string, unknown>;
+          result[canon] = obj.$ref ?? obj.value ?? "";
+        }
+        continue;
+      }
+    }
+
+    // Collapse collections: wrapper → child object (or delete if empty)
+    if (collapse?.collapseCollections && isRefType(p.schema)) {
+      const cc = collapseColl(netexLibrary, canon, p.schema);
+      if (cc) {
+        const val = result[canon];
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          // Wrapper object { ChildKey: item } → item
+          const inner = (val as Record<string, unknown>)[cc.childKey];
+          if (inner !== undefined) result[canon] = inner;
+          else delete result[canon];
+        } else if (Array.isArray(val) && val.length === 0) {
+          // Empty collection from fake() → remove entirely
+          delete result[canon];
+        }
+        continue;
+      }
+    }
 
     const shape = classifySchema(p.schema);
     if (shape.kind !== "ref") continue;
