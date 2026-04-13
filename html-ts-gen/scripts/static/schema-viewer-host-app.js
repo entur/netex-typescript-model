@@ -668,6 +668,17 @@
           setTimeout(function() { renderDepInterfaces(depsDiv, chip, uniqueNames, totalUnique); }, 0);
         });
       }
+
+      // Append Ref<T>/SimpleRef preamble below subtypes when collapse is active
+      var oldPreamble = document.getElementById('ifaceRefPreamble');
+      if (oldPreamble) oldPreamble.remove();
+      if (collapseEnabled) {
+        var pre = document.createElement('div');
+        pre.id = 'ifaceRefPreamble';
+        pre.className = 'interface-block dep-block';
+        pre.textContent = _viewerBundle.REF_PREAMBLE;
+        explorerIface.appendChild(pre);
+      }
     }
 
     /** Build chip label showing rendered count and compaction percentage. */
@@ -718,7 +729,10 @@
           var copyOverrides = co ? buildTypeOverrides(currentExplored, co, copyAllProps) : undefined;
           var root = generateInterface(netexLibrary, currentExplored, { html: false, excludeProps: copyExcl, typeOverrides: copyOverrides }).text;
           var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeProps: copyExcl, collapse: co });
-          plain = subs ? root + '\n\n' + subs : root;
+          var parts = [root];
+          if (subs) parts.push(subs);
+          if (co?.collapseRefs) parts.push(_viewerBundle.REF_PREAMBLE);
+          plain = parts.join('\n\n');
         } else if (container === explorerMapping && currentExplored) {
           var mapProps = flattenAllOf(netexLibrary, currentExplored);
           plain = makeInlineCodeBlock(currentExplored, mapProps, { html: false, excludeProps: hostExclSet(mapProps), collapse: collapseOpts() });

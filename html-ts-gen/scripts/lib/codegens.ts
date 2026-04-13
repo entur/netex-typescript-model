@@ -214,11 +214,11 @@ export function generateTypeAlias(
       const litItems = enumValues.map(
         (v) => '  <span class="if-lit">' + e(JSON.stringify(v)) + "</span>",
       );
-      lines.push('<span class="if-kw">const</span> ' + e(constName) + " = [");
+      lines.push('<span class="if-kw">export const</span> ' + e(constName) + " = [");
       lines.push(litItems.join(",\n"));
       lines.push('] <span class="if-kw">as const</span>;');
       lines.push(
-        '<span class="if-kw">type</span> ' +
+        '<span class="if-kw">export type</span> ' +
           e(name) +
           ' = (<span class="if-kw">typeof</span> ' +
           e(constName) +
@@ -226,18 +226,18 @@ export function generateTypeAlias(
       );
     } else {
       const litItems = enumValues.map((v) => "  " + JSON.stringify(v));
-      lines.push("const " + constName + " = [");
+      lines.push("export const " + constName + " = [");
       lines.push(litItems.join(",\n"));
       lines.push("] as const;");
-      lines.push("type " + name + " = (typeof " + constName + ")[number];");
+      lines.push("export type " + name + " = (typeof " + constName + ")[number];");
     }
   } else {
     // Non-enum type alias
     const typeStr = renderTypeStr(netexLibrary, resolved, html, name);
     if (html) {
-      lines.push('<span class="if-kw">type</span> ' + e(name) + " = " + typeStr + ";");
+      lines.push('<span class="if-kw">export type</span> ' + e(name) + " = " + typeStr + ";");
     } else {
-      lines.push("type " + name + " = " + typeStr + ";");
+      lines.push("export type " + name + " = " + typeStr + ";");
     }
   }
 
@@ -322,9 +322,9 @@ export function generateInterface(
   }
 
   if (html) {
-    lines.push('<span class="if-kw">interface</span> ' + e(name) + " {");
+    lines.push('<span class="if-kw">export interface</span> ' + e(name) + " {");
   } else {
-    lines.push("interface " + name + " {");
+    lines.push("export interface " + name + " {");
   }
 
   const ESSENTIAL_BANNER = "Essential base attrs";
@@ -476,8 +476,8 @@ export function generateSubTypesBlock(
     .map((n) => {
       if (fixedEnumTargets.has(n)) {
         return html
-          ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
-          : `type ${n} = string;`;
+          ? `<span class="if-kw">export type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
+          : `export type ${n} = string;`;
       }
       const props = propsCache.get(n)!;
       const overrides = collapse ? buildTypeOverrides(netexLibrary, n, collapse, props) : undefined;

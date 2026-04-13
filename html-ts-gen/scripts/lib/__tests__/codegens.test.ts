@@ -254,7 +254,7 @@ describe("generateInterface", () => {
 
   it("generates HTML output with spans", () => {
     const { text } = generateInterface(netexLibrary, "Authority", { html: true });
-    expect(text).toContain('<span class="if-kw">interface</span>');
+    expect(text).toContain('<span class="if-kw">export interface</span>');
     expect(text).toContain('<span class="if-prop"');
   });
 
@@ -271,7 +271,7 @@ describe("generateInterface", () => {
 
   it("metaComments: false skips JSDoc header", () => {
     const { text } = generateInterface(netexLibrary, "Authority", { html: false, metaComments: false });
-    expect(text).toMatch(/^interface Authority \{/);
+    expect(text).toMatch(/^export interface Authority \{/);
   });
 
   it("renders dynamic NameOfClass ref as string", () => {
@@ -352,13 +352,13 @@ describe("generateTypeAlias", () => {
     const resolved = { ts: "string", complex: false };
     const { text } = generateTypeAlias(netexLibrary, "PrivateCode", resolved, { html: false, metaComments: false });
     expect(text).not.toContain("/**");
-    expect(text).toMatch(/^type PrivateCode = string;$/);
+    expect(text).toMatch(/^export type PrivateCode = string;$/);
   });
 
   it("generates HTML output for enum", () => {
     const resolved = { ts: "AllModesEnumeration", complex: false, via: [{ name: "AllModesEnumeration", rule: "enum" }] };
     const { text } = generateTypeAlias(netexLibrary, "AllModesEnumeration", resolved, { html: true });
-    expect(text).toContain('<span class="if-kw">const</span>');
+    expect(text).toContain('<span class="if-kw">export const</span>');
     expect(text).toContain('<span class="if-lit">');
   });
 });

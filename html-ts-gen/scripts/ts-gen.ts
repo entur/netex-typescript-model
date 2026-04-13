@@ -89,8 +89,10 @@ for (const name of TARGETS) {
   const overrides = collapse ? buildTypeOverrides(netexLibrary, name, collapse) : undefined;
   const root = generateInterface(netexLibrary, name, { html: false, excludeProps: exclSet, typeOverrides: overrides }).text;
   const subs = generateSubTypesBlock(netexLibrary, name, { excludeProps: exclSet, collapse });
-  const preamble = collapse?.collapseRefs ? REF_PREAMBLE + "\n\n" : "";
-  const src = preamble + (subs ? root + "\n\n" + subs : root) + "\n";
+  const parts = [root];
+  if (subs) parts.push(subs);
+  if (collapse?.collapseRefs) parts.push(REF_PREAMBLE);
+  const src = parts.join("\n\n") + "\n";
   const ifPath = `${destDir}/${name}${suffix}.ts`;
   allPassed = guardWrite(ifPath, src) && typeCheck(ifPath) && allPassed;
 
