@@ -69,9 +69,8 @@ describe("collapseColl", () => {
       const schema = { $ref: `#/definitions/${cn}` };
       const cc = collapseColl(lib, "test", schema);
       if (cc) {
-        expect(cc.simplifiedName).toBeTruthy();
+        expect(cc.target).toBeTruthy();
         expect(cc.childKey).toBeTruthy();
-        expect(cc.verStructName).toBe(cc.simplifiedName);
         found = true;
         break;
       }
@@ -100,7 +99,7 @@ describe("resolveCollVerStruct", () => {
     for (const cn of collNames) {
       const r = resolveCollVerStruct(lib, cn);
       if (r) {
-        expect(r.simplifiedName).toBeTruthy();
+        expect(r.target).toBeTruthy();
         expect(r.childKey).toBeTruthy();
         found = true;
         break;

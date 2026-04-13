@@ -223,7 +223,7 @@ function classifyProps(
     if (collapse?.collapseCollections && isRefType(p.schema)) {
       const cc = collapseColl(netexLibrary, canonName, p.schema);
       if (cc) {
-        entries.push({ kind: "childWrapped", canonName, refTarget: cc.verStructName, wrapChildKey: cc.childKey });
+        entries.push({ kind: "childWrapped", canonName, refTarget: cc.target, wrapChildKey: cc.childKey });
         continue;
       }
     }

@@ -347,8 +347,12 @@ export function generateInterface(
     }
 
     const override = opts?.typeOverrides?.get(p.prop[1]);
-    const resolved = override ? { ts: override, complex: false } : resolvePropertyType(netexLibrary, p.schema, name);
-    const typeStr = override ? (html ? '<span class="if-prim">' + e(override) + "</span>" : override) : renderTypeStr(netexLibrary, resolved, html, name);
+    const resolved = override
+      ? { ts: override, complex: false }
+      : resolvePropertyType(netexLibrary, p.schema, name);
+    const typeStr = override
+      ? (html ? '<span class="if-prim">' + e(override) + "</span>" : override)
+      : renderTypeStr(netexLibrary, resolved, html, name);
     if (p.schema["x-netex-deprecated"]) {
       lines.push(html ? '  <span class="if-deprecated">/** @deprecated */</span>' : "  /** @deprecated */");
     }
@@ -442,12 +446,13 @@ export function generateSubTypesBlock(
   if (collapse) {
     const aliasSet = new Set<string>();
     remap = (target: string) => {
-      if (collapse.collapseRefs && defRole(netexLibrary[target]) === "reference") return null;
-      if (collapse.collapseCollections && defRole(netexLibrary[target]) === "collection") {
+      const role = defRole(netexLibrary[target]);
+      if (collapse.collapseRefs && role === "reference") return null;
+      if (collapse.collapseCollections && role === "collection") {
         const cc = resolveCollVerStruct(netexLibrary, target);
         if (cc) {
-          aliasSet.add(cc.simplifiedName);
-          return cc.simplifiedName;
+          aliasSet.add(cc.target);
+          return cc.target;
         }
         return target;
       }
@@ -457,12 +462,16 @@ export function generateSubTypesBlock(
   }
 
   const excl = opts?.excludeProps;
-  return collectRenderableDeps(netexLibrary, name, opts?.excludedMembers, remap, keepAliases)
+  const deps = collectRenderableDeps(netexLibrary, name, opts?.excludedMembers, remap, keepAliases);
+
+  // Pre-compute flattenAllOf once per dep — shared by filter, buildTypeOverrides, and generateInterface
+  const propsCache = new Map(deps.map((n) => [n, flattenAllOf(netexLibrary, n)]));
+
+  return deps
     .filter((n) => {
       if (!excl || fixedEnumTargets.has(n)) return true;
       if (defRole(netexLibrary[n]) === "enumeration") return true;
-      const flat = flattenAllOf(netexLibrary, n);
-      return flat.some((p) => !excl.has(p.prop[1]));
+      return propsCache.get(n)!.some((p) => !excl.has(p.prop[1]));
     })
     .map((n) => {
       if (fixedEnumTargets.has(n)) {
@@ -470,8 +479,9 @@ export function generateSubTypesBlock(
           ? `<span class="if-kw">type</span> <span class="if-name">${n}</span> = <span class="if-type">string</span>;`
           : `type ${n} = string;`;
       }
-      const overrides = collapse ? buildTypeOverrides(netexLibrary, n, collapse) : undefined;
-      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: excl, typeOverrides: overrides }).text;
+      const props = propsCache.get(n)!;
+      const overrides = collapse ? buildTypeOverrides(netexLibrary, n, collapse, props) : undefined;
+      return generateInterface(netexLibrary, n, { html, metaComments: false, excludeProps: excl, typeOverrides: overrides, preProps: props }).text;
     })
     .join("\n\n");
 }

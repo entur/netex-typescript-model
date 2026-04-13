@@ -435,7 +435,9 @@ export function flattenFake(
         const val = result[canon];
         if (val && typeof val === "object" && !Array.isArray(val)) {
           const obj = val as Record<string, unknown>;
-          result[canon] = obj.$ref ?? obj.value ?? "";
+          const ref = obj.$ref ?? obj.value;
+          if (ref !== undefined) result[canon] = ref;
+          else delete result[canon];
         }
         continue;
       }

@@ -1,6 +1,6 @@
 /** Collapse resolution for --collapse-refs and --collapse-collections. */
 
-import type { Def, NetexLibrary } from "./types.js";
+import type { Def, NetexLibrary, FlatProperty } from "./types.js";
 import { classifySchema, defRole, isRefType, refTarget } from "./classify.js";
 import { resolveRefEntity } from "./dep-graph.js";
 import { flattenAllOf } from "./schema-nav.js";
@@ -18,10 +18,10 @@ export interface CollapsedRef {
 }
 
 export interface CollapsedColl {
-  verStructName: string;   // e.g. "VehicleManoeuvringRequirement_VersionStructure"
-  simplifiedName: string;  // e.g. "VehicleManoeuvringRequirement"
-  childKey: string;        // property name inside the RelStructure wrapper
-  typeStr: string;         // same as simplifiedName (used as interface name)
+  /** Child def name — used as reshapeComplex dispatch key and interface name. */
+  target: string;
+  /** Property name inside the RelStructure wrapper (XML child element name). */
+  childKey: string;
 }
 
 // ── Preamble ───────────────────────────────────────────────────────────────
@@ -97,61 +97,45 @@ export function collapseColl(
 ): CollapsedColl | null {
   const defName = refTarget(propSchema);
   if (!defName) return null;
-  return resolveCollChild(lib, defName);
+  return resolveCollVerStruct(lib, defName);
 }
 
-/** Core logic shared between collapseColl and resolveCollVerStruct. */
-function resolveCollChild(lib: NetexLibrary, collDefName: string): CollapsedColl | null {
+/**
+ * Resolve a collection (RelStructure) def to its single child type.
+ * Rejects refArray children (childWrapped handles single objects only).
+ * Exported for BFS remap callback in collectDependencyTree.
+ */
+export function resolveCollVerStruct(lib: NetexLibrary, collDefName: string): CollapsedColl | null {
   const def = lib[collDefName];
-  if (!def) return null;
-  if (defRole(def) !== "collection") return null;
+  if (!def || defRole(def) !== "collection") return null;
 
-  // Find non-$, non-Ref child properties
   const props = flattenAllOf(lib, collDefName);
   const candidates: Array<{ canon: string; target: string }> = [];
   for (const p of props) {
     const canon = p.prop[1];
     if (canon.startsWith("$") || canon.endsWith("Ref")) continue;
-
     const shape = classifySchema(p.schema);
-    if (shape.kind === "ref" || shape.kind === "refArray") {
-      candidates.push({ canon, target: shape.target });
-    }
+    if (shape.kind === "ref") candidates.push({ canon, target: shape.target });
   }
 
-  // Only collapse single-child collections
   if (candidates.length !== 1) return null;
-  const { canon, target } = candidates[0];
-  return { verStructName: target, simplifiedName: target, childKey: canon, typeStr: target };
-}
-
-// ── Collection resolve by def name ─────────────────────────────────────────
-
-/**
- * Resolve a collection (RelStructure) definition to its child type.
- * Like collapseColl but takes a def name directly — avoids needing a property schema.
- * Used by the BFS remap callback in collectDependencyTree.
- */
-export function resolveCollVerStruct(
-  lib: NetexLibrary,
-  collDefName: string,
-): CollapsedColl | null {
-  return resolveCollChild(lib, collDefName);
+  return { target: candidates[0].target, childKey: candidates[0].canon };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
  * Build a type-override map for all collapsible properties of a definition.
- * Returns a Map<canonicalPropName, collapsedTypeStr> used by generateInterface.
+ * Accepts pre-computed props to avoid redundant flattenAllOf calls.
  */
 export function buildTypeOverrides(
   lib: NetexLibrary,
   name: string,
   collapse: CollapseOpts,
+  preProps?: FlatProperty[],
 ): Map<string, string> {
   const overrides = new Map<string, string>();
-  const props = flattenAllOf(lib, name);
+  const props = preProps ?? flattenAllOf(lib, name);
   for (const p of props) {
     const canon = p.prop[1];
     if (collapse.collapseRefs) {
@@ -160,7 +144,7 @@ export function buildTypeOverrides(
     }
     if (collapse.collapseCollections) {
       const cc = collapseColl(lib, canon, p.schema);
-      if (cc) { overrides.set(canon, cc.typeStr); continue; }
+      if (cc) { overrides.set(canon, cc.target); continue; }
     }
   }
   return overrides;
