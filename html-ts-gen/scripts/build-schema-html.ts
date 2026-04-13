@@ -179,8 +179,9 @@ function buildViewerFnsScript(): string {
     function makeInlineCodeBlock(n, props, opts) { return _viewerBundle.makeInlineCodeBlock(netexLibrary, n, Object.assign({}, opts || {}, props ? { props: props } : {})); }
     function collectRefProps(name) { return _viewerBundle.collectRefProps(netexLibrary, name); }
     function collectExtraProps(entityName, baseStructure) { return _viewerBundle.collectExtraProps(netexLibrary, entityName, baseStructure); }
-    function collectDependencyTree(name, excludeRootProps) { return _viewerBundle.collectDependencyTree(netexLibrary, name, excludeRootProps); }
-    function collectRenderableDeps(name, excludedMembers) { return _viewerBundle.collectRenderableDeps(netexLibrary, name, excludedMembers); }
+    function collectDependencyTree(name, excludeRootProps, remapTarget) { return _viewerBundle.collectDependencyTree(netexLibrary, name, excludeRootProps, remapTarget); }
+    function collectRenderableDeps(name, excludedMembers, remapTarget, keepAliases) { return _viewerBundle.collectRenderableDeps(netexLibrary, name, excludedMembers, remapTarget, keepAliases); }
+    function buildTypeOverrides(name, collapse, props) { return _viewerBundle.buildTypeOverrides(netexLibrary, name, collapse, props); }
     function resolveRefEntity(refDefName) { return _viewerBundle.resolveRefEntity(netexLibrary, refDefName); }
     var generateInterface = _viewerBundle.generateInterface;
     function generateSubTypesBlock(name, opts) { return _viewerBundle.generateSubTypesBlock(netexLibrary, name, opts); }
@@ -268,7 +269,7 @@ ${sections}
     <div class="explorer-tab-content active" id="explorerProps"></div>
     <div class="explorer-tab-content" id="explorerGraph"><div class="graph-container" id="graphContainer"></div></div>
     <div class="explorer-tab-content" id="explorerRelations"><div class="relations-container" id="relationsContainer"></div></div>
-    <div class="iface-toggles" id="ifaceToggles" style="display:none"><label class="iface-toggle"><input type="checkbox" id="hideOmniCheck" checked> Hide base props</label></div>
+    <div class="iface-toggles" id="ifaceToggles" style="display:none"><label class="iface-toggle"><input type="checkbox" id="hideOmniCheck" checked> Hide base props</label><label class="iface-toggle"><input type="checkbox" id="collapseRefsCheck" checked> Collapse refs</label></div>
     <div class="explorer-tab-content" id="explorerIface"></div>
     <div class="explorer-tab-content" id="explorerMapping"></div>
     <div class="explorer-tab-content" id="explorerSample"></div>
