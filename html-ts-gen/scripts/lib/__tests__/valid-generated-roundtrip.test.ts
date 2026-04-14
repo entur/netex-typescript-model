@@ -45,7 +45,7 @@ function evalMapping(name: string, excl?: Set<string>): ShapeFn {
     props: allProps,
   });
   const fnName = lcFirst(name) + "ToXmlShape";
-  return new Function(code + `\nreturn ${fnName};`)() as ShapeFn;
+  return new Function(code.replace(/^export /m, "") + `\nreturn ${fnName};`)() as ShapeFn;
 }
 
 const TEST_ENTITIES = CORE
@@ -168,7 +168,7 @@ function evalCollapsedMapping(name: string, excl?: Set<string>): ShapeFn {
     collapse: COLLAPSE_BOTH,
   });
   const fnName = lcFirst(name) + "ToXmlShape";
-  return new Function(code + `\nreturn ${fnName};`)() as ShapeFn;
+  return new Function(code.replace(/^export /m, "") + `\nreturn ${fnName};`)() as ShapeFn;
 }
 
 describe.each(TEST_ENTITIES)("$name collapsed roundtrip (schema shape)", (entity) => {

@@ -66,6 +66,8 @@ export interface InlineOptions {
   typed?: boolean;
   /** Append runtime helper functions at the bottom (default: true). */
   includeHelpers?: boolean;
+  /** Prefix the function declaration with `export` (default: false). */
+  exported?: boolean;
   /** Collapse options — when active, refs become refAttr and collections become childWrapped. */
   collapse?: CollapseOpts;
 }
@@ -381,7 +383,8 @@ export function makeInlinedToXmlShape(
   const cbParam = (opts?.callbackAsParam ?? true) ? `, ${cb}${tRc}` : "";
 
   const lines: string[] = [];
-  lines.push(`${kw("function")} ${fnName}(obj${tObj}${cbParam})${tObj} {`);
+  const exp = opts?.exported ? `${kw("export")} ` : "";
+  lines.push(`${exp}${kw("function")} ${fnName}(obj${tObj}${cbParam})${tObj} {`);
   lines.push(`  ${kw("return")} {`);
   lines.push(...bodyLines);
   lines.push("  };");
@@ -467,6 +470,7 @@ export function makeInlineCodeBlock(
       ...sharedOpts,
       props: filteredProps,
       callbackAsParam: false,
+      exported: true,
     });
     return comment + "\n" + entityFn + "\n\n" + helpers;
   }
@@ -489,6 +493,7 @@ export function makeInlineCodeBlock(
     ...sharedOpts,
     props: filteredProps,
     callbackAsParam: false,
+    exported: true,
   });
 
   // Dedup identical child functions: emit once, alias the rest
@@ -516,8 +521,8 @@ export function makeInlineCodeBlock(
 
   return (
     comment + "\n" +
-    dispatchLines.join("\n") + "\n\n" +
     entityFn + "\n\n" +
+    dispatchLines.join("\n") + "\n\n" +
     childBlocks.join("\n\n") + "\n\n" +
     helpers
   );
