@@ -47,6 +47,8 @@ export {
 } from "./data-faker.js";
 
 export { makeInlinedToXmlShape, makeInlineCodeBlock, emitHelpers } from "./to-xml-shape.js";
+export { collapseRef, collapseColl, collapseCollAsRef, resolveCollVerStruct, resolveCollRefVerStruct, buildTypeOverrides, REF_PREAMBLE } from "./collapse.js";
+export type { CollapseOpts, CollapsedRef, CollapsedColl, CollapsedCollRef } from "./collapse.js";
 
 export {
   generateInterface,

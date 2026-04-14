@@ -9,8 +9,10 @@
  */
 
 import type { NetexLibrary, FlatProperty, ResolvedType } from "./types.js";
+import type { CollapseOpts } from "./collapse.js";
+import { collapseRef, collapseColl, collapseCollAsRef } from "./collapse.js";
 import { lcFirst } from "./util.js";
-import { classifySchema, defRole } from "./classify.js";
+import { classifySchema, defRole, isRefType, refTarget } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
 import { escHtml } from "./codegens.js";
@@ -64,6 +66,8 @@ export interface InlineOptions {
   typed?: boolean;
   /** Append runtime helper functions at the bottom (default: true). */
   includeHelpers?: boolean;
+  /** Collapse options — when active, refs become refAttr and collections become childWrapped. */
+  collapse?: CollapseOpts;
 }
 
 /** Syntax-highlight tag helpers — return identity functions when html is false. */
@@ -84,9 +88,10 @@ function makeTaggers(html: boolean) {
  * Emit the runtime helper functions used by generated entity functions.
  * Function declarations hoist, so placing these at the bottom is safe.
  */
-export function emitHelpers(opts?: { html?: boolean; typed?: boolean }): string {
+export function emitHelpers(opts?: { html?: boolean; typed?: boolean; collapse?: CollapseOpts }): string {
   const html = opts?.html ?? false;
   const typed = opts?.typed ?? false;
+  const collapse = opts?.collapse;
   const { kw, lit, prop } = makeTaggers(html);
 
   const tUnk = typed ? ": unknown" : "";
@@ -144,12 +149,26 @@ export function emitHelpers(opts?: { html?: boolean; typed?: boolean }): string 
   lines.push(`  ${kw("return")} obj[${lit("'value'")}] !== ${kw("undefined")} ? { ${prop("'#text'")}: obj[${lit("'value'")}] } : {};`);
   lines.push("}");
 
+  if (collapse?.collapseRefs || collapse?.collapseCollections) {
+    lines.push("");
+    lines.push(`${kw("function")} refAttr(obj${tObj}, key${tStr}) {`);
+    lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")} ? { [key]: { ${prop("'@_ref'")}: obj[key] } } : {};`);
+    lines.push("}");
+  }
+
+  if (collapse?.collapseCollections) {
+    lines.push("");
+    lines.push(`${kw("function")} childWrapped(obj${tObj}, key${tStr}, wrapName${tStr}, type${tStr}, rc${tRc}) {`);
+    lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")} ? { [key]: { [wrapName]: rc(type, obj[key]${asObj}) } } : {};`);
+    lines.push("}");
+  }
+
   return lines.join("\n");
 }
 
 // ── Property classification ─────────────────────────────────────────────────
 
-type PropKind = "attr" | "elem" | "complex" | "array" | "text" | "rename" | "wrapArr";
+type PropKind = "attr" | "elem" | "complex" | "array" | "text" | "rename" | "wrapArr" | "refAttr" | "childWrapped";
 
 interface PropEmit {
   kind: PropKind;
@@ -172,6 +191,7 @@ function classifyProps(
   netexLibrary: NetexLibrary,
   name: string,
   props: FlatProperty[],
+  collapse?: CollapseOpts,
 ): PropEmit[] {
   const isSimpleContent = resolveAtom(netexLibrary, name) === "simpleObj";
   const entries: PropEmit[] = [];
@@ -192,29 +212,49 @@ function classifyProps(
       continue;
     }
 
-    const shape = classifySchema(p.schema);
-    let xmlKey: string | undefined;
-    let refTarget: string | undefined;
-    if (shape.kind === "ref") refTarget = shape.target;
-    else if (shape.kind === "refArray") refTarget = shape.target;
-
-    // Resolve abstract elements to first concrete member
-    if (refTarget) {
-      const targetDef = netexLibrary[refTarget];
-      if (targetDef?.["x-netex-role"] === "abstract" && targetDef?.["x-netex-sg-members"]) {
-        const concrete = resolveConcreteElement(netexLibrary, refTarget);
-        if (concrete !== canonName) xmlKey = concrete;
-        refTarget = concrete;
+    // Collapse interception — before normal classification
+    if (collapse?.collapseRefs && isRefType(p.schema)) {
+      const cr = collapseRef(netexLibrary, canonName, p.schema);
+      if (cr) {
+        entries.push({ kind: "refAttr", canonName });
+        continue;
+      }
+    }
+    if (collapse?.collapseCollections && isRefType(p.schema)) {
+      const ccRef = collapseCollAsRef(netexLibrary, canonName, p.schema);
+      if (ccRef) {
+        entries.push({ kind: "refAttr", canonName });
+        continue;
+      }
+      const cc = collapseColl(netexLibrary, canonName, p.schema);
+      if (cc) {
+        entries.push({ kind: "childWrapped", canonName, refTarget: cc.target, wrapChildKey: cc.childKey });
+        continue;
       }
     }
 
-    if (shape.kind === "ref" && refTarget) {
+    const shape = classifySchema(p.schema);
+    let xmlKey: string | undefined;
+    let rt: string | undefined;
+    if (shape.kind === "ref") rt = shape.target;
+    else if (shape.kind === "refArray") rt = shape.target;
+
+    // Resolve abstract elements to first concrete member
+    if (rt) {
+      const targetDef = netexLibrary[rt];
+      if (targetDef?.["x-netex-role"] === "abstract" && targetDef?.["x-netex-sg-members"]) {
+        const concrete = resolveConcreteElement(netexLibrary, rt);
+        if (concrete !== canonName) xmlKey = concrete;
+        rt = concrete;
+      }
+    }
+
+    if (shape.kind === "ref" && rt) {
       const resolved = resolvePropertyType(netexLibrary, p.schema);
       const isMixed = resolved.via?.some((h) => h.rule === "mixed-unwrap") ?? false;
       const isArrayUnwrapped = resolved.via?.some((h) => h.rule === "array-unwrap") ?? false;
 
       if (isArrayUnwrapped && resolved.ts.endsWith("[]")) {
-        // refTarget is the element name (e.g. "keyList"); get the wrapper type from the via chain
         const wrapperName = resolved.via!.find((h) => h.rule === "array-unwrap")!.name;
         const childKey = wrapperChildKey(netexLibrary, wrapperName);
         if (childKey) {
@@ -225,19 +265,19 @@ function classifyProps(
 
       if (isMixed && resolved.ts.endsWith("[]")) {
         entries.push({ kind: "array", canonName, xmlKey, refTarget: resolved.ts.slice(0, -2) });
-      } else if (!shouldDirectAssign(netexLibrary, refTarget, resolved)) {
-        entries.push({ kind: "complex", canonName, xmlKey, refTarget });
+      } else if (!shouldDirectAssign(netexLibrary, rt, resolved)) {
+        entries.push({ kind: "complex", canonName, xmlKey, refTarget: rt });
       } else if (xmlKey) {
         entries.push({ kind: "rename", canonName, xmlKey });
       } else {
         entries.push({ kind: "elem", canonName });
       }
-    } else if (shape.kind === "refArray" && refTarget) {
+    } else if (shape.kind === "refArray" && rt) {
       const resolved = resolvePropertyType(netexLibrary, p.schema);
-      if (shouldDirectAssign(netexLibrary, refTarget, resolved)) {
+      if (shouldDirectAssign(netexLibrary, rt, resolved)) {
         entries.push({ kind: "elem", canonName });
       } else {
-        entries.push({ kind: "array", canonName, xmlKey, refTarget });
+        entries.push({ kind: "array", canonName, xmlKey, refTarget: rt });
       }
     } else {
       entries.push({ kind: "elem", canonName });
@@ -274,6 +314,10 @@ function fmtEntry(e: PropEmit, cb: string, t: Taggers): string {
     }
     case "rename":
       return `...(obj[${lit("'" + e.canonName + "'")}] !== undefined && { [${lit("'" + e.xmlKey + "'")}]: obj[${lit("'" + e.canonName + "'")}] })`;
+    case "refAttr":
+      return `...refAttr(obj, ${lit("'" + e.canonName + "'")})`;
+    case "childWrapped":
+      return `...childWrapped(obj, ${lit("'" + e.canonName + "'")}, ${lit("'" + e.wrapChildKey + "'")}, ${lit("'" + e.refTarget + "'")}, ${cb})`;
   }
 }
 
@@ -328,7 +372,7 @@ export function makeInlinedToXmlShape(
   const taggers = makeTaggers(html);
   const { kw } = taggers;
 
-  const entries = classifyProps(netexLibrary, name, props);
+  const entries = classifyProps(netexLibrary, name, props, opts?.collapse);
   const bodyLines = packEntries(entries, cb, taggers, html);
 
   // Function signature
@@ -345,7 +389,7 @@ export function makeInlinedToXmlShape(
 
   const fn = lines.join("\n");
   if (opts?.includeHelpers === false) return fn;
-  return fn + "\n\n" + emitHelpers({ html, typed });
+  return fn + "\n\n" + emitHelpers({ html, typed, collapse: opts?.collapse });
 }
 
 /** Unique complex/array ref targets from classified entries. */
@@ -353,7 +397,7 @@ function complexTargets(entries: PropEmit[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const e of entries) {
-    if ((e.kind === "complex" || e.kind === "array" || e.kind === "wrapArr") && e.refTarget && !seen.has(e.refTarget)) {
+    if ((e.kind === "complex" || e.kind === "array" || e.kind === "wrapArr" || e.kind === "childWrapped") && e.refTarget && !seen.has(e.refTarget)) {
       seen.add(e.refTarget);
       out.push(e.refTarget);
     }
@@ -366,6 +410,7 @@ function collectAllTargets(
   netexLibrary: NetexLibrary,
   rootName: string,
   rootEntries: PropEmit[],
+  collapse?: CollapseOpts,
 ): string[] {
   const all: string[] = [];
   const visited = new Set([rootName]);
@@ -375,7 +420,7 @@ function collectAllTargets(
     if (visited.has(t)) continue;
     visited.add(t);
     all.push(t);
-    for (const c of complexTargets(classifyProps(netexLibrary, t, flattenAllOf(netexLibrary, t)))) {
+    for (const c of complexTargets(classifyProps(netexLibrary, t, flattenAllOf(netexLibrary, t), collapse))) {
       if (!visited.has(c)) queue.push(c);
     }
   }
@@ -392,7 +437,7 @@ function collectAllTargets(
 export function makeInlineCodeBlock(
   netexLibrary: NetexLibrary,
   name: string,
-  opts?: { props?: FlatProperty[]; html?: boolean; typed?: boolean; excludeProps?: Set<string> },
+  opts?: { props?: FlatProperty[]; html?: boolean; typed?: boolean; excludeProps?: Set<string>; collapse?: CollapseOpts },
 ): string {
   const props = opts?.props ?? flattenAllOf(netexLibrary, name);
   const filteredProps = opts?.excludeProps
@@ -400,10 +445,11 @@ export function makeInlineCodeBlock(
     : props;
   const html = opts?.html ?? false;
   const typed = opts?.typed ?? true;
+  const collapse = opts?.collapse;
   const { kw, lit, cmt } = makeTaggers(html);
 
-  const rootEntries = classifyProps(netexLibrary, name, filteredProps);
-  const targets = collectAllTargets(netexLibrary, name, rootEntries);
+  const rootEntries = classifyProps(netexLibrary, name, filteredProps, collapse);
+  const targets = collectAllTargets(netexLibrary, name, rootEntries, collapse);
 
   const comment = cmt(
     "/*\n" +
@@ -413,8 +459,8 @@ export function makeInlineCodeBlock(
       " */",
   );
 
-  const sharedOpts = { callbackName: "reshapeComplex", html, typed, includeHelpers: false } as const;
-  const helpers = emitHelpers({ html, typed });
+  const sharedOpts = { callbackName: "reshapeComplex", html, typed, includeHelpers: false, collapse } as const;
+  const helpers = emitHelpers({ html, typed, collapse });
 
   if (targets.length === 0) {
     const entityFn = makeInlinedToXmlShape(netexLibrary, name, {
@@ -450,7 +496,7 @@ export function makeInlineCodeBlock(
   const fpByTarget = new Map<string, { fp: string; props: FlatProperty[] }>();
   for (const t of targets) {
     const props = flattenAllOf(netexLibrary, t);
-    const entries = classifyProps(netexLibrary, t, props);
+    const entries = classifyProps(netexLibrary, t, props, collapse);
     const fp = entries.map(e => e.kind + ":" + e.canonName + ":" + (e.refTarget || "") + ":" + (e.xmlKey || "") + ":" + (e.wrapChildKey || "")).join("|");
     fpByTarget.set(t, { fp, props });
   }

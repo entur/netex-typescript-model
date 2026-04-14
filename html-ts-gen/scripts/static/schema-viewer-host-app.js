@@ -514,7 +514,10 @@
     const explorerIface = document.getElementById('explorerIface');
     const ifaceToggles = document.getElementById('ifaceToggles');
     const hideOmniCheck = document.getElementById('hideOmniCheck');
+    const collapseRefsCheck = document.getElementById('collapseRefsCheck');
     var hideOmniEnabled = true;
+    var collapseEnabled = true;
+    function collapseOpts() { return collapseEnabled ? { collapseRefs: true, collapseCollections: true } : undefined; }
     var currentIsAlias = false;
     var currentExcluded = {};
 
@@ -534,6 +537,8 @@
      */
     function renderInterfaceHtml(name, preProps, metaComments) {
       var ifProps = preProps || flattenAllOf(netexLibrary, name);
+      var co = collapseOpts();
+      var overrides = co ? buildTypeOverrides(name, co, ifProps) : undefined;
       var result = generateInterface(netexLibrary, name, {
         html: true,
         metaComments: metaComments,
@@ -541,6 +546,7 @@
         excludeCheckboxes: metaComments,
         omniCollapse: hideOmniEnabled,
         excludeProps: hostExclSet(ifProps),
+        typeOverrides: overrides,
       });
       var blockClass = metaComments ? 'interface-block' : 'interface-block dep-block';
       var html = '<div class="' + blockClass + '">' + result.text;
@@ -558,16 +564,54 @@
       }
     });
 
+    collapseRefsCheck.addEventListener('change', function() {
+      collapseEnabled = collapseRefsCheck.checked;
+      if (currentExplored) {
+        renderInterface(currentExplored);
+        renderMappingGuide(currentExplored);
+        refreshSamplePanels();
+      }
+    });
+
     /** Render the TypeScript tab into its container element. */
     function renderInterface(name, props) {
       currentExcluded = {};
       var result = renderInterfaceHtml(name, props, true);
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
+      // Append Ref<T>/SimpleRef preamble into the root interface block
+      if (collapseEnabled && !result.isAlias) {
+        var rootBlock = explorerIface.querySelector('.interface-block');
+        if (rootBlock) {
+          var pre = document.createElement('div');
+          pre.className = 'ref-preamble';
+          pre.textContent = '\n' + _viewerBundle.REF_PREAMBLE;
+          rootBlock.insertBefore(pre, rootBlock.querySelector('.copy-btn'));
+        }
+      }
       updateDepsSection();
       hideOmniCheck.checked = hideOmniEnabled;
       var ifaceActive = explorerIface.classList.contains('active');
       ifaceToggles.style.display = (!currentIsAlias && ifaceActive) ? '' : 'none';
+    }
+
+    /** Build remapTarget callback + keepAliases set for collapse-aware BFS. */
+    function collapseRemap() {
+      var co = collapseOpts();
+      if (!co) return { remap: undefined, aliases: undefined };
+      var aliases = new Set();
+      var remap = function(target) {
+        var role = defRole(target);
+        if (co.collapseRefs && role === 'reference') return null;
+        if (co.collapseCollections && role === 'collection') {
+          if (_viewerBundle.resolveCollRefVerStruct(netexLibrary, target)) return null;
+          var cc = _viewerBundle.resolveCollVerStruct(netexLibrary, target);
+          if (cc) { aliases.add(cc.target); return cc.target; }
+          return target;
+        }
+        return target;
+      };
+      return { remap: remap, aliases: aliases };
     }
 
     /** (Re-)render the "+N subtypes" chip and dep blocks, respecting excluded props. */
@@ -581,7 +625,8 @@
 
       var allProps = flattenAllOf(netexLibrary, currentExplored);
       var excludedSet = hostExclSet(allProps) || new Set();
-      var depNodes = collectDependencyTree(currentExplored, excludedSet);
+      var cr = collapseRemap();
+      var depNodes = collectDependencyTree(currentExplored, excludedSet, cr.remap);
       // Total unique deps (for compaction % display)
       var seen = {};
       var totalUnique = 0;
@@ -592,7 +637,7 @@
         }
       }
 
-      var uniqueNames = collectRenderableDeps(currentExplored, excludedSet);
+      var uniqueNames = collectRenderableDeps(currentExplored, excludedSet, cr.remap, cr.aliases);
       // Remove subtypes whose properties are all excluded (empty interface)
       if (hideOmniEnabled || excludedSet.size > 0) {
         uniqueNames = uniqueNames.filter(function(n) {
@@ -634,6 +679,7 @@
           setTimeout(function() { renderDepInterfaces(depsDiv, chip, uniqueNames, totalUnique); }, 0);
         });
       }
+
     }
 
     /** Build chip label showing rendered count and compaction percentage. */
@@ -680,12 +726,17 @@
           var excludedSet = new Set(Object.keys(excludedProps));
           var copyAllProps = flattenAllOf(netexLibrary, currentExplored);
           var copyExcl = hostExclSet(copyAllProps);
-          var root = generateInterface(netexLibrary, currentExplored, { html: false, excludeProps: copyExcl }).text;
-          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeProps: copyExcl });
-          plain = subs ? root + '\n\n' + subs : root;
+          var co = collapseOpts();
+          var copyOverrides = co ? buildTypeOverrides(currentExplored, co, copyAllProps) : undefined;
+          var root = generateInterface(netexLibrary, currentExplored, { html: false, excludeProps: copyExcl, typeOverrides: copyOverrides }).text;
+          var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeProps: copyExcl, collapse: co });
+          var parts = [root];
+          if (subs) parts.push(subs);
+          if (co?.collapseRefs || co?.collapseCollections) parts.push(_viewerBundle.REF_PREAMBLE);
+          plain = parts.join('\n\n');
         } else if (container === explorerMapping && currentExplored) {
           var mapProps = flattenAllOf(netexLibrary, currentExplored);
-          plain = makeInlineCodeBlock(currentExplored, mapProps, { html: false, excludeProps: hostExclSet(mapProps) });
+          plain = makeInlineCodeBlock(currentExplored, mapProps, { html: false, excludeProps: hostExclSet(mapProps), collapse: collapseOpts() });
         } else {
           plain = block.innerText.replace(/Copy$/, '').trimEnd();
         }
@@ -781,7 +832,7 @@
      * function from `makeInlineCodeBlock`.
      */
     function renderMappingHtml(name, props) {
-      var highlighted = makeInlineCodeBlock(name, props, { html: true, excludeProps: hostExclSet(props) });
+      var highlighted = makeInlineCodeBlock(name, props, { html: true, excludeProps: hostExclSet(props), collapse: collapseOpts() });
 
       var html = '';
       html += '<div class="mapping-section"><h3>Serialize</h3>';
@@ -842,8 +893,8 @@
       var allProps = flattenAllOf(netexLibrary, _cachedSampleName);
       var exclSet = hostExclSet(allProps);
 
-      // Flat: interface shape with exclusions
-      _cachedSampleStem = flattenFake(_cachedSampleName, _cachedFakeMock, { excludeProps: exclSet, props: allProps });
+      // Flat: interface shape with exclusions + collapse
+      _cachedSampleStem = flattenFake(_cachedSampleName, _cachedFakeMock, { excludeProps: exclSet, props: allProps, collapse: collapseOpts() });
       // XmlShaped + XML: strip excluded props from raw mock, keep schema shape
       var filteredRaw = {};
       for (var k in _cachedFakeMock) { if (!exclSet || !exclSet.has(k)) filteredRaw[k] = _cachedFakeMock[k]; }
@@ -864,7 +915,7 @@
     function renderSampleData(name, allProps) {
       _cachedFakeMock = fake(name);
       var exclSet = allProps ? hostExclSet(allProps) : undefined;
-      _cachedSampleStem = flattenFake(name, _cachedFakeMock, { excludeProps: exclSet, props: allProps });
+      _cachedSampleStem = flattenFake(name, _cachedFakeMock, { excludeProps: exclSet, props: allProps, collapse: collapseOpts() });
       // XmlShaped: strip excluded props from raw mock, keep schema shape for toXmlShape
       var filteredRaw = {};
       for (var k in _cachedFakeMock) { if (!exclSet || !exclSet.has(k)) filteredRaw[k] = _cachedFakeMock[k]; }
