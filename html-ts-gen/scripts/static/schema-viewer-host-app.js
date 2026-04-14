@@ -604,6 +604,7 @@
         var role = defRole(target);
         if (co.collapseRefs && role === 'reference') return null;
         if (co.collapseCollections && role === 'collection') {
+          if (_viewerBundle.resolveCollRefVerStruct(netexLibrary, target)) return null;
           var cc = _viewerBundle.resolveCollVerStruct(netexLibrary, target);
           if (cc) { aliases.add(cc.target); return cc.target; }
           return target;
@@ -731,7 +732,7 @@
           var subs = generateSubTypesBlock(currentExplored, { excludedMembers: excludedSet, excludeProps: copyExcl, collapse: co });
           var parts = [root];
           if (subs) parts.push(subs);
-          if (co?.collapseRefs) parts.push(_viewerBundle.REF_PREAMBLE);
+          if (co?.collapseRefs || co?.collapseCollections) parts.push(_viewerBundle.REF_PREAMBLE);
           plain = parts.join('\n\n');
         } else if (container === explorerMapping && currentExplored) {
           var mapProps = flattenAllOf(netexLibrary, currentExplored);

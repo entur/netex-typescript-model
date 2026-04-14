@@ -9,7 +9,7 @@
 
 import type { NetexLibrary, FlatProperty } from "./types.js";
 import type { CollapseOpts } from "./collapse.js";
-import { buildTypeOverrides, resolveCollVerStruct } from "./collapse.js";
+import { buildTypeOverrides, resolveCollVerStruct, resolveCollRefVerStruct } from "./collapse.js";
 import type { RemapTarget } from "./dep-graph.js";
 import { defRole } from "./classify.js";
 import { flattenAllOf, ESSENTIAL_OMNI_PROPS, OMNIPRESENT_DEFS } from "./schema-nav.js";
@@ -449,6 +449,7 @@ export function generateSubTypesBlock(
       const role = defRole(netexLibrary[target]);
       if (collapse.collapseRefs && role === "reference") return null;
       if (collapse.collapseCollections && role === "collection") {
+        if (resolveCollRefVerStruct(netexLibrary, target)) return null;
         const cc = resolveCollVerStruct(netexLibrary, target);
         if (cc) {
           aliasSet.add(cc.target);

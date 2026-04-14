@@ -24,6 +24,12 @@ export interface CollapsedColl {
   childKey: string;
 }
 
+export interface CollapsedCollRef {
+  entityName: string;
+  typeStr: string;      // "Ref<'Entity'>" or "SimpleRef"
+  refChildKey: string;  // Ref property name inside the wrapper (for flattenFake)
+}
+
 // ── Preamble ───────────────────────────────────────────────────────────────
 
 export const REF_PREAMBLE = [
@@ -122,6 +128,40 @@ export function resolveCollVerStruct(lib: NetexLibrary, collDefName: string): Co
   return { target: candidates[0].target, childKey: candidates[0].canon };
 }
 
+/**
+ * Try to collapse a collection via its Ref child (option A).
+ * Prop-level wrapper around resolveCollRefVerStruct.
+ */
+export function collapseCollAsRef(
+  lib: NetexLibrary,
+  _propName: string,
+  propSchema: Def,
+): CollapsedCollRef | null {
+  const defName = refTarget(propSchema);
+  if (!defName) return null;
+  return resolveCollRefVerStruct(lib, defName);
+}
+
+/**
+ * Resolve a collection def to its Ref child type.
+ * Finds the first Ref-suffixed, ref-typed child and delegates to collapseRef.
+ * Exported for BFS remap callback in collectDependencyTree.
+ */
+export function resolveCollRefVerStruct(lib: NetexLibrary, collDefName: string): CollapsedCollRef | null {
+  const def = lib[collDefName];
+  if (!def || defRole(def) !== "collection") return null;
+
+  const props = flattenAllOf(lib, collDefName);
+  for (const p of props) {
+    const canon = p.prop[1];
+    if (canon.startsWith("$") || !canon.endsWith("Ref")) continue;
+    if (!isRefType(p.schema)) continue;
+    const cr = collapseRef(lib, canon, p.schema);
+    if (cr) return { entityName: cr.entityName, typeStr: cr.typeStr, refChildKey: canon };
+  }
+  return null;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
@@ -143,6 +183,8 @@ export function buildTypeOverrides(
       if (cr) { overrides.set(canon, cr.typeStr); continue; }
     }
     if (collapse.collapseCollections) {
+      const ccRef = collapseCollAsRef(lib, canon, p.schema);
+      if (ccRef) { overrides.set(canon, ccRef.typeStr); continue; }
       const cc = collapseColl(lib, canon, p.schema);
       if (cc) { overrides.set(canon, cc.target); continue; }
     }

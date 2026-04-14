@@ -10,7 +10,7 @@
 
 import type { NetexLibrary, FlatProperty, ResolvedType } from "./types.js";
 import type { CollapseOpts } from "./collapse.js";
-import { collapseRef, collapseColl } from "./collapse.js";
+import { collapseRef, collapseColl, collapseCollAsRef } from "./collapse.js";
 import { lcFirst } from "./util.js";
 import { classifySchema, defRole, isRefType, refTarget } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
@@ -149,7 +149,7 @@ export function emitHelpers(opts?: { html?: boolean; typed?: boolean; collapse?:
   lines.push(`  ${kw("return")} obj[${lit("'value'")}] !== ${kw("undefined")} ? { ${prop("'#text'")}: obj[${lit("'value'")}] } : {};`);
   lines.push("}");
 
-  if (collapse?.collapseRefs) {
+  if (collapse?.collapseRefs || collapse?.collapseCollections) {
     lines.push("");
     lines.push(`${kw("function")} refAttr(obj${tObj}, key${tStr}) {`);
     lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")} ? { [key]: { ${prop("'@_ref'")}: obj[key] } } : {};`);
@@ -221,6 +221,11 @@ function classifyProps(
       }
     }
     if (collapse?.collapseCollections && isRefType(p.schema)) {
+      const ccRef = collapseCollAsRef(netexLibrary, canonName, p.schema);
+      if (ccRef) {
+        entries.push({ kind: "refAttr", canonName });
+        continue;
+      }
       const cc = collapseColl(netexLibrary, canonName, p.schema);
       if (cc) {
         entries.push({ kind: "childWrapped", canonName, refTarget: cc.target, wrapChildKey: cc.childKey });

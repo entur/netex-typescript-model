@@ -11,7 +11,7 @@
 import { XMLBuilder } from "fast-xml-parser";
 import type { NetexLibrary, Def, FlatProperty } from "./types.js";
 import type { CollapseOpts } from "./collapse.js";
-import { collapseRef, collapseColl } from "./collapse.js";
+import { collapseRef, collapseColl, collapseCollAsRef } from "./collapse.js";
 import { classifySchema, defRole, isDynNocRef, isRefType } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
@@ -443,18 +443,34 @@ export function flattenFake(
       }
     }
 
-    // Collapse collections: wrapper → child object (or delete if empty)
+    // Collapse collections: prefer ref-path (Ref child), fall back to entity-path
     if (collapse?.collapseCollections && isRefType(p.schema)) {
+      const ccRef = collapseCollAsRef(netexLibrary, canon, p.schema);
+      if (ccRef) {
+        const val = result[canon];
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const refChild = (val as Record<string, unknown>)[ccRef.refChildKey];
+          if (refChild && typeof refChild === "object" && !Array.isArray(refChild)) {
+            const obj = refChild as Record<string, unknown>;
+            const ref = obj.$ref ?? obj.value;
+            if (ref !== undefined) result[canon] = ref;
+            else delete result[canon];
+          } else {
+            delete result[canon];
+          }
+        } else if (Array.isArray(val) && val.length === 0) {
+          delete result[canon];
+        }
+        continue;
+      }
       const cc = collapseColl(netexLibrary, canon, p.schema);
       if (cc) {
         const val = result[canon];
         if (val && typeof val === "object" && !Array.isArray(val)) {
-          // Wrapper object { ChildKey: item } → item
           const inner = (val as Record<string, unknown>)[cc.childKey];
           if (inner !== undefined) result[canon] = inner;
           else delete result[canon];
         } else if (Array.isArray(val) && val.length === 0) {
-          // Empty collection from fake() → remove entirely
           delete result[canon];
         }
         continue;

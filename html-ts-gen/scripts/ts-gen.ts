@@ -91,7 +91,7 @@ for (const name of TARGETS) {
   const subs = generateSubTypesBlock(netexLibrary, name, { excludeProps: exclSet, collapse });
   const parts = [root];
   if (subs) parts.push(subs);
-  if (collapse?.collapseRefs) parts.push(REF_PREAMBLE);
+  if (collapse?.collapseRefs || collapse?.collapseCollections) parts.push(REF_PREAMBLE);
   const src = parts.join("\n\n") + "\n";
   const ifPath = `${destDir}/${name}${suffix}.ts`;
   allPassed = guardWrite(ifPath, src) && typeCheck(ifPath) && allPassed;

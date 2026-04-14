@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { collapseRef, collapseColl, resolveCollVerStruct, buildTypeOverrides } from "../collapse.js";
+import { collapseRef, collapseColl, collapseCollAsRef, resolveCollVerStruct, resolveCollRefVerStruct, buildTypeOverrides } from "../collapse.js";
 import { loadNetexLibrary } from "./test-helpers.js";
 
 const lib = loadNetexLibrary();
@@ -113,6 +113,74 @@ describe("resolveCollVerStruct", () => {
   });
 });
 
+// ── collapseCollAsRef ─────────────────────────────────────────────────────
+
+describe("collapseCollAsRef", () => {
+  it("resolves a collection with Ref child to CollapsedCollRef", () => {
+    // Find a Ref+Entity collection (has both FooRef and Foo children)
+    const collNames = Object.keys(lib).filter(
+      (k) => k.endsWith("_RelStructure") && lib[k]["x-netex-role"] === "collection",
+    );
+    let found = false;
+    for (const cn of collNames) {
+      const schema = { $ref: `#/definitions/${cn}` };
+      const ccRef = collapseCollAsRef(lib, "test", schema);
+      if (ccRef) {
+        expect(ccRef.typeStr).toMatch(/^(Ref<'.+'>|SimpleRef)$/);
+        expect(ccRef.refChildKey).toMatch(/Ref$/);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it("returns null for non-ref properties", () => {
+    expect(collapseCollAsRef(lib, "test", { type: "string" })).toBeNull();
+  });
+});
+
+// ── resolveCollRefVerStruct ───────────────────────────────────────────────
+
+describe("resolveCollRefVerStruct", () => {
+  it("finds ref child in collection with Ref member", () => {
+    const collNames = Object.keys(lib).filter(
+      (k) => k.endsWith("_RelStructure") && lib[k]["x-netex-role"] === "collection",
+    );
+    let found = false;
+    for (const cn of collNames) {
+      const r = resolveCollRefVerStruct(lib, cn);
+      if (r) {
+        expect(r.typeStr).toMatch(/^(Ref<'.+'>|SimpleRef)$/);
+        expect(r.refChildKey).toMatch(/Ref$/);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it("returns null for entity-only collections", () => {
+    // Find a collection where resolveCollVerStruct succeeds but resolveCollRefVerStruct doesn't
+    const collNames = Object.keys(lib).filter(
+      (k) => k.endsWith("_RelStructure") && lib[k]["x-netex-role"] === "collection",
+    );
+    let found = false;
+    for (const cn of collNames) {
+      if (resolveCollVerStruct(lib, cn) && !resolveCollRefVerStruct(lib, cn)) {
+        found = true;
+        break;
+      }
+    }
+    // There should be entity-only collections in the schema
+    expect(found).toBe(true);
+  });
+
+  it("returns null for non-collection", () => {
+    expect(resolveCollRefVerStruct(lib, "VehicleType")).toBeNull();
+  });
+});
+
 // ── buildTypeOverrides ─────────────────────────────────────────────────────
 
 describe("buildTypeOverrides", () => {
@@ -129,10 +197,12 @@ describe("buildTypeOverrides", () => {
 
   it("builds override map for VehicleType with collapseCollections", () => {
     const overrides = buildTypeOverrides(lib, "VehicleType", { collapseCollections: true });
-    // Check if any collection was collapsed
     for (const [, v] of overrides) {
-      // Collapsed collection types should not contain _RelStructure
+      // Ref+Entity collections → Ref<'...'> or SimpleRef; entity-only → entity name
       expect(v).not.toContain("_RelStructure");
     }
+    // Ref+Entity collections should produce Ref<> types
+    const refOverrides = [...overrides.values()].filter((v) => v.startsWith("Ref<") || v === "SimpleRef");
+    expect(refOverrides.length).toBeGreaterThan(0);
   });
 });
