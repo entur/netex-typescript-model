@@ -145,6 +145,8 @@ jobs:
     needs: [build-base, build-others, test]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: tarball-base
@@ -163,4 +165,6 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes tarballs/netex-*.tgz
+        run: |
+          NOTES=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          gh release create "$GITHUB_REF_NAME" --notes "$NOTES" tarballs/netex-*.tgz
