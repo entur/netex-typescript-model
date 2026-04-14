@@ -579,6 +579,16 @@
       var result = renderInterfaceHtml(name, props, true);
       explorerIface.innerHTML = result.html;
       currentIsAlias = result.isAlias;
+      // Append Ref<T>/SimpleRef preamble into the root interface block
+      if (collapseEnabled && !result.isAlias) {
+        var rootBlock = explorerIface.querySelector('.interface-block');
+        if (rootBlock) {
+          var pre = document.createElement('div');
+          pre.className = 'ref-preamble';
+          pre.textContent = '\n' + _viewerBundle.REF_PREAMBLE;
+          rootBlock.insertBefore(pre, rootBlock.querySelector('.copy-btn'));
+        }
+      }
       updateDepsSection();
       hideOmniCheck.checked = hideOmniEnabled;
       var ifaceActive = explorerIface.classList.contains('active');
@@ -669,16 +679,6 @@
         });
       }
 
-      // Append Ref<T>/SimpleRef preamble below subtypes when collapse is active
-      var oldPreamble = document.getElementById('ifaceRefPreamble');
-      if (oldPreamble) oldPreamble.remove();
-      if (collapseEnabled) {
-        var pre = document.createElement('div');
-        pre.id = 'ifaceRefPreamble';
-        pre.className = 'interface-block dep-block';
-        pre.textContent = _viewerBundle.REF_PREAMBLE;
-        explorerIface.appendChild(pre);
-      }
     }
 
     /** Build chip label showing rendered count and compaction percentage. */
