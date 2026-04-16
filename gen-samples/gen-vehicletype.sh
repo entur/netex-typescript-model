@@ -30,6 +30,8 @@ TypeOfFuel
 EOF
 )
 
-cd "$(dirname "$0")/html-ts-gen"
+cd "$(dirname "$0")/../html-ts-gen"
 npx tsx scripts/ts-gen.ts --overwrite \
-  --exclude "$(echo "$EXCLUDE" | tr '\n' ',')" "$@" VehicleType
+  --exclude "$(echo "$EXCLUDE" | tr '\n' ',')" "$@" \
+  --collapse-collections --collapse-refs \
+  VehicleType

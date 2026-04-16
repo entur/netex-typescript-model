@@ -15,25 +15,8 @@ import { lcFirst } from "./util.js";
 import { classifySchema, defRole, isRefType, refTarget } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
+import { resolveConcreteElement } from "./dep-graph.js";
 import { escHtml } from "./codegens.js";
-
-/**
- * Resolve an abstract element head to the first concrete substitution group member.
- * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
- */
-function resolveConcreteElement(netexLibrary: NetexLibrary, name: string): string {
-  const visited = new Set<string>();
-  let current = name;
-  while (!visited.has(current)) {
-    visited.add(current);
-    const d = netexLibrary[current];
-    if (!d) break;
-    const members = d["x-netex-sg-members"] as string[] | undefined;
-    if (!members || members.length === 0) break;
-    current = members[0];
-  }
-  return current;
-}
 
 /**
  * Check whether a ref-typed property resolves to a direct-assignable value
@@ -153,8 +136,8 @@ export function emitHelpers(opts?: { html?: boolean; typed?: boolean; collapse?:
 
   if (collapse?.collapseRefs || collapse?.collapseCollections) {
     lines.push("");
-    lines.push(`${kw("function")} refAttr(obj${tObj}, key${tStr}) {`);
-    lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")} ? { [key]: { ${prop("'@_ref'")}: obj[key] } } : {};`);
+    lines.push(`${kw("function")} refAttr(obj${tObj}, key${tStr}, xk${tOptStr}) {`);
+    lines.push(`  ${kw("return")} obj[key] !== ${kw("undefined")} ? { [xk || key]: { ${prop("'@_ref'")}: obj[key] } } : {};`);
     lines.push("}");
   }
 
@@ -218,7 +201,10 @@ function classifyProps(
     if (collapse?.collapseRefs && isRefType(p.schema)) {
       const cr = collapseRef(netexLibrary, canonName, p.schema);
       if (cr) {
-        entries.push({ kind: "refAttr", canonName });
+        const rt = refTarget(p.schema);
+        const concrete = rt && defRole(netexLibrary[rt]) === "abstract"
+          ? resolveConcreteElement(netexLibrary, rt) : undefined;
+        entries.push({ kind: "refAttr", canonName, xmlKey: concrete && concrete !== canonName ? concrete : undefined });
         continue;
       }
     }
@@ -242,13 +228,10 @@ function classifyProps(
     else if (shape.kind === "refArray") rt = shape.target;
 
     // Resolve abstract elements to first concrete member
-    if (rt) {
-      const targetDef = netexLibrary[rt];
-      if (targetDef?.["x-netex-role"] === "abstract" && targetDef?.["x-netex-sg-members"]) {
-        const concrete = resolveConcreteElement(netexLibrary, rt);
-        if (concrete !== canonName) xmlKey = concrete;
-        rt = concrete;
-      }
+    if (rt && defRole(netexLibrary[rt]) === "abstract") {
+      const concrete = resolveConcreteElement(netexLibrary, rt);
+      if (concrete !== canonName) xmlKey = concrete;
+      if (concrete !== rt) rt = concrete;
     }
 
     if (shape.kind === "ref" && rt) {
@@ -316,8 +299,10 @@ function fmtEntry(e: PropEmit, cb: string, t: Taggers): string {
     }
     case "rename":
       return `...(obj[${lit("'" + e.canonName + "'")}] !== undefined && { [${lit("'" + e.xmlKey + "'")}]: obj[${lit("'" + e.canonName + "'")}] })`;
-    case "refAttr":
-      return `...refAttr(obj, ${lit("'" + e.canonName + "'")})`;
+    case "refAttr": {
+      const xk = e.xmlKey ? `, ${lit("'" + e.xmlKey + "'")}` : "";
+      return `...refAttr(obj, ${lit("'" + e.canonName + "'")}${xk})`;
+    }
     case "childWrapped":
       return `...childWrapped(obj, ${lit("'" + e.canonName + "'")}, ${lit("'" + e.wrapChildKey + "'")}, ${lit("'" + e.refTarget + "'")}, ${cb})`;
   }

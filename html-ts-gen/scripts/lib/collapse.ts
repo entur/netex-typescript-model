@@ -64,7 +64,9 @@ export function collapseRef(
 
   const def = lib[defName];
   if (!def) return null;
-  if (defRole(def) !== "reference") return null;
+  const role = defRole(def);
+  const isAbstractRefHead = role === "abstract" && defName.endsWith("Ref");
+  if (role !== "reference" && !isAbstractRefHead) return null;
 
   // Layers 1-2: stamp + def name stripping (handled by resolveRefEntity)
   let entity = resolveRefEntity(lib, defName);

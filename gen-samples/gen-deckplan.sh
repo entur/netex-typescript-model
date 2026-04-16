@@ -8,7 +8,8 @@
 #   ./gen-deckplan.sh --suffix=-editor              # /tmp/DeckPlan-editor.ts
 
 # Props to strip (one per line, joined with commas below)
-EXCLUDE=$(cat <<'EOF'
+EXCLUDE=$(
+  cat <<'EOF'
 $changed
 $compatibleWithVersionFrameVersionRef
 $created
@@ -31,6 +32,6 @@ validityConditions
 EOF
 )
 
-cd "$(dirname "$0")/html-ts-gen"
+cd "$(dirname "$0")/../html-ts-gen"
 npx tsx scripts/ts-gen.ts --overwrite \
   --exclude "$(echo "$EXCLUDE" | tr '\n' ',')" "$@" DeckPlan
