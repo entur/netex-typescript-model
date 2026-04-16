@@ -129,12 +129,13 @@ export function resolveRefEntity(
  * Returns the original name unchanged if not abstract.
  */
 export function resolveConcreteElement(netexLibrary: NetexLibrary, name: string): string {
+  if (!netexLibrary[name] || defRole(netexLibrary[name]) !== "abstract") return name;
   const visited = new Set<string>();
   let current = name;
   while (!visited.has(current)) {
     visited.add(current);
     const d = netexLibrary[current];
-    if (!d) break;
+    if (!d || defRole(d) !== "abstract") break;
     const members = d["x-netex-sg-members"] as string[] | undefined;
     if (!members || members.length === 0) break;
     current = members[0];
