@@ -10,7 +10,7 @@
 
 # Props to strip (one per line, joined with commas below)
 
-cd "$(dirname "$0")/html-ts-gen"
+cd "$(dirname "$0")/../html-ts-gen"
 npx tsx scripts/ts-gen.ts --overwrite \
   --collapse-collections --collapse-refs \
   Vehicle
