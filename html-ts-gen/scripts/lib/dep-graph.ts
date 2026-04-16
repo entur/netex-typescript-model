@@ -124,6 +124,25 @@ export function resolveRefEntity(
 }
 
 /**
+ * Resolve an abstract element head to the first concrete substitution group member.
+ * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
+ * Returns the original name unchanged if not abstract.
+ */
+export function resolveConcreteElement(netexLibrary: NetexLibrary, name: string): string {
+  const visited = new Set<string>();
+  let current = name;
+  while (!visited.has(current)) {
+    visited.add(current);
+    const d = netexLibrary[current];
+    if (!d) break;
+    const members = d["x-netex-sg-members"] as string[] | undefined;
+    if (!members || members.length === 0) break;
+    current = members[0];
+  }
+  return current;
+}
+
+/**
  * Collect ref-typed properties from a definition and resolve their entity targets.
  *
  * Walks the full allOf chain via `flattenAllOf`, filters to `isRefType` properties,

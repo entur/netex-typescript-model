@@ -26,6 +26,7 @@ export interface TestEntity {
 
 export const CORE: TestEntity[] = [
   { name: "VehicleType", wrapper: "vehicleTypes", frame: "ResourceFrame", frameId: "RF:1" },
+  { name: "Vehicle", wrapper: "vehicles", frame: "ResourceFrame", frameId: "RF:1" },
   { name: "Contact", wrapper: "contacts", frame: "ResourceFrame", frameId: "RF:1" },
   { name: "DeckPlan", wrapper: "deckPlans", frame: "ResourceFrame", frameId: "RF:1" },
   { name: "ResponsibilitySet", wrapper: "responsibilitySets", frame: "ResourceFrame", frameId: "RF:1" },

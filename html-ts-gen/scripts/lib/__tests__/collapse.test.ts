@@ -52,6 +52,15 @@ describe("collapseRef", () => {
       expect(collapseRef(lib, "SomeRef", schema)).toBeNull();
     }
   });
+
+  it.each(["TransportOrganisationRef", "VehicleModelProfileRef"])(
+    "collapses abstract ref head (%s) to SimpleRef",
+    (name) => {
+      const r = collapseRef(lib, name, { $ref: `#/definitions/${name}` });
+      expect(r).not.toBeNull();
+      expect(r!.typeStr).toBe("SimpleRef");
+    },
+  );
 });
 
 // ── collapseColl ───────────────────────────────────────────────────────────
@@ -184,6 +193,12 @@ describe("resolveCollRefVerStruct", () => {
 // ── buildTypeOverrides ─────────────────────────────────────────────────────
 
 describe("buildTypeOverrides", () => {
+  it("overrides abstract ref heads in Vehicle", () => {
+    const overrides = buildTypeOverrides(lib, "Vehicle", { collapseRefs: true });
+    expect(overrides.get("TransportOrganisationRef")).toBe("SimpleRef");
+    expect(overrides.get("VehicleModelProfileRef")).toBe("SimpleRef");
+  });
+
   it("builds override map for VehicleType with collapseRefs", () => {
     const overrides = buildTypeOverrides(lib, "VehicleType", { collapseRefs: true });
     // VehicleType has BrandingRef which should collapse

@@ -15,6 +15,7 @@ import { collapseRef, collapseColl, collapseCollAsRef } from "./collapse.js";
 import { classifySchema, defRole, isDynNocRef, isRefType } from "./classify.js";
 import { flattenAllOf } from "./schema-nav.js";
 import { resolvePropertyType, resolveAtom } from "./type-res.js";
+import { resolveConcreteElement } from "./dep-graph.js";
 
 // ── Code generation helpers ──────────────────────────────────────────────────
 
@@ -121,25 +122,6 @@ function tryFakeShallow(netexLibrary: NetexLibrary, typeName: string): Record<st
     }
   }
   return result;
-}
-
-/**
- * Resolve an abstract element head to the first concrete substitution group member.
- * Follows `x-netex-sg-members` chains until a non-abstract definition is found.
- * Returns the original name unchanged if not abstract.
- */
-function resolveConcreteElement(netexLibrary: NetexLibrary, name: string): string {
-  const visited = new Set<string>();
-  let current = name;
-  while (!visited.has(current)) {
-    visited.add(current);
-    const d = netexLibrary[current];
-    if (!d) break;
-    const members = d["x-netex-sg-members"] as string[] | undefined;
-    if (!members || members.length === 0) break;
-    current = members[0];
-  }
-  return current;
 }
 
 /** Follow $ref / allOf-single-ref chains to find the terminal definition name. */
