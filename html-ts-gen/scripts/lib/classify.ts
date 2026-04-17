@@ -100,14 +100,17 @@ export function isDynNocRef(schema: Def): boolean {
 
 /** Fixed display order for role filter chips. */
 export const ROLE_DISPLAY_ORDER = [
-  "frameMember",
   "entity",
-  "abstract",
   "structure",
+  "frameMember",
+  "abstract",
   "collection",
   "reference",
   "view",
   "enumeration",
+  "enumList",
+  "primitive",
+  "union",
   "unclassified",
 ] as const;
 
@@ -121,6 +124,9 @@ export const ROLE_LABELS: Record<string, string> = {
   reference: "Reference",
   view: "View",
   enumeration: "Enum",
+  enumList: "Enum list",
+  primitive: "Primitive",
+  union: "Union",
   unclassified: "Unclassified",
 };
 

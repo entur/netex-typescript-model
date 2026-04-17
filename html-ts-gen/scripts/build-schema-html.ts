@@ -284,12 +284,15 @@ ${sections}
         <li><strong>Structure</strong> &mdash; Value objects embedded inside entities: addresses, contact details, capacities. You encounter these as properties of entities rather than searching for them directly.</li>
         <li><strong>Reference</strong> &mdash; Foreign-key wrappers (e.g. StopPlaceRef). Typically a wrapper around a string ID with an optional version.</li>
         <li><strong>Enum</strong> &mdash; Fixed value sets used for dropdowns and classification (stop place types, vehicle modes, day types).</li>
+        <li><strong>Enum list</strong> &mdash; Array wrappers around an enum (e.g. <code>AccessFacilityListOfEnumerations</code>). Used where multiple enum values may apply.</li>
         <li><strong>Collection</strong> &mdash; Plural wrapper types for XML serialization structure. In TypeScript/JSON these are just arrays.</li>
         <li><strong>Abstract</strong> &mdash; Base types in the inheritance chain. Rarely referenced directly in application code.</li>
         <li><strong>View</strong> &mdash; Projection types that present a subset of an entity&rsquo;s data.</li>
+        <li><strong>Primitive</strong> &mdash; Bare scalar aliases (<code>string</code>, <code>number</code>, etc.) with no properties. Typically restricted by pattern or format (IDs, codes, URIs).</li>
+        <li><strong>Union</strong> &mdash; Top-level <code>anyOf</code>/<code>oneOf</code> alternatives, mostly the GML <code>*OrNilReason</code> family.</li>
         <li><strong>Unclassified</strong> &mdash; Definitions without an assigned role, typically low-level schema plumbing.</li>
       </ul>
-      <p style="background:#f0f0f0;padding:0.5em 0.75em;border-radius:4px;font-size:0.9em;"><strong>Frame member</strong> &mdash; Some schemas use a separate &ldquo;frameMember&rdquo; role for entities that sit directly inside NeTEx frames (e.g. Operator in ResourceFrame, DayType in ServiceCalendarFrame). When present, this chip filters to those top-level frame entries.</p>
+      <p id="frameMemberInfo" style="background:#f0f0f0;padding:0.5em 0.75em;border-radius:4px;font-size:0.9em;"><strong>Frame member</strong> &mdash; Some schemas use a separate &ldquo;frameMember&rdquo; role for entities that sit directly inside NeTEx frames (e.g. Operator in ResourceFrame, DayType in ServiceCalendarFrame). When present, this chip filters to those top-level frame entries.</p>
       <p>Click one or more chips to show only matching definitions. When no chips are active, all definitions are shown.</p>
       <div class="close-row"><button id="roleHelpClose">Got it</button></div>
     </div>

@@ -35,6 +35,20 @@ function deref(ref) {
 // are classified as entity, and x-netex-frames is stamped independently of role.
 const DIVERSE_FRAME_MEMBERS = false;
 
+const SCALAR_TYPES = new Set(["string", "number", "integer", "boolean"]);
+
+function isBareScalar(schema) {
+  return (
+    SCALAR_TYPES.has(schema.type) &&
+    !schema.properties &&
+    !schema.allOf &&
+    !schema.$ref &&
+    !schema.enum &&
+    !schema.anyOf &&
+    !schema.oneOf
+  );
+}
+
 /**
  * Return direct child elements matching the given namespace URI and local name.
  * Does NOT recurse — only immediate children.
@@ -962,7 +976,10 @@ class XsdToJsonSchema {
     if (name.endsWith("_RelStructure")) return "collection";
     if (name.endsWith("_RefStructure") || name.endsWith("RefStructure")) return "reference";
     if (name.endsWith("_DerivedViewStructure")) return "view";
-    if (schema["enum"]) return "enumeration";
+    if (name.endsWith("ListOfEnumerations")) return "enumList";
+    if (schema.enum) return "enumeration";
+    if (schema.anyOf || schema.oneOf) return "union";
+    if (isBareScalar(schema)) return "primitive";
     if (this.elementMeta[name]?.abstract) return "abstract";
     if (DIVERSE_FRAME_MEMBERS && this.frameRegistry[name]) return "frameMember";
     const meta = this.elementMeta[name];
