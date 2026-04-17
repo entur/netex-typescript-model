@@ -70,6 +70,18 @@
       font-weight: 600;
       margin-bottom: 0.25rem;
     }
+    .home-btn {
+      display: inline-block;
+      margin-right: 0.4rem;
+      padding: 0 0.35rem;
+      border: 1px solid var(--card-border);
+      border-radius: 0.25rem;
+      color: var(--fg);
+      text-decoration: none;
+      font-size: 0.95rem;
+      line-height: 1.2;
+    }
+    .home-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
     .sidebar .subtitle {
       font-size: 0.8rem;
       color: var(--muted);
@@ -144,7 +156,7 @@
       border-color: var(--accent);
     }
     .role-chip:hover:not(.active) { background: var(--card-border); }
-    .role-chip[data-role="entity"] { font-weight: 700; font-size: 0.9rem; }
+    .role-chip[data-role="entity"] { font-weight: 700; font-size: 0.8rem; }
     .role-help-overlay {
       display: none;
       position: fixed;

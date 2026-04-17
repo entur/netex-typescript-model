@@ -228,7 +228,7 @@ ${css}
   <button class="sidebar-toggle" id="sidebarToggle">Definitions</button>
 
   <nav class="sidebar" id="sidebar">
-    <h1>NeTEx JSON Schema</h1>
+    <h1><a class="home-btn" href="../../" title="Back to docs home">&#8962;</a>NeTEx JSON Schema</h1>
     <p class="subtitle">${escapeHtml(assembly)} · v${escapeHtml(version)}</p>
     <input type="text" class="search-box" id="search" placeholder="Filter definitions…" autocomplete="off">
     <div class="role-box">
