@@ -65,6 +65,12 @@
       });
     });
 
+    // Hide Frame member note in the help dialog when this assembly has no frameMember chip.
+    if (!document.querySelector('.role-chip[data-role="frameMember"]')) {
+      const fmNote = document.getElementById('frameMemberInfo');
+      if (fmNote) fmNote.style.display = 'none';
+    }
+
     // Role help popup
     const roleHelpOverlay = document.getElementById('roleHelpOverlay');
     document.getElementById('roleHelpBtn').addEventListener('click', () => {

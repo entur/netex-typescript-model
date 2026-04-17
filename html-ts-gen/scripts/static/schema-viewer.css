@@ -106,14 +106,14 @@
       color: var(--muted);
     }
     .role-help-btn {
-      background: none;
-      border: 1px solid var(--card-border);
+      background: var(--accent);
+      border: 1px solid var(--accent);
       border-radius: 50%;
-      width: 16px;
-      height: 16px;
-      font-size: 0.6rem;
+      width: 22px;
+      height: 22px;
+      font-size: 0.85rem;
       font-weight: 700;
-      color: var(--muted);
+      color: #fff;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -121,7 +121,7 @@
       padding: 0;
       line-height: 1;
     }
-    .role-help-btn:hover { color: var(--fg); border-color: var(--accent); }
+    .role-help-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
     .role-filter {
       display: flex;
       flex-wrap: wrap;
@@ -144,6 +144,7 @@
       border-color: var(--accent);
     }
     .role-chip:hover:not(.active) { background: var(--card-border); }
+    .role-chip[data-role="entity"] { font-weight: 700; font-size: 0.9rem; }
     .role-help-overlay {
       display: none;
       position: fixed;
