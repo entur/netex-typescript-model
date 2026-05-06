@@ -152,6 +152,8 @@ jobs:
           ls gen/
           test -f gen/Vehicle.ts
           test -f gen/Vehicle-mapping.ts
+          test -f gen/VehicleType.ts
+          test -f gen/DeckPlan.ts
 
   release:
     needs: [build-base, build-others, test]

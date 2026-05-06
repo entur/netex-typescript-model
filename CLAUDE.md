@@ -208,7 +208,7 @@ Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `v2.0`.
 - `xsd/` — downloaded XSD schemas
 - `NeTEx-*.zip` — cached download
 - `generated-src/` — generated output (per-assembly directories)
-- `html-ts-gen/dist/` — compiled TypeScript
+- `html-ts-gen/dist/` — bundled CLI (`ts-gen.mjs`)
 - `docs-site/` — assembled GitHub Pages site
 - `node_modules/`
 - `json-schema/target/` — Maven build output
