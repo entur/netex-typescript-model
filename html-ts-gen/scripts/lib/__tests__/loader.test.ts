@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { loadNetexLibrary } from "../loader.js";
 
 describe("loadNetexLibrary", () => {
@@ -24,5 +25,19 @@ describe("loadNetexLibrary", () => {
 
   it("throws clear error when dir has no *.schema.json", () => {
     expect(() => loadNetexLibrary("/tmp/definitely-does-not-exist-xyz")).toThrow(/not found/i);
+  });
+});
+
+describe("ts-gen --schema CLI flag", () => {
+  it("loads schema from --schema dir arg", () => {
+    const baseDir = resolve(__dirname, "../../../../generated-src/base");
+    const out = execFileSync("npx", [
+      "tsx", "scripts/ts-gen.ts",
+      "--schema", baseDir,
+      "--dest-dir", "/tmp/ts-gen-test-schema-flag",
+      "--overwrite",
+      "Vehicle",
+    ], { cwd: resolve(__dirname, "../../.."), encoding: "utf-8" });
+    expect(out).toMatch(/PASS .*Vehicle\.ts/);
   });
 });

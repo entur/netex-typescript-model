@@ -3,8 +3,9 @@
  * Usage: npx tsx scripts/ts-gen.ts [flags] <Target> [...]
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { generateInterface, generateSubTypesBlock } from "./lib/codegens.js";
 import { flattenAllOf, buildExclSet } from "./lib/schema-nav.js";
@@ -40,12 +41,25 @@ function typeCheck(path: string): boolean {
   }
 }
 
+/** Look for *.schema.json next to the running script (bundled CLI case). */
+function adjacentSchema(): string | undefined {
+  const dir = import.meta.dirname;
+  if (!dir) return undefined;
+  try {
+    const f = readdirSync(dir).find((n) => n.endsWith(".schema.json"));
+    return f ? join(dir, f) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 const { values, positionals: TARGETS } = parseArgs({
   args: process.argv.slice(2),
   options: {
     "dest-dir": { type: "string", default: "/tmp" },
+    schema: { type: "string" },
     overwrite: { type: "boolean", default: false },
     exclude: { type: "string" },
     suffix: { type: "string", default: "" },
@@ -56,7 +70,7 @@ const { values, positionals: TARGETS } = parseArgs({
 });
 
 if (!TARGETS.length) {
-  console.error("Usage: npx tsx scripts/ts-gen.ts [--dest-dir <path>] [--overwrite] [--exclude a,b,...]");
+  console.error("Usage: netex-ts-gen [--schema <path>] [--dest-dir <path>] [--overwrite] [--exclude a,b,...]");
   console.error("       [--suffix s] [--collapse-refs] [--collapse-collections] <Target> [...]");
   process.exit(1);
 }
@@ -72,7 +86,9 @@ const collapse: CollapseOpts | undefined =
   values["collapse-refs"] || values["collapse-collections"]
     ? { collapseRefs: values["collapse-refs"], collapseCollections: values["collapse-collections"] }
     : undefined;
-const netexLibrary = loadNetexLibrary();
+
+const schemaArg = values.schema ?? adjacentSchema();
+const netexLibrary = loadNetexLibrary(schemaArg);
 let allPassed = true;
 
 for (const name of TARGETS) {
