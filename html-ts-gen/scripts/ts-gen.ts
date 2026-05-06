@@ -27,7 +27,6 @@ function guardWrite(path: string, content: string): boolean {
 function typeCheck(path: string): boolean {
   try {
     execFileSync("npx", ["tsc", "--noEmit", "--strict", "--skipLibCheck", "--target", "ES2022", path], {
-      cwd: import.meta.dirname,
       stdio: "pipe",
       encoding: "utf-8",
     });

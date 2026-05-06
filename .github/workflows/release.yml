@@ -137,9 +137,21 @@ jobs:
         env:
           ROUNDTRIP_EXTENSIVE: "1"
 
-      - name: Run ts-gen type-check
-        working-directory: html-ts-gen
-        run: npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball-base
+          path: tarballs/
+
+      - name: Install tarball as npm package and run netex-ts-gen
+        run: |
+          mkdir tarball-test && cd tarball-test
+          npm init -y
+          npm install ../tarballs/netex-*-base-*.tgz
+          mkdir gen
+          npx netex-ts-gen --dest-dir ./gen --overwrite VehicleType Vehicle DeckPlan
+          ls gen/
+          test -f gen/Vehicle.ts
+          test -f gen/Vehicle-mapping.ts
 
   release:
     needs: [build-base, build-others, test]
