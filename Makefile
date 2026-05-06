@@ -95,20 +95,28 @@ $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json: xsd/2.0/NeTEx_publication.xsd
 xsd/2.0/NeTEx_publication.xsd:
 	cd json-schema && mvn initialize -q
 
-# ── Release tarball ──────────────────────────────────────────────────────────
-# Stages files into a temp dir for portable tar (works on macOS and Linux).
+# ── Release tarball (npm-installable) ──────────────────────────────────────────
+# Stages files under package/ (npm convention) so `npm install <url>.tgz` works.
 
 tarball: $(GEN)/$(TARBALL_NAME)
 
-$(GEN)/$(TARBALL_NAME): $(GEN)/$(OUT_NAME)/docs/index.html
-	rm -rf $(GEN)/$(TARBALL_PREFIX)
-	mkdir -p $(GEN)/$(TARBALL_PREFIX)
-	cp -r $(GEN)/$(OUT_NAME)/interfaces $(GEN)/$(TARBALL_PREFIX)/
-	cp $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(GEN)/$(TARBALL_PREFIX)/
-	cp $(GEN)/$(OUT_NAME)/netex-schema.html $(GEN)/$(TARBALL_PREFIX)/
-	cp $(GEN)/$(OUT_NAME)/README.md $(GEN)/$(TARBALL_PREFIX)/ 2>/dev/null || true
-	tar -czf $@ -C $(GEN) $(TARBALL_PREFIX)
-	rm -rf $(GEN)/$(TARBALL_PREFIX)
+# Top-level dir inside the .tgz must be 'package' for npm install support.
+TARBALL_STAGE = $(GEN)/$(TARBALL_PREFIX)
+
+$(GEN)/$(TARBALL_NAME): $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json \
+                       $(GEN)/$(OUT_NAME)/netex-schema.html \
+                       html-ts-gen/dist/ts-gen.mjs
+	rm -rf $(TARBALL_STAGE)
+	mkdir -p $(TARBALL_STAGE)/package
+	cp $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(TARBALL_STAGE)/package/
+	cp $(GEN)/$(OUT_NAME)/netex-schema.html $(TARBALL_STAGE)/package/
+	cp html-ts-gen/dist/ts-gen.mjs $(TARBALL_STAGE)/package/
+	chmod +x $(TARBALL_STAGE)/package/ts-gen.mjs
+	cp $(GEN)/$(OUT_NAME)/README.md $(TARBALL_STAGE)/package/ 2>/dev/null || true
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-tarball-pkg-json.ts \
+	    --assembly "$(OUT_NAME)" --version "$(VERSION)" --out-dir "$(TARBALL_STAGE)/package"
+	tar -czf $@ -C $(TARBALL_STAGE) package
+	rm -rf $(TARBALL_STAGE)
 
 clean:
 	rm -rf $(GEN) json-schema/target
