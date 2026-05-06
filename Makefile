@@ -113,7 +113,8 @@ $(GEN)/$(TARBALL_NAME): $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json \
 	cp html-ts-gen/dist/ts-gen.mjs $(TARBALL_STAGE)/package/
 	chmod +x $(TARBALL_STAGE)/package/ts-gen.mjs
 	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-tarball-pkg-json.ts \
-	    --assembly "$(OUT_NAME)" --version "$(VERSION)" --out-dir "$(TARBALL_STAGE)/package"
+	    --assembly "$(OUT_NAME)" --version "$(VERSION)" --out-dir "$(TARBALL_STAGE)/package" \
+	    --tarball-name "$(TARBALL_NAME)"
 	tar -czf $@ -C $(TARBALL_STAGE) package
 	rm -rf $(TARBALL_STAGE)
 

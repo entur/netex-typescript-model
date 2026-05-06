@@ -10,12 +10,14 @@ const { values } = parseArgs({
     assembly: { type: "string" },
     version: { type: "string" },
     "out-dir": { type: "string" },
+    "tarball-name": { type: "string" },
   },
 });
 
 const assembly = values.assembly!;
 const version = values.version!;
 const outDir = values["out-dir"]!;
+const tarballName = values["tarball-name"] ?? `netex-${assembly}-v${version}.tgz`;
 
 const slug = assembly.toLowerCase().replace(/[+@]/g, "-");
 
@@ -45,7 +47,7 @@ NeTEx 2.0 JSON Schema (assembly: \`${assembly}\`) plus a self-contained codegen 
 ## Install
 
 \`\`\`bash
-npm install https://github.com/entur/netex-typescript-model/releases/download/v${version}/netex-2.0-next-${assembly}-v${version}.tgz
+npm install https://github.com/entur/netex-typescript-model/releases/download/v${version}/${tarballName}
 \`\`\`
 
 ## Use the CLI
