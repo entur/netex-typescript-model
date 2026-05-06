@@ -37,7 +37,7 @@ else
   OUT_NAME     := $(ASSEMBLY)
 endif
 
-.PHONY: all schema types docs tarball clean clean_xsd
+.PHONY: all schema types docs tarball clean clean_xsd cli-bundle
 
 all: $(GEN)/$(OUT_NAME)/netex-schema.html \
 	$(GEN)/$(OUT_NAME)/docs/index.html
@@ -62,6 +62,17 @@ $(GEN)/$(OUT_NAME)/netex-schema.html: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 
 $(GEN)/$(OUT_NAME)/interfaces/index.ts: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 	npx --prefix html-ts-gen tsx html-ts-gen/scripts/primitive-ts-gen.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
+
+# ── CLI bundle ────────────────────────────────────────────────────────────────
+
+CLI_BUNDLE_SRCS := html-ts-gen/scripts/ts-gen.ts \
+	$(wildcard html-ts-gen/scripts/lib/*.ts) \
+	html-ts-gen/scripts/build-cli-bundle.ts
+
+html-ts-gen/dist/ts-gen.mjs: $(CLI_BUNDLE_SRCS)
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-cli-bundle.ts --out html-ts-gen/dist/ts-gen.mjs
+
+cli-bundle: html-ts-gen/dist/ts-gen.mjs
 
 # ── TypeDoc documentation ─────────────────────────────────────────────────────
 
