@@ -112,7 +112,6 @@ $(GEN)/$(TARBALL_NAME): $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json \
 	cp $(GEN)/$(OUT_NAME)/netex-schema.html $(TARBALL_STAGE)/package/
 	cp html-ts-gen/dist/ts-gen.mjs $(TARBALL_STAGE)/package/
 	chmod +x $(TARBALL_STAGE)/package/ts-gen.mjs
-	cp $(GEN)/$(OUT_NAME)/README.md $(TARBALL_STAGE)/package/ 2>/dev/null || true
 	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-tarball-pkg-json.ts \
 	    --assembly "$(OUT_NAME)" --version "$(VERSION)" --out-dir "$(TARBALL_STAGE)/package"
 	tar -czf $@ -C $(TARBALL_STAGE) package
