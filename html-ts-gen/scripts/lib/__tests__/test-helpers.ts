@@ -84,6 +84,25 @@ export function validateWithXmllint(xml: string): { valid: boolean; stderr: stri
 }
 
 /**
+ * Pre-warm xmllint by validating a trivial document against the NeTEx XSD.
+ *
+ * Loading the schema is the dominant cost (~20s); the first real test pays
+ * this on top of its own xmllint call and can hit per-test timeouts. Running
+ * once in `beforeAll` shifts the cost out of the timed test budget.
+ */
+export function warmupXmllint(): void {
+  validateWithXmllint(
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<PublicationDelivery xmlns="http://www.netex.org.uk/netex" version="1.0">',
+      "  <PublicationTimestamp>2025-01-01T00:00:00</PublicationTimestamp>",
+      "  <ParticipantRef>ENT</ParticipantRef>",
+      "</PublicationDelivery>",
+    ].join("\n"),
+  );
+}
+
+/**
  * Filter xmllint stderr to non-keyref errors.
  *
  * Keyref errors are test-isolation artifacts — referenced entities

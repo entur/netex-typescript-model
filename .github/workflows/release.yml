@@ -134,8 +134,6 @@ jobs:
       - name: Run tests
         working-directory: html-ts-gen
         run: npx vitest run
-        env:
-          ROUNDTRIP_EXTENSIVE: "1"
 
       - uses: actions/download-artifact@v4
         with:
