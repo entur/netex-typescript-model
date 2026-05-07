@@ -1,7 +1,7 @@
 /**
  * Assembles a docs-site/ directory for GitHub Pages deployment.
  *
- * 1. Copies each assembly's TypeDoc output into docs-site/<assembly>/
+ * 1. Copies each assembly's interactive schema HTML viewer into docs-site/<assembly>/
  * 2. Generates a welcome index.html listing all assemblies with descriptions.
  *
  * Descriptions and metadata are derived from root-level stamps in each
@@ -88,13 +88,12 @@ function extractSchemaStamps(schemaPath: string): SchemaStamps | null {
 interface AssemblyInfo {
   name: string;
   description: string;
-  moduleCount: number;
   definitionCount: number;
   hasSchemaHtml: boolean;
   stamps: SchemaStamps | null;
 }
 
-// Discover assemblies that have docs/ output
+// Discover assemblies that have a schema viewer (netex-schema.html)
 const assemblies: AssemblyInfo[] = [];
 
 if (!existsSync(generatedBase)) {
@@ -104,20 +103,10 @@ if (!existsSync(generatedBase)) {
 
 for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
-  const docsDir = join(generatedBase, entry.name, "docs");
-  if (!existsSync(docsDir)) continue;
-
-  // Count modules from the interfaces dir
-  const interfacesDir = join(generatedBase, entry.name, "interfaces");
-  let moduleCount = 0;
-  if (existsSync(interfacesDir)) {
-    moduleCount = readdirSync(interfacesDir).filter(
-      (f) => f.endsWith(".ts") && f !== "index.ts" && f !== "netex.ts",
-    ).length;
-  }
+  const assemblyDir = join(generatedBase, entry.name);
+  if (!existsSync(join(assemblyDir, "netex-schema.html"))) continue;
 
   // Find schema file and extract stamps + definition count
-  const assemblyDir = join(generatedBase, entry.name);
   const schemaFile = readdirSync(assemblyDir).find((f) => f.endsWith(".schema.json"));
   let definitionCount = 0;
   let stamps: SchemaStamps | null = null;
@@ -146,7 +135,6 @@ for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
   assemblies.push({
     name: entry.name,
     description,
-    moduleCount,
     definitionCount,
     hasSchemaHtml: false,
     stamps,
@@ -154,7 +142,7 @@ for (const entry of readdirSync(generatedBase, { withFileTypes: true })) {
 }
 
 if (assemblies.length === 0) {
-  console.error("No assembly docs found. Run 'npm run docs' first.");
+  console.error("No assembly schema viewers found. Run 'make all' first.");
   process.exit(1);
 }
 
@@ -168,22 +156,17 @@ assemblies.sort((a, b) => {
   return a.name.localeCompare(b.name);
 });
 
-// Create site directory and copy each assembly's docs
+// Create site directory and copy each assembly's schema viewer
 mkdirSync(siteDir, { recursive: true });
 
 for (const asm of assemblies) {
-  const src = join(generatedBase, asm.name, "docs");
   const dest = join(siteDir, asm.name);
-  cpSync(src, dest, { recursive: true });
-  console.log(`  Copied ${asm.name}/docs → docs-site/${asm.name}/`);
+  mkdirSync(dest, { recursive: true });
 
-  // Copy schema HTML if it exists
   const schemaHtml = join(generatedBase, asm.name, "netex-schema.html");
-  if (existsSync(schemaHtml)) {
-    cpSync(schemaHtml, join(dest, "netex-schema.html"));
-    asm.hasSchemaHtml = true;
-    console.log(`  Copied ${asm.name}/netex-schema.html → docs-site/${asm.name}/`);
-  }
+  cpSync(schemaHtml, join(dest, "netex-schema.html"));
+  asm.hasSchemaHtml = true;
+  console.log(`  Copied ${asm.name}/netex-schema.html → docs-site/${asm.name}/`);
 }
 
 // Build index.html
@@ -194,7 +177,6 @@ const assemblyCards = assemblies
   .map((s) => {
     const statParts: string[] = [];
     if (s.definitionCount > 0) statParts.push(`${s.definitionCount.toLocaleString()} types`);
-    if (s.moduleCount > 0) statParts.push(`${s.moduleCount} modules`);
     if (s.stamps?.collapsed != null) statParts.push(`${s.stamps.collapsed} collapsed`);
     const stats = statParts.join(" · ");
 
@@ -227,7 +209,7 @@ const html = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NeTEx TypeScript Model — API Docs</title>
+  <title>NeTEx TypeScript Model — Schema reference</title>
   <style>
     :root {
       --bg: #fafafa;

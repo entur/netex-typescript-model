@@ -14,7 +14,6 @@ Each release ships two artifacts:
 Plus, browseable on GitHub Pages:
 
 - **[Schema HTML viewer](https://entur.github.io/netex-typescript-model/)** — interactive entity explorer (search, role filters, dependency graph, sample data, copy-to-clipboard codegen)
-- **[TypeDoc API reference](https://entur.github.io/netex-typescript-model/)** — full type tree across assemblies
 
 ## Quick start
 

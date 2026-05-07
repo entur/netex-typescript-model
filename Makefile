@@ -39,8 +39,7 @@ endif
 
 .PHONY: all schema types docs tarball tarball-generator clean clean_xsd cli-bundle
 
-all: $(GEN)/$(OUT_NAME)/netex-schema.html \
-	$(GEN)/$(OUT_NAME)/docs/index.html
+all: $(GEN)/$(OUT_NAME)/netex-schema.html
 
 schema: $(GEN)/$(OUT_NAME)/netex-schema.html
 

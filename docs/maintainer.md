@@ -34,11 +34,13 @@ Sub-directory docs:
 ## Quick start
 
 ```bash
-make all                          # full pipeline: XSD → JSON Schema → HTML → TypeScript → TypeDoc
+make all                          # XSD → JSON Schema → schema HTML viewer
 make all ASSEMBLY=network         # build a variant
 ```
 
-`make all` downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, generates an interactive HTML viewer, TypeScript interfaces, and TypeDoc documentation. The Makefile is incremental — re-running `make` after a successful build is a no-op.
+`make all` downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, and generates the interactive HTML viewer. The Makefile is incremental — re-running `make` after a successful build is a no-op.
+
+The optional `make types` target invokes `primitive-ts-gen.ts` to produce a per-category `interfaces/` tree (used historically as TypeDoc input). This is **no longer part of `make all`** and is not exercised by CI; the public-facing codegen path is `netex-ts-gen` (per-entity, on demand).
 
 ## Assemblies
 
@@ -77,14 +79,11 @@ Output is written to `generated-src/<assembly>/`.
 4. JSON Schema is validated against the Draft 07 meta-schema
 5. An interactive HTML viewer is generated per assembly
 
-### Stage 2: JSON Schema → TypeScript
+### Stage 2: JSON Schema → TypeScript (on-demand)
 
-Used internally to generate the `interfaces/` tree consumed by TypeDoc. The `netex-ts-gen` CLI (the public-facing tool) takes the same JSON Schema and emits per-entity TypeScript on demand — see the root [`README.md`](../README.md) for end-user docs.
+Public-facing path. `netex-ts-gen` reads the JSON Schema and emits per-entity TypeScript on demand — see the root [`README.md`](../README.md) for end-user docs.
 
-```
-JSON Schema → primitive-ts-gen.ts → json-schema-to-typescript → monolithic .ts
-            → split-output.ts → per-category modules → tsc --noEmit (type-check)
-```
+A legacy bulk path (`primitive-ts-gen.ts` → `split-output.ts`) generates a per-category `interfaces/` tree under `make types`; not used by `make all` or CI.
 
 ## Configuration
 
@@ -137,7 +136,6 @@ These run from a clone (they `cd` into `html-ts-gen/`). They're maintainer-facin
 | ----------------------------- | ------------------------------------------- |
 | `npm run test`                | Run tests (vitest)                          |
 | `npm run validate:jsonschema` | Validate generated schemas against Draft 07 |
-| `npm run docs`                | Generate TypeDoc HTML per assembly          |
 
 ## Releases
 
@@ -152,12 +150,10 @@ Release artifacts (per tag, e.g. `v0.5.0`):
 
 The `2.0` in the schema filename is the NeTEx version (from `assembly-config.json`); the trailing `v0.5.0` is the project release tag. Versionless aliases are uploaded so the README's install URLs stay stable across releases — pin a specific version by using the versioned filename instead.
 
-## Documentation
+## Documentation site
 
 ```bash
-cd html-ts-gen
-npm run docs                          # TypeDoc HTML per assembly
-npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
+npx tsx html-ts-gen/scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
 ```
 
-CI (`docs.yml`) builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
+CI (`docs.yml`) builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly, then deploys the schema HTML viewers (one per assembly) to GitHub Pages on push to `main`.
