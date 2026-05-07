@@ -37,7 +37,7 @@ else
   OUT_NAME     := $(ASSEMBLY)
 endif
 
-.PHONY: all schema types docs tarball clean clean_xsd cli-bundle
+.PHONY: all schema types docs tarball tarball-generator clean clean_xsd cli-bundle
 
 all: $(GEN)/$(OUT_NAME)/netex-schema.html \
 	$(GEN)/$(OUT_NAME)/docs/index.html
@@ -95,9 +95,31 @@ $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json: xsd/2.0/NeTEx_publication.xsd
 xsd/2.0/NeTEx_publication.xsd:
 	cd json-schema && mvn initialize -q
 
-# ── Release tarball (npm-installable) ──────────────────────────────────────────
-# Stages files under package/ (npm convention) so `npm install <url>.tgz` works.
+# ── Release tarballs ───────────────────────────────────────────────────────────
+# Two artifact tracks:
+#   tarball-generator → schema-less codegen CLI as an npm package (assembly-agnostic).
+#   tarball           → legacy bundled tarball (schema + viewer + CLI all in one).
 
+# Generator-only tarball: ships the bundled CLI without any schema. Consumers
+# pair it with a separately-downloaded netex-jsonschema-full-*.json file via
+# the CLI's --schema flag.
+GEN_TARBALL_NAME  = netex-ts-gen-v$(VERSION).tgz
+GEN_TARBALL_STAGE = $(GEN)/netex-ts-gen-v$(VERSION)
+
+tarball-generator: $(GEN)/$(GEN_TARBALL_NAME)
+
+$(GEN)/$(GEN_TARBALL_NAME): html-ts-gen/dist/ts-gen.mjs
+	rm -rf $(GEN_TARBALL_STAGE)
+	mkdir -p $(GEN_TARBALL_STAGE)/package
+	cp html-ts-gen/dist/ts-gen.mjs $(GEN_TARBALL_STAGE)/package/
+	chmod +x $(GEN_TARBALL_STAGE)/package/ts-gen.mjs
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-generator-pkg.ts \
+	    --version "$(VERSION)" --out-dir "$(GEN_TARBALL_STAGE)/package"
+	tar -czf $@ -C $(GEN_TARBALL_STAGE) package
+	rm -rf $(GEN_TARBALL_STAGE)
+
+# Legacy bundled tarball (schema + viewer + CLI). Retained for backwards-compat
+# during the transition; prefer tarball-generator + the standalone schema file.
 tarball: $(GEN)/$(TARBALL_NAME)
 
 # Top-level dir inside the .tgz must be 'package' for npm install support.
