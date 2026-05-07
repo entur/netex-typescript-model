@@ -65,3 +65,25 @@ Tie versions to the NeTEx XSD version:
 ## Current org structure
 
 The `entur` npm org has ~10 maintainers with shared access across all 41 `@entur` packages. Access is managed at the org level, not per-package.
+
+## Distributing via GitHub Releases (.tgz)
+
+Independent of npmjs.com publishing, every tagged release attaches per-assembly tarballs as GitHub Release assets. Each tarball is a self-contained npm package — no separate publish step is required.
+
+```bash
+# Install the base assembly directly from a release:
+npm install https://github.com/entur/netex-typescript-model/releases/download/v2.0.0/netex-2.0-v2.0-base-v2.0.0.tgz
+
+# Generate types from the bundled CLI:
+npx netex-ts-gen --collapse-refs --collapse-collections --dest-dir ./gen Vehicle
+```
+
+The tarball ships:
+
+- `<assembly>.schema.json` — the JSON Schema artifact
+- `ts-gen.mjs` — the bundled CLI (esbuild bundle of `html-ts-gen/scripts/ts-gen.ts` + `fast-xml-parser`)
+- `netex-schema.html` — offline schema viewer
+- `package.json` — per-assembly name, with `typescript` as a runtime dependency
+- `README.md` — usage instructions
+
+Use this distribution channel for one-off integration projects or when private registry access isn't available.

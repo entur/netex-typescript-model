@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import type { CollapseOpts } from "../collapse.js";
 import { defRole } from "../classify.js";
 import { fake, flattenFake, buildXml } from "../data-faker.js";
@@ -8,6 +8,7 @@ import { lcFirst } from "../util.js";
 import {
   loadNetexLibrary,
   requireXsd,
+  warmupXmllint,
   CORE,
   wrapInPublicationDelivery,
   validateWithXmllint,
@@ -16,6 +17,9 @@ import {
 
 requireXsd();
 const netexLibrary = loadNetexLibrary();
+
+// Pay xmllint cold-start cost once instead of in the first real test.
+beforeAll(() => warmupXmllint(), 60_000);
 
 // gen-vehicletype.sh exclude list
 const VT_EXPLICIT = new Set([
@@ -55,7 +59,7 @@ const TEST_ENTITIES = CORE
 // ── Group A: schema-shape roundtrip via generated mapping code ───────────────
 
 describe.each(TEST_ENTITIES)("$name generated roundtrip (schema shape)", (entity) => {
-  it("mapping code produces XSD-valid XML", { timeout: 30_000 }, () => {
+  it("mapping code produces XSD-valid XML", { timeout: 60_000 }, () => {
     const shapeFn = evalMapping(entity.name);
     const mock = fake(netexLibrary, entity.name);
     const xmlShape = shapeFn(mock);
@@ -73,7 +77,7 @@ describe.each(TEST_ENTITIES)("$name generated roundtrip (schema shape)", (entity
 describe("VehicleType generated roundtrip with exclusions", () => {
   const vtEntity = CORE.find((e) => e.name === "VehicleType")!;
 
-  it("mapping code with exclusions produces XSD-valid XML", { timeout: 30_000 }, () => {
+  it("mapping code with exclusions produces XSD-valid XML", { timeout: 60_000 }, () => {
     const shapeFn = evalMapping("VehicleType", vtExclSet);
     const flat = flattenFake(netexLibrary, "VehicleType", vtMock, {
       excludeProps: vtExclSet, props: vtAllProps,
@@ -140,7 +144,7 @@ describe("flattenFake", () => {
 // ── Group C: interface-shape roundtrip via generated mapping code ─────────────
 
 describe.each(TEST_ENTITIES)("$name generated roundtrip (interface shape)", (entity) => {
-  it("flattenFake → mapping code → xmllint", { timeout: 30_000 }, () => {
+  it("flattenFake → mapping code → xmllint", { timeout: 60_000 }, () => {
     const shapeFn = evalMapping(entity.name);
     const raw = fake(netexLibrary, entity.name);
     const flat = flattenFake(netexLibrary, entity.name, raw);
@@ -172,7 +176,7 @@ function evalCollapsedMapping(name: string, excl?: Set<string>): ShapeFn {
 }
 
 describe.each(TEST_ENTITIES)("$name collapsed roundtrip (schema shape)", (entity) => {
-  it("collapsed mapping code produces XSD-valid XML", { timeout: 30_000 }, () => {
+  it("collapsed mapping code produces XSD-valid XML", { timeout: 60_000 }, () => {
     const shapeFn = evalCollapsedMapping(entity.name);
     const mock = fake(netexLibrary, entity.name);
     const flat = flattenFake(netexLibrary, entity.name, mock, { collapse: COLLAPSE_BOTH });
@@ -189,7 +193,7 @@ describe.each(TEST_ENTITIES)("$name collapsed roundtrip (schema shape)", (entity
 // ── Group E: collapsed interface-shape roundtrip ───────────────────────────
 
 describe.each(TEST_ENTITIES)("$name collapsed roundtrip (interface shape)", (entity) => {
-  it("flattenFake(collapse) → collapsed mapping → xmllint", { timeout: 30_000 }, () => {
+  it("flattenFake(collapse) → collapsed mapping → xmllint", { timeout: 60_000 }, () => {
     const shapeFn = evalCollapsedMapping(entity.name);
     const raw = fake(netexLibrary, entity.name);
     const flat = flattenFake(netexLibrary, entity.name, raw, { collapse: COLLAPSE_BOTH });

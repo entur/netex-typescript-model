@@ -37,7 +37,7 @@ else
   OUT_NAME     := $(ASSEMBLY)
 endif
 
-.PHONY: all schema types docs tarball clean clean_xsd
+.PHONY: all schema types docs tarball tarball-generator clean clean_xsd cli-bundle
 
 all: $(GEN)/$(OUT_NAME)/netex-schema.html \
 	$(GEN)/$(OUT_NAME)/docs/index.html
@@ -63,6 +63,17 @@ $(GEN)/$(OUT_NAME)/netex-schema.html: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 $(GEN)/$(OUT_NAME)/interfaces/index.ts: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 	npx --prefix html-ts-gen tsx html-ts-gen/scripts/primitive-ts-gen.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
 
+# ── CLI bundle ────────────────────────────────────────────────────────────────
+
+CLI_BUNDLE_SRCS := html-ts-gen/scripts/ts-gen.ts \
+	$(wildcard html-ts-gen/scripts/lib/*.ts) \
+	html-ts-gen/scripts/build-cli-bundle.ts
+
+html-ts-gen/dist/ts-gen.mjs: $(CLI_BUNDLE_SRCS)
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-cli-bundle.ts --out html-ts-gen/dist/ts-gen.mjs
+
+cli-bundle: html-ts-gen/dist/ts-gen.mjs
+
 # ── TypeDoc documentation ─────────────────────────────────────────────────────
 
 $(GEN)/$(OUT_NAME)/docs/index.html: $(GEN)/$(OUT_NAME)/interfaces/index.ts
@@ -84,20 +95,50 @@ $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json: xsd/2.0/NeTEx_publication.xsd
 xsd/2.0/NeTEx_publication.xsd:
 	cd json-schema && mvn initialize -q
 
-# ── Release tarball ──────────────────────────────────────────────────────────
-# Stages files into a temp dir for portable tar (works on macOS and Linux).
+# ── Release tarballs ───────────────────────────────────────────────────────────
+# Two artifact tracks:
+#   tarball-generator → schema-less codegen CLI as an npm package (assembly-agnostic).
+#   tarball           → legacy bundled tarball (schema + viewer + CLI all in one).
 
+# Generator-only tarball: ships the bundled CLI without any schema. Consumers
+# pair it with a separately-downloaded netex-jsonschema-full-*.json file via
+# the CLI's --schema flag.
+GEN_TARBALL_NAME  = netex-ts-gen-v$(VERSION).tgz
+GEN_TARBALL_STAGE = $(GEN)/netex-ts-gen-v$(VERSION)
+
+tarball-generator: $(GEN)/$(GEN_TARBALL_NAME)
+
+$(GEN)/$(GEN_TARBALL_NAME): html-ts-gen/dist/ts-gen.mjs
+	rm -rf $(GEN_TARBALL_STAGE)
+	mkdir -p $(GEN_TARBALL_STAGE)/package
+	cp html-ts-gen/dist/ts-gen.mjs $(GEN_TARBALL_STAGE)/package/
+	chmod +x $(GEN_TARBALL_STAGE)/package/ts-gen.mjs
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-generator-pkg.ts \
+	    --version "$(VERSION)" --out-dir "$(GEN_TARBALL_STAGE)/package"
+	tar -czf $@ -C $(GEN_TARBALL_STAGE) package
+	rm -rf $(GEN_TARBALL_STAGE)
+
+# Legacy bundled tarball (schema + viewer + CLI). Retained for backwards-compat
+# during the transition; prefer tarball-generator + the standalone schema file.
 tarball: $(GEN)/$(TARBALL_NAME)
 
-$(GEN)/$(TARBALL_NAME): $(GEN)/$(OUT_NAME)/docs/index.html
-	rm -rf $(GEN)/$(TARBALL_PREFIX)
-	mkdir -p $(GEN)/$(TARBALL_PREFIX)
-	cp -r $(GEN)/$(OUT_NAME)/interfaces $(GEN)/$(TARBALL_PREFIX)/
-	cp $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(GEN)/$(TARBALL_PREFIX)/
-	cp $(GEN)/$(OUT_NAME)/netex-schema.html $(GEN)/$(TARBALL_PREFIX)/
-	cp $(GEN)/$(OUT_NAME)/README.md $(GEN)/$(TARBALL_PREFIX)/ 2>/dev/null || true
-	tar -czf $@ -C $(GEN) $(TARBALL_PREFIX)
-	rm -rf $(GEN)/$(TARBALL_PREFIX)
+# Top-level dir inside the .tgz must be 'package' for npm install support.
+TARBALL_STAGE = $(GEN)/$(TARBALL_PREFIX)
+
+$(GEN)/$(TARBALL_NAME): $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json \
+                       $(GEN)/$(OUT_NAME)/netex-schema.html \
+                       html-ts-gen/dist/ts-gen.mjs
+	rm -rf $(TARBALL_STAGE)
+	mkdir -p $(TARBALL_STAGE)/package
+	cp $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(TARBALL_STAGE)/package/
+	cp $(GEN)/$(OUT_NAME)/netex-schema.html $(TARBALL_STAGE)/package/
+	cp html-ts-gen/dist/ts-gen.mjs $(TARBALL_STAGE)/package/
+	chmod +x $(TARBALL_STAGE)/package/ts-gen.mjs
+	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-tarball-pkg-json.ts \
+	    --assembly "$(OUT_NAME)" --version "$(VERSION)" --out-dir "$(TARBALL_STAGE)/package" \
+	    --tarball-name "$(TARBALL_NAME)"
+	tar -czf $@ -C $(TARBALL_STAGE) package
+	rm -rf $(TARBALL_STAGE)
 
 clean:
 	rm -rf $(GEN) json-schema/target

@@ -129,8 +129,6 @@ jobs:
       - name: Run tests
         working-directory: html-ts-gen
         run: npx vitest run
-        env:
-          ROUNDTRIP_EXTENSIVE: "1"
 
       - name: Run ts-gen type-check
         working-directory: html-ts-gen

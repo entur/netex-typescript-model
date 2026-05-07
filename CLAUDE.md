@@ -167,7 +167,7 @@ The CI workflow (`.github/workflows/docs.yml`) runs all three, then deploys `doc
 
 ### Release Pipeline
 
-Triggered by pushing a `v*` tag. Builds each assembly via `make all tarball`, runs tests, and creates a GitHub Release with `.tgz` tarballs attached. Tarball naming: `netex-<netex_version>-<branch>-<assembly>-v<tag>.tgz`. The `VERSION` variable is extracted from the tag by stripping the `v` prefix.
+Triggered by pushing a `v*` tag. Builds each assembly via `make all tarball`, runs the suite, and creates a GitHub Release with `.tgz` tarballs attached. Each tarball is a valid npm package: top-level `package/` dir, per-assembly `name: @entur/netex-typescript-model-<slug>` in `package.json`, with `bin: { "netex-ts-gen": "./ts-gen.mjs" }` exposing the bundled CLI. Clients install with `npm install <github-release-url>.tgz` and run `npx netex-ts-gen ...`. Tarball naming: `netex-<netex_version>-<branch>-<assembly>-v<tag>.tgz`. The `VERSION` variable is extracted from the tag by stripping the `v` prefix.
 
 ### Custom XSD Parser — Known Limitations
 
@@ -208,7 +208,7 @@ Same upstream source: `https://github.com/NeTEx-CEN/NeTEx` branch `v2.0`.
 - `xsd/` — downloaded XSD schemas
 - `NeTEx-*.zip` — cached download
 - `generated-src/` — generated output (per-assembly directories)
-- `html-ts-gen/dist/` — compiled TypeScript
+- `html-ts-gen/dist/` — bundled CLI (`ts-gen.mjs`)
 - `docs-site/` — assembled GitHub Pages site
 - `node_modules/`
 - `json-schema/target/` — Maven build output

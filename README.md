@@ -1,218 +1,163 @@
 # netex-typescript-model
 
-## Experimental
+Generate self-contained, type-safe TypeScript for any [NeTEx](http://netex-cen.eu/) entity from a JSON Schema derived from the official XSDs.
 
-Generates JSON Schema and TypeScript interfaces from [NeTEx](http://netex-cen.eu/) (Network Timetable Exchange) XSD schemas. The JSON Schema is a standalone artifact useful on its own (validation, code generation in other languages, interactive HTML viewer); the TypeScript interfaces build on top of it. Sibling project to [netex-java-model](https://github.com/entur/netex-java-model).
+This is **not** a TypeScript library you import. It's a JSON Schema artifact plus a codegen CLI: pick the entities you actually need, generate `.ts` files into your project, commit them. Sibling project to [netex-java-model](https://github.com/entur/netex-java-model).
 
-**[API Documentation](https://entur.github.io/netex-typescript-model/)** — TypeDoc for every NeTEx part, generated and deployed automatically via GitHub Actions.
+## What you get
 
-```mermaid
-graph LR
-    XSD[NeTEx XSDs] --> JS[JSON Schema]
-    JS --> HTML[Schema HTML viewer]
-    JS --> TS[TypeScript interfaces + typeDoc]
+Each release ships two artifacts:
 
-    style XSD fill:#f5f5f5,stroke:#999
-    style JS fill:#e8f4e8,stroke:#4a4
-    style HTML fill:#e8f0f8,stroke:#48a
-    style TS fill:#e8f0f8,stroke:#48a
-  
-```
+- **`netex-jsonschema-full-2.0.json`** — full NeTEx 2.0 JSON Schema (Draft 07) with `x-netex-*` annotations describing roles, frames, substitution groups, and refs. Use it directly for validation (ajv, etc.) or as input to your own codegen.
+- **`netex-ts-gen.tgz`** — npm package exposing the `netex-ts-gen` CLI. Reads the schema, emits per-entity TypeScript on demand.
 
-## Prerequisites
+Plus, browseable on GitHub Pages:
 
-- JDK 21+ (any distribution — GraalVM not required)
-- Maven 3+
-- Node.js 22+
+- **[Schema HTML viewer](https://entur.github.io/netex-typescript-model/)** — interactive entity explorer (search, role filters, dependency graph, sample data, copy-to-clipboard codegen)
+- **[TypeDoc API reference](https://entur.github.io/netex-typescript-model/)** — full type tree across assemblies
+
+## Quick start
 
 ```bash
-cd html-ts-gen && npm install   # once
+# 1. Get the schema
+curl -L -O https://github.com/entur/netex-typescript-model/releases/latest/download/netex-jsonschema-full-2.0.json
+
+# 2. Install the codegen CLI
+npm install https://github.com/entur/netex-typescript-model/releases/latest/download/netex-ts-gen.tgz
+
+# 3. Generate
+npx netex-ts-gen --schema ./netex-jsonschema-full-2.0.json --dest-dir ./src/netex VehicleType
 ```
 
-## Quick Start
+You now have `src/netex/VehicleType.ts` (interface + transitive types) and `src/netex/VehicleType-mapping.ts` (XML serialization). Both are type-checked with `tsc --strict` before being written.
+
+## Demo: `VehicleType`
+
+The codegen produces two files per entity. Here's what `VehicleType` looks like.
+
+### `VehicleType.ts` (excerpt)
+
+```ts
+export interface VehicleType {
+  $id?: string;
+  Name?: TextType[];
+  ShortName?: TextType[];
+  Description?: TextType[];
+  EuroClass?: string;
+  PropulsionTypes?: PropulsionTypeEnumeration[];
+  FuelTypes?: FuelTypeEnumeration[];
+  MaximumVelocity?: number;
+  PassengerCapacity?: PassengerCapacityStructure;
+  Length?: number;
+  Width?: number;
+  Height?: number;
+  Weight?: number;
+  // ...
+}
+```
+
+All transitive types (`TextType`, `PropulsionTypeEnumeration`, `PassengerCapacityStructure`, ...) are inlined into the same file. No import wiring across modules — the file stands alone.
+
+### `VehicleType-mapping.ts` (excerpt)
+
+```ts
+export function vehicleTypeToXmlShape(obj: Obj): Obj {
+  return {
+    ...attr(obj, 'id'),
+    ...mapArr(obj, 'Name', 'TextType', reshapeComplex),
+    ...elem(obj, 'EuroClass'),
+    ...elem(obj, 'PropulsionTypes'),
+    ...child(obj, 'PassengerCapacity', 'PassengerCapacityStructure', reshapeComplex),
+    ...elem(obj, 'Length'), ...elem(obj, 'Width'),
+    // ...
+  };
+}
+```
+
+Pair this with [`fast-xml-parser`'s XMLBuilder](https://github.com/NaturalIntelligence/fast-xml-parser) to produce NeTEx-compliant XML from a typed `VehicleType` instance.
+
+### Collapse refs and one-child collections
+
+By default, NeTEx ref types and `_RelStructure` collection wrappers come through verbatim:
+
+```ts
+DeckPlanRef?: VersionOfObjectRefStructure;
+BrandingRef?: VersionOfObjectRefStructure;
+capacities?: passengerCapacities_RelStructure;
+```
+
+With `--collapse-refs --collapse-collections`, those become ergonomic, target-aware shapes:
+
+```ts
+DeckPlanRef?: Ref<'DeckPlan'>;
+BrandingRef?: Ref<'Branding'>;
+capacities?: SimpleRef;
+```
+
+`Ref<'X'>` carries the target entity name in the type system, so a `DeckPlanRef` can't be assigned where a `BrandingRef` is expected. The mapping code is regenerated to produce the same XML either way.
+
+### Strip noise with `--exclude`
+
+NeTEx structures inherit a long base-prop chain (`$changed`, `$created`, `$modification`, `Extensions`, `alternativeTexts`, ...). Most projects don't use all of them. Pass `--exclude` to strip listed properties from both the interface and the mapping:
 
 ```bash
-make all                       # full pipeline: XSD → JSON Schema → HTML → TypeScript → TypeDoc
+npx netex-ts-gen --schema ./netex-jsonschema-full-2.0.json \
+  --collapse-refs --collapse-collections \
+  --exclude '$changed,$created,$modification,Extensions,alternativeTexts' \
+  --dest-dir ./src/netex \
+  VehicleType
 ```
 
-This downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, generates an interactive HTML viewer, TypeScript interfaces, and TypeDoc documentation.
+## CLI reference
 
-## Produce `.ts` Files with `ts-gen.ts`
+```
+netex-ts-gen [flags] <Entity> [Entity ...]
+```
 
-`ts-gen.ts` assembles self-contained TypeScript for any NeTEx entity defined in the generated schema. For each target it produces two files: the interface + transitive deps, and XML serialization/mapping code.
+| Flag                       | Default     | Description                                                          |
+| -------------------------- | ----------- | -------------------------------------------------------------------- |
+| `--schema <path>`          | (required)  | Path to the JSON Schema file                                         |
+| `--dest-dir <path>`        | `/tmp`      | Directory to write `<Entity>.ts` and `<Entity>-mapping.ts`           |
+| `--overwrite`              | `false`     | Replace existing output files (otherwise skipped)                    |
+| `--exclude <a,b,...>`      | (none)      | Comma-separated list of property names to strip                      |
+| `--suffix <s>`             | `""`        | Append to output filenames (`Vehicle.ts` → `Vehicle-hathor.ts`)      |
+| `--collapse-refs`          | `false`     | Replace `VersionOfObjectRefStructure` with `Ref<'Entity'>` / `SimpleRef` |
+| `--collapse-collections`   | `false`     | Replace single-child `_RelStructure` wrappers with the child entity type |
 
-**Prerequisites:** a built `base` assembly (run `make all` first).
+Entity names are case-sensitive and must match definitions in the schema (e.g. `VehicleType`, not `vehicleType`). Unknown targets are skipped with a warning. Each output file is type-checked with `tsc --strict --skipLibCheck` automatically; exit code is 0 if all targets pass, 1 otherwise.
+
+## The JSON Schema as a product
+
+`netex-jsonschema-full-2.0.json` is a standard Draft 07 JSON Schema — useful for validation tooling regardless of language:
+
+```js
+import Ajv from 'ajv';
+import schema from './netex-jsonschema-full-2.0.json' with { type: 'json' };
+
+const ajv = new Ajv({ strict: false });
+const validate = ajv.compile({ $ref: '#/definitions/VehicleType', ...schema });
+if (!validate(data)) console.error(validate.errors);
+```
+
+Each definition carries `x-netex-*` annotations (role, frames, refTarget, deprecated, ...) that downstream tooling can use to reconstruct NeTEx semantics. See [`json-schema/README.md`](json-schema/README.md) for the full annotation reference.
+
+For interactive browsing, open the [schema viewer on GitHub Pages](https://entur.github.io/netex-typescript-model/).
+
+## Pin a version
+
+Quick-start URLs use the `latest` redirect for stability. For reproducible builds, pin to a specific tag:
 
 ```bash
-cd html-ts-gen
-
-# Basic — writes to /tmp/
-npx tsx scripts/ts-gen.ts VehicleType Vehicle DeckPlan
-
-# Custom output directory
-npx tsx scripts/ts-gen.ts --dest-dir ./out VehicleType
-
-# Single entity
-npx tsx scripts/ts-gen.ts ServiceJourney
+TAG=v0.5.0
+curl -L -O https://github.com/entur/netex-typescript-model/releases/download/$TAG/netex-jsonschema-full-2.0-$TAG.json
+npm install https://github.com/entur/netex-typescript-model/releases/download/$TAG/netex-ts-gen-$TAG.tgz
 ```
 
-Each target `<Name>` produces:
-| File | Content |
-|------|---------|
-| `<Name>.ts` | Interface + all transitive dependency types |
-| `<Name>-mapping.ts` | XML serialization functions (schema→XML projection) |
+## Build from source
 
-Use `--exclude` to strip specific properties, `--suffix` to tag output files, and `--overwrite` to replace existing files. All output is type-checked with `tsc --strict` automatically. Exit code is 0 if all targets pass, 1 otherwise.
+For local development, contributing, or building custom NeTEx subset assemblies, see [`docs/maintainer.md`](docs/maintainer.md).
 
-Entity names are **case-sensitive** and must match definitions in the schema (e.g. `VehicleType`, not `vehicleType`). Unknown targets are skipped with a warning.
-
-## Generating Variants
-
-Pass `ASSEMBLY` to build a different NeTEx subset. Parts are derived automatically from the assembly name:
-
-```bash
-make all ASSEMBLY=network              # base + part1_network
-make all ASSEMBLY=network+timetable    # base + part1_network + part2_timetable
-```
-
-Available parts: `network`, `timetable`, `fares`, `new-modes` (also accepted as `part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`). Multi-part assemblies use `+` separators and are sorted alphabetically. See the [Subset Selection Guide](docs/subset-selection-guide.md) for dependencies between parts.
-
-## Makefile Targets
-
-| Command                              | What it does                                           |
-| ------------------------------------ | ------------------------------------------------------ |
-| `make all`                           | Full pipeline: schema + types + docs (default: base)   |
-| `make all ASSEMBLY=network`          | Full pipeline for a named variant                      |
-| `make schema`                        | JSON Schema + schema HTML only                         |
-| `make types`                         | TypeScript interfaces only                             |
-| `make docs`                          | TypeDoc HTML only                                      |
-| `make tarball VERSION=1.0.0`         | Package assembly as `.tgz` release tarball             |
-| `make clean`                         | Remove `generated-src/`, `xsd/`, `json-schema/target/` |
-
-The Makefile is incremental — re-running `make` after a successful build is a no-op.
-
-## Releases
-
-Pushing a `v*` tag (e.g. `v1.0.0`) triggers the release workflow, which builds each assembly, packages them as `.tgz` tarballs, and attaches them to a GitHub Release. Tarball naming: `netex-<version>-<branch>-<assembly>-v<tag>.tgz`.
-
-## Pipeline
-
-### Stage 1: XSD → JSON Schema (Makefile)
-
-1. Maven Ant plugin downloads the NeTEx ZIP from GitHub (`next` branch)
-2. GraalJS runs `json-schema/xsd-to-jsonschema.js` on stock JDK via Java DOM APIs
-3. Each definition is stamped with `x-netex-*` annotations (source, assembly, role, atom, frames, mixed, substitutionGroup, sg-members, refTarget, collapsed) plus per-property `x-netex-choice` — see [`json-schema/README.md`](json-schema/README.md) for details
-4. JSON Schema is validated against the Draft 07 meta-schema
-5. An interactive HTML viewer is generated per assembly
-
-### Documentation
-
-```bash
-cd html-ts-gen
-npm run docs                          # TypeDoc HTML per assembly
-npx tsx scripts/build-docs-index.ts   # assemble docs-site/ with welcome page
-```
-
-CI builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly, generates TypeDoc + schema HTML, and deploys to GitHub Pages on push to `main`.
-
-## XSD Subset
-
-NeTEx 2.0 contains 458+ XSD files across several functional parts. Generation is restricted to the parts you enable in `assembly-config.json`. The framework, GML, SIRI, service, and publication entry point are always required; the domain-specific parts are toggled individually:
-
-#### Required
-
-| Part key    | XSD directory           | Files | Domain                                                |
-| ----------- | ----------------------- | ----- | ----------------------------------------------------- |
-| `framework` | `netex_framework`       | 143   | Base types, reusable components, organizations        |
-| `gml`       | `gml`                   | 7     | Geographic coordinates                                |
-| `siri`      | `siri` + `siri_utility` | 12    | Real-time updates (imported by NeTEx_publication.xsd) |
-| `service`   | `netex_service`         | 4     | NeTEx service definitions and filters                 |
-
-#### Optional
-
-| Part key          | XSD directory  | Files | Domain                                                                 |
-| ----------------- | -------------- | ----- | ---------------------------------------------------------------------- |
-| `part1_network`   | `netex_part_1` | 93    | Routes, lines, stop places, timing patterns                            |
-| `part2_timetable` | `netex_part_2` | 56    | Service journeys, passing times, vehicle services                      |
-| `part3_fares`     | `netex_part_3` | 92    | Fare products, pricing, distribution, sales                            |
-| `part5_new_modes` | `netex_part_5` | 32    | Mobility services, vehicle meeting points (Part 4 was never published) |
-
-Enable a part by setting `"enabled": true` in its config entry. See the [Subset Selection Guide](docs/subset-selection-guide.md) for dependency info between parts.
-
-## Configuration
-
-All settings live in [`assembly-config.json`](assembly-config.json):
-
-- `netex.version` / `netex.branch` — which NeTEx release to download
-- `paths.generated` — output directory (`generated-src`)
-- `parts.<key>.enabled` — toggle NeTEx parts on/off
-- `rootXsds.<key>.enabled` — toggle root-level XSD files
-
-## Project Structure
-
-```
-Makefile                              # build entry point
-assembly-config.json                  # NeTEx version, parts, output paths
-tsconfig.generated.json               # type-check config for generated output
-gen-deckplan.sh                       # convenience wrapper: DeckPlan with editor exclusions
-gen-vehicletype.sh                    # convenience wrapper: VehicleType with hathor exclusions
-docs/                                 # design docs (subset selection guide, etc.)
-html-ts-gen/                          # Node.js/TypeScript tooling
-  scripts/
-    primitive-ts-gen.ts               # JSON Schema → TypeScript (positional arg)
-    split-output.ts                   # split monolithic .ts into per-category modules
-    validate-generated-schemas.ts     # validate JSON Schema against Draft 07 meta-schema
-    build-schema-html.ts              # interactive JSON Schema HTML viewer
-    generate-docs.ts                  # TypeDoc HTML per assembly
-    build-docs-index.ts               # docs-site/ welcome page
-    ts-gen.ts                         # e2e validation: assembled codegen → tsc --strict
-    lib/
-      types.ts                        # shared type definitions (NetexLibrary, FlatProperty, etc.)
-      util.ts                         # low-level helpers (deref, lcFirst, canonicalPropName)
-      classify.ts                     # schema classification, role detection, mixed-content
-      schema-nav.ts                   # inheritance walking, property flattening, inlining
-      type-res.ts                     # deep type resolution (def/property → TS type)
-      dep-graph.ts                    # reverse index, dependency tree, ref-entity resolution
-      data-faker.ts                   # fake data generation + XML serialization
-      to-xml-shape.ts                 # static stem→XML projection generators
-      codegens.ts                     # TypeScript code generators (interface, guard, factory)
-      config.ts                       # shared configuration (Config class, part resolution)
-      loader.ts                       # schema loader (loadNetexLibrary) for CLI scripts and tests
-      bundle-entry.ts                 # esbuild entry point (re-exports lib modules for browser)
-    static/
-      schema-viewer-host-app.js       # browser-side controller (embedded in HTML)
-      schema-viewer.css               # viewer CSS (embedded in HTML)
-    lib/__tests__/                    # per-module unit + integration tests
-json-schema/                          # Java DOM pipeline
-  pom.xml                             # Maven POM (GraalJS + Xerces, XSD download)
-  xsd-to-jsonschema.js                # primary XSD → JSON Schema converter (Java DOM APIs)
-  README.md                           # annotation documentation (x-netex-* stamps)
-generated-src/                        # output (gitignored)
-  <assembly>/
-    <assembly>.schema.json            # JSON Schema
-    interfaces/                       # TypeScript modules + barrel index.ts
-    docs/                             # TypeDoc HTML
-    netex-schema.html                 # interactive schema viewer
-```
-
-## Convenience Wrapper Scripts
-
-| Script | Entity | Description |
-|--------|--------|-------------|
-| `gen-vehicletype.sh` | VehicleType | Generates with hathor-specific `--exclude` list |
-| `gen-deckplan.sh` | DeckPlan | Generates with NeTEx-Deckplan-Editor `--exclude` list |
-
-Both call `ts-gen.ts` internally with `--exclude` and `--overwrite`. They accept `--dest-dir` and `--suffix` pass-through flags.
-
-## npm Scripts (html-ts-gen/)
-
-| Script                        | Description                                 |
-| ----------------------------- | ------------------------------------------- |
-| `npm run test`                | Run tests (vitest)                          |
-| `npm run validate:jsonschema` | Validate generated schemas against Draft 07 |
-| `npm run docs`                | Generate TypeDoc HTML per assembly          |
-
-## Related Projects
+## Related projects
 
 - [netex-java-model](https://github.com/entur/netex-java-model) — Java/JAXB bindings for NeTEx
 - [NeTEx](https://github.com/NeTEx-CEN/NeTEx) — upstream XSD schemas
