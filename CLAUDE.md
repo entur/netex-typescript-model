@@ -2,13 +2,13 @@
 
 ## Project Overview
 
-netex-typescript-model generates TypeScript interfaces from NeTEx XSD schemas. It is the TypeScript counterpart to `netex-java-model` (which uses JAXB). TypeDoc API documentation is deployed to GitHub Pages via CI.
+netex-typescript-model is the TypeScript counterpart to `netex-java-model` (which uses JAXB). It produces a JSON Schema artifact from NeTEx XSDs and ships an on-demand codegen CLI (`netex-ts-gen`) that emits per-entity TypeScript on the consumer side. An interactive HTML schema viewer is deployed to GitHub Pages via CI.
 
 The project has two sub-directories:
-- **`html-ts-gen/`** — Node.js/TypeScript pipeline (npm scripts, json-schema-to-typescript, TypeDoc)
+- **`html-ts-gen/`** — Node.js/TypeScript pipeline (HTML schema viewer, on-demand codegen CLI, tests)
 - **`json-schema/`** — GraalVM JavaScript pipeline (Maven, Java DOM — the primary XSD → JSON Schema converter)
 
-A root `Makefile` orchestrates the full pipeline: XSD download → JSON Schema → schema HTML → TypeScript interfaces → TypeDoc. `make all` runs everything.
+A root `Makefile` orchestrates the pipeline: XSD download → JSON Schema → schema HTML viewer. `make all` runs everything.
 
 Shared artifacts live at the repo root: `xsd/` (downloaded schemas), `generated-src/` (output), `assembly-config.json` (configuration).
 
@@ -18,18 +18,9 @@ Shared artifacts live at the repo root: `xsd/` (downloaded schemas), `generated-
 
 ```bash
 cd html-ts-gen && npm install     # install Node.js dependencies (once)
-make all                         # full pipeline: XSD → JSON Schema → HTML → TypeScript → TypeDoc
+make all                         # full pipeline: XSD → JSON Schema → schema HTML viewer
 make all ASSEMBLY=network        # generate a variant (parts derived from assembly name)
 ```
-
-### TypeScript interface generation (standalone)
-
-```bash
-cd html-ts-gen
-npx tsx scripts/primitive-ts-gen.ts ../generated-src/base/base.schema.json
-```
-
-Or via Makefile: `make types ASSEMBLY=base`
 
 ### json-schema/ (GraalVM pipeline + XSD download)
 
@@ -48,7 +39,6 @@ mvn exec:exec -Dscript.args="../xsd/2.0 /tmp/out ../assembly-config.json"
 cd html-ts-gen
 npm install                # install dependencies
 npm run test               # run tests (vitest)
-npm run docs               # generate TypeDoc HTML per assembly (requires generated interfaces)
 ```
 
 ## Key Files
@@ -56,8 +46,7 @@ npm run docs               # generate TypeDoc HTML per assembly (requires genera
 ### Root
 
 - `assembly-config.json` — single source of truth for NeTEx version, GitHub URL, output paths, and XSD subset selection
-- `Makefile` — build orchestrator: XSD download → JSON Schema → schema HTML → TypeScript → TypeDoc → tarball. Parses `NETEX_VERSION`/`NETEX_BRANCH` from config. Key targets: `all`, `schema`, `types`, `docs`, `tarball`, `clean`. The schema HTML target depends on both the JSON Schema file and the embedded source files (`build-schema-html.ts`, `bundle-entry.ts`, `schema-viewer-host-app.js`, `schema-viewer.css`, plus all `scripts/lib/*.ts` modules) so edits to viewer logic trigger a rebuild
-- `tsconfig.generated.json` — type-check configuration for generated output in `generated-src/`
+- `Makefile` — build orchestrator: XSD download → JSON Schema → schema HTML viewer → tarball. Parses `NETEX_VERSION`/`NETEX_BRANCH` from config. Key targets: `all`, `schema`, `cli-bundle`, `tarball`, `tarball-generator`, `clean`. The schema HTML target depends on both the JSON Schema file and the embedded source files (`build-schema-html.ts`, `bundle-entry.ts`, `schema-viewer-host-app.js`, `schema-viewer.css`, plus all `scripts/lib/*.ts` modules) so edits to viewer logic trigger a rebuild
 - `TODO.md` — project roadmap and planned improvements
 
 ### gen-samples/
@@ -89,11 +78,10 @@ Convenience wrappers that shell out to `html-ts-gen/scripts/ts-gen.ts`:
 - `scripts/primitive-ts-gen.ts` — JSON Schema → TypeScript transformer. Takes a positional schema path argument. Builds the type source map from per-definition `x-netex-source` annotations in the schema, then generates monolithic TypeScript, splits into per-category modules, and type-checks. Injects `@see` links into each definition's JSDoc pointing to the published JSON Schema HTML viewer (the persisted JSON stays clean — only the TypeScript output gets the links)
 - `scripts/split-output.ts` — post-processes the monolithic TypeScript output into per-category module files with cross-imports. Categories are derived from XSD source directory structure (siri, reusable, responsibility, generic, core; plus network/timetable/fares/new-modes when enabled). Produces a barrel `index.ts` re-exporting all modules
 - `scripts/validate-generated-schemas.ts` — validates all generated JSON Schema files in `generated-src/` against the Draft 07 meta-schema using ajv
-- `scripts/generate-docs.ts` — generates TypeDoc HTML documentation per assembly. Discovers assemblies in `generated-src/`, creates an assembly-specific README for the landing page, runs TypeDoc on the split module files. Output: `generated-src/<assembly>/docs/` (gitignored)
 - `scripts/build-schema-html.ts` — generates a self-contained HTML viewer per assembly from `generated-src/<assembly>/<assembly>.schema.json`. Assembles the page from three extracted files: `schema-viewer.css` (embedded in `<style>`), `bundle-entry.ts` (bundled via esbuild into an IIFE including `fast-xml-parser`, spliced into `/*@@VIEWER_FNS@@*/`), and `schema-viewer-host-app.js` (embedded in `<script>`). Generates bound wrappers that close over the page-level `netexLibrary` variable — most introspection functions get `netexLibrary`-curried wrappers, while codegen functions (`generateInterface`, `generateTypeGuard`, `generateFactory`) are aliased directly since the host-app passes `netexLibrary` explicitly. Also generates the HTML structure: sidebar with search and role-based filter chips, per-definition sections with permalink anchors, syntax-highlighted JSON with clickable `$ref` links, explorer panel, role help popup. Output: `generated-src/<assembly>/netex-schema.html`
-- `scripts/build-docs-index.ts` — assembles a `docs-site/` directory for GitHub Pages deployment. Copies each assembly's TypeDoc output and schema HTML into `docs-site/<assembly>/` and generates a welcome `index.html` listing all assemblies with descriptions, stats, and links to both TypeDoc and JSON Schema viewer
+- `scripts/build-docs-index.ts` — assembles a `docs-site/` directory for GitHub Pages deployment. Copies each assembly's schema HTML viewer into `docs-site/<assembly>/` and generates a welcome `index.html` listing all assemblies with descriptions and stats
 - `scripts/ts-gen.ts` — end-to-end validation that assembled codegen output type-checks. Takes target entity names as positional CLI args and flags: `--dest-dir` (default `/tmp`), `--exclude` (comma-separated property names to strip), `--suffix` (string appended to output filenames), `--overwrite` (replace existing files), `--collapse-refs` (replace `VersionOfObjectRefStructure` with `Ref<'Entity'>` / `SimpleRef`), `--collapse-collections` (replace single-child `_RelStructure` wrappers with their child entity type). Assembles the main interface + transitive deps (via `collectDependencyTree` + `generateInterface`) mirroring the schema viewer's Copy button, writes to `<dest-dir>/<Type>[<suffix>].ts`, and runs `tsc --noEmit --strict --skipLibCheck`. Validates that the codegen pipeline produces self-contained, type-safe TypeScript
-- `.github/workflows/docs.yml` — CI workflow that builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly via `make all`, then deploys TypeDoc + schema HTML to GitHub Pages
+- `.github/workflows/docs.yml` — CI workflow that builds `base`, `network+timetable`, and the full `fares+network+new-modes+timetable` assembly via `make all`, then deploys the schema HTML viewers to GitHub Pages
 - `.github/workflows/release.yml` — tag-triggered (`v*`) release workflow: builds the same assemblies, packages `.tgz` tarballs, creates GitHub Release
 
 ### json-schema/
@@ -112,7 +100,7 @@ Everything flows from `assembly-config.json` at the repo root. Scripts read this
 
 ### XSD Subset
 
-Full NeTEx 2.0 has 458+ XSD files. The `parts` config toggles which parts to include in generation. All files are loaded (cross-references need to resolve), but only enabled parts produce TypeScript output.
+Full NeTEx 2.0 has 458+ XSD files. The `parts` config toggles which parts to include in generation. All files are loaded (cross-references need to resolve), but only enabled parts produce schema output.
 
 Each part has an `enabled` flag. Framework, GML, SIRI, and service are always required. Domain parts (`part1_network`, `part2_timetable`, `part3_fares`, `part5_new_modes`) are toggled per use case. See `docs/subset-selection-guide.md` for details.
 
@@ -128,24 +116,15 @@ The CI workflow (`docs.yml`) builds `base`, `network+timetable`, and the full `f
 
 ### Generation Pipeline
 
-The pipeline is split into two decoupled stages:
+The build pipeline produces a JSON Schema artifact and an interactive HTML viewer:
 
-**Stage 1: XSD → JSON Schema (Makefile / json-schema/)**
 ```
 XSD (all files) → xsd-to-jsonschema.js (Java DOM) → JSON Schema (with descriptions, x-netex-source)
   → validate-generated-schemas.ts (JSON Schema validation)
   → build-schema-html.ts → netex-schema.html
 ```
 
-**Stage 2: JSON Schema → TypeScript (html-ts-gen/)**
-```
-JSON Schema → primitive-ts-gen.ts → inject @see links into clone
-  → json-schema-to-typescript → monolithic .ts
-  → split-output.ts → per-category modules
-  → tsc --noEmit -p tsconfig.generated.json (type-check)
-```
-
-Each definition in the JSON Schema carries an `x-netex-source` annotation identifying the XSD file it came from. `primitive-ts-gen.ts` reads these to build the source map for splitting into per-category modules.
+Consumers turn the JSON Schema into TypeScript on demand via the bundled `netex-ts-gen` CLI (`scripts/ts-gen.ts`) — see the root README. Each definition in the JSON Schema carries an `x-netex-source` annotation identifying the XSD file it came from; downstream tooling uses this for provenance.
 
 ### Generation Pipeline (json-schema/)
 
@@ -158,12 +137,11 @@ Primary conversion path. Uses Java standard library DOM APIs via GraalVM interop
 ### Documentation Pipeline
 
 ```
-npm run docs → generate-docs.ts → TypeDoc HTML per assembly → generated-src/<assembly>/docs/
 build-schema-html.ts → generated-src/<assembly>/netex-schema.html (per assembly)
-build-docs-index.ts → docs-site/ (welcome page + assembly TypeDoc + schema HTML)
+build-docs-index.ts → docs-site/ (welcome page + per-assembly schema HTML)
 ```
 
-The CI workflow (`.github/workflows/docs.yml`) runs all three, then deploys `docs-site/` to GitHub Pages. Generated TypeScript JSDoc includes `@see` links to the schema HTML viewer, creating a two-way bridge between TypeDoc and JSON Schema.
+The CI workflow (`.github/workflows/docs.yml`) builds each assembly and runs `build-docs-index.ts`, then deploys `docs-site/` to GitHub Pages.
 
 ### Release Pipeline
 

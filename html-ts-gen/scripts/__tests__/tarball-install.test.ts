@@ -39,9 +39,4 @@ describe("tarball install + CLI run", () => {
     expect(out).toMatch(/PASS .*Vehicle\.ts/);
     expect(existsSync(join(tmp, "Vehicle.ts"))).toBe(true);
   });
-
-  it("does not include legacy interfaces/ directory", () => {
-    const pkgDir = join(tmp, "node_modules", "@entur", "netex-typescript-model-base");
-    expect(existsSync(join(pkgDir, "interfaces"))).toBe(false);
-  });
 });

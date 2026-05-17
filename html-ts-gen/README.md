@@ -1,6 +1,6 @@
 # html-ts-gen/ — Node.js Pipeline
 
-JSON Schema → TypeScript interfaces, interactive schema HTML viewer, TypeDoc documentation. See [CODEGEN_FLOW.md](CODEGEN_FLOW.md) for a visual map of every render path in the schema viewer.
+Interactive HTML schema viewer + on-demand TypeScript codegen CLI (`netex-ts-gen`).
 
 ## Quick Start
 
@@ -14,20 +14,19 @@ cd .. && make all          # full pipeline (or run stages below individually)
 | Script | Description |
 |--------|-------------|
 | `npm test` | Run tests (vitest) |
-| `npm run docs` | Generate TypeDoc HTML per assembly |
 | `npm run validate:jsonschema` | Validate generated schemas against Draft 07 |
 
 ## Scripts
 
 | File | Purpose |
 |------|---------|
-| `scripts/primitive-ts-gen.ts` | JSON Schema → monolithic TypeScript → per-category modules → type-check |
-| `scripts/split-output.ts` | Split monolithic `.ts` into per-category modules with cross-imports |
 | `scripts/build-schema-html.ts` | Generate self-contained interactive HTML viewer per assembly |
 | `scripts/build-docs-index.ts` | Assemble `docs-site/` with welcome page for GitHub Pages |
-| `scripts/generate-docs.ts` | TypeDoc HTML per assembly |
 | `scripts/validate-generated-schemas.ts` | Validate JSON Schema files against Draft 07 meta-schema |
-| `scripts/ts-gen.ts` | E2E: assemble codegen output and verify with `tsc --strict` |
+| `scripts/ts-gen.ts` | On-demand codegen CLI (`netex-ts-gen`): emit `<Entity>.ts` + `<Entity>-mapping.ts`, verify with `tsc --strict` |
+| `scripts/build-cli-bundle.ts` | Bundle `ts-gen.ts` into a single `dist/ts-gen.mjs` for the release tarball |
+| `scripts/build-generator-pkg.ts` | Build the `netex-ts-gen` npm package staging directory |
+| `scripts/build-tarball-pkg-json.ts` | Write the per-assembly tarball `package.json` |
 
 ## Library Modules (`scripts/lib/`)
 

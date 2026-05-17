@@ -3,12 +3,10 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "generate:schema": "tsx scripts/xsd-to-jsonschema-1st-try.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.*'",
     "test:integration": "vitest run scripts/lib/fns.integration.test.ts",
-    "validate:jsonschema": "tsx scripts/validate-generated-schemas.ts",
-    "docs": "tsx scripts/generate-docs.ts"
+    "validate:jsonschema": "tsx scripts/validate-generated-schemas.ts"
   },
   "dependencies": {
     "zod": "^3.23"
@@ -18,9 +16,7 @@
     "ajv": "^8.18.0",
     "esbuild": "^0.27.3",
     "fast-xml-parser": "^5.5.7",
-    "json-schema-to-typescript": "^15.0.4",
     "tsx": "^4.0",
-    "typedoc": "^0.28.17",
     "typescript": "^5.5",
     "vitest": "^4.0"
   }

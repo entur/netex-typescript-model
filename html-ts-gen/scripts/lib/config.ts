@@ -1,9 +1,8 @@
 /**
  * Shared configuration for the NeTEx TypeScript generation pipeline.
  *
- * Extracted from primitive-ts-gen.ts so that xsd-to-jsonschema-1st-try.ts and other scripts
- * can reuse Config, part definitions, and assembly resolution without pulling in
- * the full generation pipeline.
+ * Provides Config, part definitions, and assembly resolution to CLI scripts
+ * (build-schema-html, ts-gen, build-docs-index, etc.) and tests.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";

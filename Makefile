@@ -37,15 +37,11 @@ else
   OUT_NAME     := $(ASSEMBLY)
 endif
 
-.PHONY: all schema types docs tarball tarball-generator clean clean_xsd cli-bundle
+.PHONY: all schema tarball tarball-generator clean clean_xsd cli-bundle
 
 all: $(GEN)/$(OUT_NAME)/netex-schema.html
 
 schema: $(GEN)/$(OUT_NAME)/netex-schema.html
-
-types: $(GEN)/$(OUT_NAME)/interfaces/index.ts
-
-docs: $(GEN)/$(OUT_NAME)/docs/index.html
 
 # ── Schema HTML viewer ────────────────────────────────────────────────────────
 
@@ -57,11 +53,6 @@ SCHEMA_HTML_SRCS := html-ts-gen/scripts/build-schema-html.ts \
 $(GEN)/$(OUT_NAME)/netex-schema.html: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json $(SCHEMA_HTML_SRCS)
 	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-schema-html.ts
 
-# ── TypeScript interfaces ─────────────────────────────────────────────────────
-
-$(GEN)/$(OUT_NAME)/interfaces/index.ts: $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
-	npx --prefix html-ts-gen tsx html-ts-gen/scripts/primitive-ts-gen.ts $(GEN)/$(OUT_NAME)/$(OUT_NAME).schema.json
-
 # ── CLI bundle ────────────────────────────────────────────────────────────────
 
 CLI_BUNDLE_SRCS := html-ts-gen/scripts/ts-gen.ts \
@@ -72,11 +63,6 @@ html-ts-gen/dist/ts-gen.mjs: $(CLI_BUNDLE_SRCS)
 	npx --prefix html-ts-gen tsx html-ts-gen/scripts/build-cli-bundle.ts --out html-ts-gen/dist/ts-gen.mjs
 
 cli-bundle: html-ts-gen/dist/ts-gen.mjs
-
-# ── TypeDoc documentation ─────────────────────────────────────────────────────
-
-$(GEN)/$(OUT_NAME)/docs/index.html: $(GEN)/$(OUT_NAME)/interfaces/index.ts
-	npx --prefix html-ts-gen tsx html-ts-gen/scripts/generate-docs.ts
 
 # ── JSON Schema from XSD ──────────────────────────────────────────────────────
 

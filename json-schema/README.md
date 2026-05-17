@@ -19,11 +19,11 @@ This distinguishes XML attributes (`<Foo id="...">`) from XML elements (`<Foo><I
 
 ## NeTEx Annotation Stamping
 
-The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on JSON Schema definitions (ten per-definition, two per-property). These are consumed downstream by the schema HTML viewer, TypeScript generator, and split-output module.
+The converter (`xsd-to-jsonschema.js`) stamps custom `x-netex-*` annotations on JSON Schema definitions (ten per-definition, two per-property). These are consumed downstream by the schema HTML viewer and the `netex-ts-gen` codegen CLI.
 
 ### `x-netex-source` (string)
 
-Stamped in `toJsonSchema()`. Records the origin XSD filename for each definition. Used by `primitive-ts-gen.ts` to build a source map that drives per-category module splitting (siri, reusable, core, network, etc.).
+Stamped in `toJsonSchema()`. Records the origin XSD filename for each definition. Records provenance for downstream tooling and human inspection.
 
 ### `x-netex-assembly` (string)
 

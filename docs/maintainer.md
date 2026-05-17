@@ -19,16 +19,15 @@ cd html-ts-gen && npm install   # once
 ```
 Makefile                    # build orchestrator
 assembly-config.json        # NeTEx version, parts, output paths
-tsconfig.generated.json     # type-check config for generated output
 gen-samples/                # example codegen invocations (vehicle, deck plan, etc.)
 docs/                       # design notes, this guide, subset selection
-html-ts-gen/                # Node.js/TypeScript pipeline (codegen, viewer, tests)
+html-ts-gen/                # Node.js/TypeScript pipeline (codegen CLI, viewer, tests)
 json-schema/                # GraalVM/Java DOM pipeline (XSD → JSON Schema)
 generated-src/              # output (gitignored)
 ```
 
 Sub-directory docs:
-- [`html-ts-gen/CLAUDE.md`](../html-ts-gen/CLAUDE.md) — TypeScript pipeline architecture
+- [`html-ts-gen/README.md`](../html-ts-gen/README.md) — TypeScript pipeline architecture
 - [`json-schema/README.md`](../json-schema/README.md) — XSD parser and `x-netex-*` annotation reference
 
 ## Quick start
@@ -40,7 +39,7 @@ make all ASSEMBLY=network         # build a variant
 
 `make all` downloads NeTEx XSDs from GitHub, converts them to JSON Schema via a Java DOM parser, validates the schema, and generates the interactive HTML viewer. The Makefile is incremental — re-running `make` after a successful build is a no-op.
 
-The optional `make types` target invokes `primitive-ts-gen.ts` to produce a per-category `interfaces/` tree (used historically as TypeDoc input). This is **no longer part of `make all`** and is not exercised by CI; the public-facing codegen path is `netex-ts-gen` (per-entity, on demand).
+The public-facing codegen path is `netex-ts-gen` (per-entity, on demand) — see the root [`README.md`](../README.md).
 
 ## Assemblies
 
@@ -61,11 +60,10 @@ Output is written to `generated-src/<assembly>/`.
 
 | Command                               | What it does                                           |
 | ------------------------------------- | ------------------------------------------------------ |
-| `make all`                            | Full pipeline: schema + types + docs (default: base)   |
+| `make all`                            | Full pipeline: JSON Schema + schema HTML (default: base) |
 | `make all ASSEMBLY=network`           | Full pipeline for a named variant                      |
-| `make schema`                         | JSON Schema + schema HTML only                         |
-| `make types`                          | TypeScript interfaces only                             |
-| `make docs`                           | TypeDoc HTML only                                      |
+| `make schema`                         | Same as `make all` — JSON Schema + schema HTML         |
+| `make cli-bundle`                     | Bundle the `netex-ts-gen` CLI into `html-ts-gen/dist/` |
 | `make tarball-generator VERSION=…`    | Package the codegen CLI as `netex-ts-gen-v<ver>.tgz`   |
 | `make clean`                          | Remove `generated-src/`, `xsd/`, `json-schema/target/` |
 
@@ -82,8 +80,6 @@ Output is written to `generated-src/<assembly>/`.
 ### Stage 2: JSON Schema → TypeScript (on-demand)
 
 Public-facing path. `netex-ts-gen` reads the JSON Schema and emits per-entity TypeScript on demand — see the root [`README.md`](../README.md) for end-user docs.
-
-A legacy bulk path (`primitive-ts-gen.ts` → `split-output.ts`) generates a per-category `interfaces/` tree under `make types`; not used by `make all` or CI.
 
 ## Configuration
 
