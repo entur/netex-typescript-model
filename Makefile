@@ -37,9 +37,14 @@ else
   OUT_NAME     := $(ASSEMBLY)
 endif
 
-.PHONY: all schema tarball tarball-generator clean clean_xsd cli-bundle
+.PHONY: all schema tarball tarball-generator clean clean_xsd cli-bundle hooks
 
 all: $(GEN)/$(OUT_NAME)/netex-schema.html
+
+# Enable the tracked git hooks (security pre-commit). Run once per clone.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "git hooks enabled (core.hooksPath=.githooks)"
 
 schema: $(GEN)/$(OUT_NAME)/netex-schema.html
 
