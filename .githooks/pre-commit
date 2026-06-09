@@ -1,0 +1,27 @@
+#!/bin/sh
+# pre-commit: block commits introducing CRITICAL npm vulnerabilities in html-ts-gen/.
+#
+# Enable once per clone:   make hooks            (sets core.hooksPath=.githooks)
+# Bypass a single commit:  git commit --no-verify
+#
+# Offline / audit error → gate is skipped with a warning (does not block).
+
+repo=$(git rev-parse --show-toplevel) || exit 0
+cd "$repo/html-ts-gen" 2>/dev/null || exit 0
+
+out=$(npm audit --audit-level=critical --json 2>/dev/null)
+crit=$(printf '%s' "$out" | grep -o '"critical":[0-9]*' | head -1 | tr -dc '0-9')
+
+if [ -z "$crit" ]; then
+  echo "⚠ pre-commit: npm audit unavailable (offline?) — security gate skipped" >&2
+  exit 0
+fi
+
+if [ "$crit" -gt 0 ]; then
+  echo "✗ pre-commit: $crit critical npm vulnerability(ies) in html-ts-gen/" >&2
+  echo "  inspect: (cd html-ts-gen && npm audit)    fix: (cd html-ts-gen && npm audit fix)" >&2
+  echo "  bypass:  git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0
